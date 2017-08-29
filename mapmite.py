@@ -128,7 +128,7 @@ def convertAlign(alnDir=None,alnFile=None,inFormat='fasta',tempDir=None):
 		# Close handles
 		output_handle.close()
 		input_handle.close()
-	return outAln
+	return alnOutDir
 
 def _hmmbuild_command(exePath="hmmbuild",modelname=None,cores=None,inAlign=None,outdir=None):
 	'''Construct the hmmbuild command'''
@@ -219,16 +219,18 @@ def cmdScript(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
 		shutil.copy2(hmmFile,hmmDB)
 	# Write cmds to list
 	cmds = list()
-	# if 
+	# Process alignments 
 	if alnDir:
+		build_cmds = list()
 		for alignment in glob.glob(os.path.join(alnDir,'*')):
 			modelName = os.path.splitext(os.path.basename(alignment))[0]
 			hmmbuildCmd,modelPath = _hmmbuild_command(exePath=args.hmmbuild,modelname=modelName,cores=args.cores,inAlign=alignment,outdir=tempDir)
-			cmds.append(hmmbuildCmd)
+			build_cmds.append(hmmbuildCmd)
+		run_cmd(build_cmds,verbose=args.verbose)
 	# Press and write nhmmer cmd for all models in hmmDB directory
 	for hmm in glob.glob(os.path.join(hmmDB,'*.hmm')):
 		hmmPressCmd = _hmmpress_command(exePath=args.hmmpress, hmmfile=hmm)
-		nhmmerCmd,resultDir= _nhmmer_command(exePath=args.nhmmer,nobias=args.nobias,matrix=args.matrix,modelPath=hmm,genome=args.genome,evalue=args.maxeval,cores=args.cores,outdir=tempDir)
+		nhmmerCmd,resultDir = _nhmmer_command(exePath=args.nhmmer,nobias=args.nobias,matrix=args.matrix,modelPath=hmm,genome=args.genome,evalue=args.maxeval,cores=args.cores,outdir=tempDir)
 		cmds.append(hmmPressCmd)
 		cmds.append(nhmmerCmd)
 	# Return list of cmds and location of file result files
@@ -609,7 +611,7 @@ def main(args):
 
 	# Compose and run HMMER commands
 	cmds,resultDir = cmdScript(hmmDir=args.hmmDir, hmmFile=args.hmmFile, alnDir=stockholmDir, tempDir=tempDir, args=args)
-	run_cmd(cmds,verbose=True)
+	run_cmd(cmds,verbose=args.verbose)
 
 	# Import hits from nhmmer result files
 	hitTable = None
@@ -668,6 +670,7 @@ def mainArgs():
 	parser.add_argument('--gffOut',type=str,default=None,help='GFF3 annotation filename.')
 	parser.add_argument('--reportTIR',default='all',choices=[None,'all','paired','unpaired'],help='Options for reporting TIRs in GFF annotation file.') 
 	parser.add_argument('--keeptemp',action='store_true',default=False,help='If set do not delete temp file directory.')
+	parser.add_argument('-v','--verbose',action='store_true',default=False,help='Set syscall reporting to verbose.')
 	# HMMER options
 	parser.add_argument('--cores',type=int,default=1,help='Set number of cores available to hmmer software.')
 	parser.add_argument('--maxeval',type=float,default=0.001,help='Maximum e-value allowed for valid hit. Default = 0.001')
@@ -675,8 +678,8 @@ def mainArgs():
 	parser.add_argument('--nobias',action='store_true',default=False,help='Turn OFF bias correction of scores in nhmmer.')
 	parser.add_argument('--matrix',type=str,default=None,help='Use custom DNA substitution matrix with nhmmer.')
 	# Non-standard HMMER paths
-	parser.add_argument('--hmmpress',type=str,default=None,help='Set location of hmmpress if not in path.')
-	parser.add_argument('--nhmmer',type=str,default=None,help='Set location of nhmmer if not in path.')
+	parser.add_argument('--hmmpress',type=str,default='hmmpress',help='Set location of hmmpress if not in path.')
+	parser.add_argument('--nhmmer',type=str,default='nhmmer',help='Set location of nhmmer if not in path.')
 	parser.add_argument('--hmmbuild',type=str,default='hmmbuild',help='Set location of hmmbuild if not in path.')
 	args = parser.parse_args()
 	return args

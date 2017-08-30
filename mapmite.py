@@ -656,7 +656,7 @@ def mainArgs():
 							prog		=	'mapmite'
 							)
 	# Input
-	parser.add_argument('--genome',type=str,default=None,help='Path to target genome that will be queried with HMMs.')
+	parser.add_argument('--genome',type=str,required=True,help='Path to target genome that will be queried with HMMs.')
 	parser.add_argument('--hmmDir',type=str,default=None,help='Directory containing pre-prepared TIR-pHMMs.')
 	parser.add_argument('--hmmFile',type=str,default=None,help='Path to single TIR-pHMM file. Incompatible with "--hmmDir".')
 	parser.add_argument('--alnDir',type=str,default=None,help='Path to directory containing only TIR alignments to be converted to HMM.')

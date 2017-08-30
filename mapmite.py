@@ -36,6 +36,12 @@ def decode(x):
 
 def dochecks(args):
 	"""Housekeeping tasks: Create output files/dirs and temp dirs as required."""
+	# Check that specified files exist
+	isfile(args.genome)
+	if args.hmmFile:
+		isfile(args.hmmFile)
+	if args.alnFile:
+		isfile(args.alnFile)
 	# Make outDir if does not exist else set to current dir.
 	if args.outdir:
 		absOutDir = os.path.abspath(args.outdir)
@@ -49,6 +55,11 @@ def dochecks(args):
 	os.makedirs(tempDir)
 	# Return full path to output and temp directories
 	return outDir,tempDir
+
+def isfile(path):
+	if not os.path.isfile(path):
+		print("Input file not found: %s" % path)
+		sys.exit(1)
 
 def cleanID(s):
 	"""Remove non alphanumeric characters from string. Replace whitespace with underscores."""
@@ -262,7 +273,7 @@ def run_cmd(cmds,verbose=False):
 	os.chdir(original_dir)
 	shutil.rmtree(tmpdir)
 
-def import_nhmmer(infile=None,hitTable=None):
+def import_nhmmer(infile=None,hitTable=None,prefix=None):
 	''' Read nhmmer tab files to pandas dataframe.'''
 	hitRecords = list()
 	with open(infile, "rU") as f:
@@ -306,6 +317,8 @@ def import_nhmmer(infile=None,hitTable=None):
 	df = df.sort_values(['model','target','hitStart','hitEnd','strand'], ascending=[True,True,True,True,True])
 	# Reindex
 	df = df.reset_index(drop=True)
+	if prefix:
+		df['model'] = str(prefix) + df['model'].astype(str)
 	return df
 
 def table2dict(hitTable):
@@ -613,13 +626,26 @@ def main(args):
 	cmds,resultDir = cmdScript(hmmDir=args.hmmDir, hmmFile=args.hmmFile, alnDir=stockholmDir, tempDir=tempDir, args=args)
 	run_cmd(cmds,verbose=args.verbose)
 
+	# Die if no hits found
+	if not glob.glob(os.path.join(os.path.abspath(resultDir),'*.tab')):
+		print("No hits found in %s . Quitting." % resultDir)
+		sys.exit(1)
+
 	# Import hits from nhmmer result files
 	hitTable = None
 	for resultfile in glob.glob(os.path.join(os.path.abspath(resultDir),'*.tab')):
-		hitTable = import_nhmmer(infile=resultfile,hitTable=hitTable)
+		hitTable = import_nhmmer(infile=resultfile,hitTable=hitTable,prefix=args.prefix)
 
 	# Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
 	hitsDict,hitIndex = table2dict(hitTable)
+
+	# If pairing is off, just report the hits
+	if args.nopairing:
+		writeTIRs(outDir=outDir, hitTable=hitTable, maxeval=args.maxeval, genome=genome)
+		# Remove temp directory
+		if not args.keeptemp:
+			shutil.rmtree(tempDir)
+		sys.exit(1)
 
 	# Populate hitIndex with acceptible candidate partners (compatible strand and distance.)
 	hitIndex = parseHits(hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist)
@@ -636,14 +662,15 @@ def main(args):
 	# Write paired TIR features to fasta
 	writeElements(outDir, eleDict=pairedEles)
 
-	# Get unpaired TIRs
-	if args.reportTIR in ['all','unpaired']:
-		unpairedTIRs = fetchUnpaired(hitIndex=hitIndex)
-	else:
-		unpairedTIRs = None
-
 	# Write paired features to gff3, optionally also report paired/unpaired TIRs
-	gffWrite(outpath=args.gffOut, featureList=pairedEles, writeTIRs=args.reportTIR, unpaired=unpairedTIRs)
+	if args.gffOut:
+		# Get unpaired TIRs
+		if args.reportTIR in ['all','unpaired']:
+			unpairedTIRs = fetchUnpaired(hitIndex=hitIndex)
+		else:
+			unpairedTIRs = None
+	# Write gff3
+		gffWrite(outpath=args.gffOut, featureList=pairedEles, writeTIRs=args.reportTIR, unpaired=unpairedTIRs)
 
 	# Remove temp directory
 	if not args.keeptemp:
@@ -667,7 +694,9 @@ def mainArgs():
 	parser.add_argument('--stableReps',type=int,default=0,help='Number of times to iterate pairing procedure when no additional pairs are found AND remaining unpaired hits > 0.')
 	# Output and housekeeping
 	parser.add_argument('--outdir',type=str,default=None,help='All output files will be written to this directory.')
-	parser.add_argument('--gffOut',type=str,default=None,help='GFF3 annotation filename.')
+	parser.add_argument('--prefix',type=str,default=None,help='Add prefix to all TIRs and Paired elements detected in this run. Useful when running same TIR-pHMM against many genomes.(Default = None)')
+	parser.add_argument('--nopairing',action='store_true',default=False,help='If set, only report TIR-pHMM hits. Do not attempt pairing.')
+	parser.add_argument('--gffOut',type=str,default=None,help='GFF3 annotation filename. Do not write annotations if not set.')
 	parser.add_argument('--reportTIR',default='all',choices=[None,'all','paired','unpaired'],help='Options for reporting TIRs in GFF annotation file.') 
 	parser.add_argument('--keeptemp',action='store_true',default=False,help='If set do not delete temp file directory.')
 	parser.add_argument('-v','--verbose',action='store_true',default=False,help='Set syscall reporting to verbose.')

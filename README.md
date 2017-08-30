@@ -58,12 +58,12 @@ Run `./mapmite.py --help` to view the program's most commonly used options:
 usage: ./mapmite [-h] --genome GENOME [--hmmDir HMMDIR] [--hmmFile HMMFILE]
                  [--alnDir ALNDIR] [--alnFile ALNFILE]
                  [--alnFormat {clustal,emboss,fasta,fasta-m10,ig,maf,mauve,nexus,phylip,phylip-sequential,phylip-relaxed,stockholm}]
-                 [--stableReps STABLEREPS] [--outdir OUTDIR] [--gffOut GFFOUT]
+                 [--stableReps STABLEREPS] [--outdir OUTDIR] [--prefix PREFIX]
+                 [--nopairing][--gffOut GFFOUT]
                  [--reportTIR {None,all,paired,unpaired}] [--keeptemp] [-v]
                  [--cores CORES] [--maxeval MAXEVAL] [--maxdist MAXDIST]
                  [--nobias] [--matrix MATRIX] [--hmmpress HMMPRESS]
-                 [--nhmmer NHMMER] [--hmmbuild HMMBUILD] 
-
+                 [--nhmmer NHMMER] [--hmmbuild HMMBUILD]
 
 Help:
   -h, --help              Show this help message and exit
@@ -95,6 +95,11 @@ Output and housekeeping:
   --reportTIR             Options for reporting TIRs in GFF annotation file.
                             Choices=[None,'all','paired','unpaired']
                             (Default = 'all')
+  --prefix                Add prefix to all TIRs and Paired elements detected in this run. 
+                            Useful when running same TIR-pHMM against many genomes.
+                            (Default = None)
+  --nopairing             If set, only report TIR-pHMM hits. Do not attempt pairing.
+                            (Default = False)
   --keeptemp              If set do not delete temp file directory.
                             (Default = False)
   -v, --verbose           Set syscall reporting to verbose.

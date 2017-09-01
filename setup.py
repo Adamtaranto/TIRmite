@@ -5,12 +5,15 @@ def readme():
         return f.read()
 
 pypi_classifiers = [
-    "Programming Language :: Python",
-    "Development Status :: 3 - Alpha",
+    'Programming Language :: Python :: 2.7',
+    'Programming Language :: Python :: 3',
+    "Development Status :: 4 - Beta",
     "Environment :: Console",
     "Operating System :: OS Independent",
+    'Intended Audience :: Science/Research',
+    'Natural Language :: English',
+    'Topic :: Scientific/Engineering :: Bio-Informatics',
     "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Scientific/Engineering :: Bio-Informatics",
     'License :: OSI Approved :: MIT License',
 ]
 
@@ -33,6 +36,7 @@ setup(name='tirmite',
       license='MIT',
       packages=['tirmite'],
       classifiers=pypi_classifiers,
+      keywords=["Transposon","TIR","MITE","TE","HMM"],
       install_requires=install_requires,
       include_package_data=True,
       zip_safe=False,

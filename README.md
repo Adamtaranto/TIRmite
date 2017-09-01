@@ -1,12 +1,13 @@
-# Mapmite
+# TIRmite
 
 Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DNA-Transposons.  
 
 # Table of contents
 
-* [About Mapmite](#about-mapmite)
+* [About TIRmite](#about-tirmite)
 * [Algorithm overview](#algorithm-overview)
 * [Options and usage](#options-and-usage)
+    * [Installing TIRmite](#installing-tirmite)
     * [Example usage](#example-usage)
     * [Standard options](#standard-options)
     * [Custom DNA matrices](#custom-dna-matrices)
@@ -14,9 +15,9 @@ Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DN
 * [License](#license)
 
 
-# About Mapmite
+# About TIRmite
 
-Mapmite will use profile-HMM models of Terminal Inverted Repeats (TIRs) for 
+TIRmite will use profile-HMM models of Terminal Inverted Repeats (TIRs) for 
 genome-wide annotation of TIR families. These can be provided by the user or
 built from aligned TIRs oriented as 5' outer edge --> 3' inner edge.
 
@@ -42,20 +43,35 @@ Three classes of output are produced:
 
 # Options and usage
 
+## Installing TIRmite
+
+Dependencies:
+TIRmite requires [HMMER3](http://hmmer.org) to be installed.
+
+Install from PyPi:
+```
+pip install tirmite
+```
+
+Clone and install from this repository:
+```
+git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite && pip install -e .
+```
+
 ## Example usage
 
 Example: Report all hits and vaild pairings of TIR_A in target.fasta (interval <= 50000), and write gff annotation file.
 
 ```
-./mapmite.py --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 50000
+./tirmite.py --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 50000
 ```
 
 ## Standard options
 
-Run `./mapmite.py --help` to view the program's most commonly used options:
+Run `tirmite --help` to view the program's most commonly used options:
 
 ```
-usage: ./mapmite [-h] --genome GENOME [--hmmDir HMMDIR] [--hmmFile HMMFILE]
+usage: tirmite [-h] --genome GENOME [--hmmDir HMMDIR] [--hmmFile HMMFILE]
                  [--alnDir ALNDIR] [--alnFile ALNFILE]
                  [--alnFormat {clustal,emboss,fasta,fasta-m10,ig,maf,mauve,nexus,phylip,phylip-sequential,phylip-relaxed,stockholm}]
                  [--stableReps STABLEREPS] [--outdir OUTDIR] [--prefix PREFIX]
@@ -124,7 +140,7 @@ Non-standard HMMER paths:
 ## Custom DNA Matrices
 
 nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores. 
-Standard NCBI-BLAST matrices such as [NUC.4.4](ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4) are compatible.
+Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4) 
 
 # License
 

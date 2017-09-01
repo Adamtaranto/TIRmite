@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #python 3
-#mapmite.py
+#tirmite.py
 #Version 1.0 Adam Taranto, August 2017
 #Contact, Adam Taranto, adam.taranto@anu.edu.au
 
@@ -10,13 +10,10 @@
 ########################################################################
 
 import os
-import re
 import sys
 import glob
 import shutil
-import argparse
-import tempfile
-import subprocess
+from .hmmer_wrappers import *
 import pandas as pd
 from Bio import SeqIO
 from Bio import AlignIO
@@ -24,15 +21,6 @@ from datetime import datetime
 from collections import Counter
 from collections import namedtuple
 from operator import attrgetter
-
-class Error (Exception): pass
-
-def decode(x):
-	try:
-		s = x.decode()
-	except:
-		return x
-	return s
 
 def dochecks(args):
 	"""Housekeeping tasks: Create output files/dirs and temp dirs as required."""
@@ -60,12 +48,6 @@ def isfile(path):
 	if not os.path.isfile(path):
 		print("Input file not found: %s" % path)
 		sys.exit(1)
-
-def cleanID(s):
-	"""Remove non alphanumeric characters from string. Replace whitespace with underscores."""
-	s = re.sub(r"[^\w\s]", '', s)
-	s = re.sub(r"\s+", '_', s)
-	return s
 
 def getTimestring():
 	"""Return int only string of current datetime with milliseconds."""
@@ -140,138 +122,6 @@ def convertAlign(alnDir=None,alnFile=None,inFormat='fasta',tempDir=None):
 		output_handle.close()
 		input_handle.close()
 	return alnOutDir
-
-def _hmmbuild_command(exePath="hmmbuild",modelname=None,cores=None,inAlign=None,outdir=None):
-	'''Construct the hmmbuild command'''
-	# Make model name compliant
-	modelname = cleanID(modelname)
-	# Check for outdir
-	if outdir:
-		outdir = os.path.abspath(outdir)
-		if not os.path.isdir(outdir):
-				os.makedirs(outdir)
-	else:
-		outdir = os.getcwd()
-	# Create hmm database dir
-	outdir = os.path.join(outdir,"hmmDB")
-	if not os.path.isdir(outdir):
-		os.makedirs(outdir)
-	# Base command
-	command = exePath + " --dna -n " + modelname
-	# Optional set cores
-	if cores:
-		command += ' --cpu ' + str(cores)
-	if outdir:
-		modelout = os.path.join(outdir,modelname + ".hmm ")
-	else:
-		modelout = modelname + ".hmm "
-	# Append output file name and source alignment, return command string
-	command += ' ' + os.path.abspath(modelout) + os.path.abspath(inAlign)
-	return command,os.path.abspath(modelout)
-
-def _hmmpress_command(exePath="hmmpress", hmmfile=None):
-	'''Construct the hmmbuild command'''
-	# Base command
-	command = exePath + " -f " + os.path.abspath(hmmfile)
-	return command
-
-def _nhmmer_command(exePath="nhmmer",modelPath=None,genome=None,evalue=None,nobias=False,matrix=None,cores=None,outdir=None):
-	'''Construct the nhmmer command'''
-	# Get model hmm basename
-	model_base = os.path.splitext(os.path.basename(modelPath))[0]
-	# Check for outdir
-	if outdir:
-		outdir = os.path.abspath(outdir)
-		if not os.path.isdir(outdir):
-				os.makedirs(outdir)
-	else:
-		outdir = os.getcwd()
-	# Make subdir for nhmmer tab results
-	outdir = os.path.join(outdir,"nhmmer_results")
-	if not os.path.isdir(outdir):
-		os.makedirs(outdir)
-	# Create resultfile name
-	outfile = os.path.join(os.path.abspath(outdir),model_base + ".tab")
-	command = exePath + " --tblout " + outfile
-	if cores:
-			command += ' --cpu ' + str(cores)
-	if evalue:
-			command += ' -E ' + str(evalue)
-	if nobias:
-		command += ' --nobias'
-	if matrix:
-		command += ' --mxfile ' + os.path.abspath(matrix)
-	command += " --noali --notextw --dna --max " + os.path.abspath(modelPath) + " " + os.path.abspath(genome)
-	return command,outdir
-
-def _write_script(cmds,script):
-	'''Write commands into a bash script'''
-	f = open(script, 'w+')
-	for cmd in cmds:
-		print(cmd, file=f)
-	f.close()
-
-def cmdScript(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
-	if tempDir:
-		tempDir = os.path.abspath(tempDir)
-		if not os.path.isdir(tempDir):
-			os.makedirs(tempDir)
-	else:
-		tempDir = os.getcwd()
-	# Create hmm database dir
-	hmmDB = os.path.join(tempDir,"hmmDB")
-	if not os.path.isdir(hmmDB):
-		os.makedirs(hmmDB)
-	# Copy all existing hmms to hmmDB
-	if hmmDir:
-		for hmm in glob.glob(os.path.join(hmmDir,'*.hmm')):
-			shutil.copy2(hmm,hmmDB)
-	if hmmFile:
-		shutil.copy2(hmmFile,hmmDB)
-	# Write cmds to list
-	cmds = list()
-	# Process alignments 
-	if alnDir:
-		build_cmds = list()
-		for alignment in glob.glob(os.path.join(alnDir,'*')):
-			modelName = os.path.splitext(os.path.basename(alignment))[0]
-			hmmbuildCmd,modelPath = _hmmbuild_command(exePath=args.hmmbuild,modelname=modelName,cores=args.cores,inAlign=alignment,outdir=tempDir)
-			build_cmds.append(hmmbuildCmd)
-		run_cmd(build_cmds,verbose=args.verbose)
-	# Press and write nhmmer cmd for all models in hmmDB directory
-	for hmm in glob.glob(os.path.join(hmmDB,'*.hmm')):
-		hmmPressCmd = _hmmpress_command(exePath=args.hmmpress, hmmfile=hmm)
-		nhmmerCmd,resultDir = _nhmmer_command(exePath=args.nhmmer,nobias=args.nobias,matrix=args.matrix,modelPath=hmm,genome=args.genome,evalue=args.maxeval,cores=args.cores,outdir=tempDir)
-		cmds.append(hmmPressCmd)
-		cmds.append(nhmmerCmd)
-	# Return list of cmds and location of file result files
-	return cmds,resultDir
-
-def syscall(cmd, verbose=False):
-	'''Manage error handling when making syscalls'''
-	if verbose:
-		print('Running command:', cmd, flush=True)
-	try:
-		output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
-	except subprocess.CalledProcessError as error:
-		print('The following command failed with exit code', error.returncode, file=sys.stderr)
-		print(cmd, file=sys.stderr)
-		print('\nThe output was:\n', file=sys.stderr)
-		print(error.output.decode(), file=sys.stderr)
-		raise Error('Error running command:', cmd)
-	if verbose:
-		print(decode(output))
-
-def run_cmd(cmds,verbose=False):
-	'''Write and excute HMMER script'''
-	tmpdir = tempfile.mkdtemp(prefix='tmp.', dir=os.getcwd())
-	original_dir = os.getcwd()
-	os.chdir(tmpdir)
-	script = 'run_jobs.sh'
-	_write_script(cmds,script)
-	syscall('bash ' + script, verbose=verbose)
-	os.chdir(original_dir)
-	shutil.rmtree(tmpdir)
 
 def import_nhmmer(infile=None,hitTable=None,prefix=None):
 	''' Read nhmmer tab files to pandas dataframe.'''
@@ -560,7 +410,7 @@ def	gffWrite(outpath=None, featureList=list(), writeTIRs=True, unpaired=None):
 		Optionally, write child TIRS and orphan TIRs to GFF3 also.'''
 	# If path to output gff3 file not provided, set default location.
 	if not outpath:
-		outpath = os.path.join(os.getcwd(),"mapmite_features.gff3")
+		outpath = os.path.join(os.getcwd(),"tirmite_features.gff3")
 	# Unpack element dict to list
 	allfeatures = list()
 	for model in featureList.keys():
@@ -579,26 +429,26 @@ def	gffWrite(outpath=None, featureList=list(), writeTIRs=True, unpaired=None):
 		# Format features for GFF3
 		for x in sortedFeatures:
 			if x.type == "orphan_TIR" and writeTIRs in ['all','unpaired']:
-				file.write('\t'.join(	[str(x.chromosome),"mapmite",x.type,str(x.start),str(x.end),".",x.strand,".",
+				file.write('\t'.join(	[str(x.chromosome),"tirmite",x.type,str(x.start),str(x.end),".",x.strand,".",
 										'ID=' + str(x.model) + "_" + str(x.id) + ';model=' + str(x.model) + ';']
 										) + '\n'
 										)
 			if x.type == "TIR_Element":
 				# Write Element line
-				file.write('\t'.join(	[str(x.chromosome),"mapmite",x.type,str(x.start),str(x.end),".",x.strand,".",
+				file.write('\t'.join(	[str(x.chromosome),"tirmite",x.type,str(x.start),str(x.end),".",x.strand,".",
 										'ID=' + str(x.id) + ';model=' + str(x.model) + ';']
 										) + '\n'
 										)
 				if writeTIRs in ['all','paired']:
 					# Write left TIR line as child
 					l = x.leftHit
-					file.write('\t'.join(	[str(l.target),"mapmite","paired_TIR",str(l.hitStart),str(l.hitEnd),".",l.strand,".",
+					file.write('\t'.join(	[str(l.target),"tirmite","paired_TIR",str(l.hitStart),str(l.hitEnd),".",l.strand,".",
 											'ID=' + str(x.model) + "_" + str(l.idx) + ';model=' + str(x.model) + ';Parent=' + str(x.id) + ';']
 											) + '\n'
 											)
 					# Write right TIR line as child on neg strand
 					r = x.rightHit
-					file.write('\t'.join(	[str(r.target),"mapmite","paired_TIR",str(r.hitStart),str(r.hitEnd),".",r.strand,".",
+					file.write('\t'.join(	[str(r.target),"tirmite","paired_TIR",str(r.hitStart),str(r.hitEnd),".",r.strand,".",
 											'ID=' + str(x.model) + "_" + str(r.idx) + ';model=' + str(x.model) + ';Parent=' + str(x.id) + ';']
 											) + '\n'
 											)
@@ -606,117 +456,6 @@ def	gffWrite(outpath=None, featureList=list(), writeTIRs=True, unpaired=None):
 
 #gffTup fields: 'model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'score','bias', 'evalue', 'leftHit' , 'rightHit', 'eleSeq'
 #Types: "TIR_Element", "orphan_TIR"
-
-
-def main(args):
-	'''Do the work.'''
-	# Create output and temp paths as required
-	outDir,tempDir = dochecks(args)
-
-	# Load reference genome
-	genome = importFasta(args.genome)
-
-	# If raw alignments provided, convert to stockholm format.
-	if args.alnDir or args.alnFile:
-		stockholmDir = convertAlign(alnDir=args.alnDir,alnFile=args.alnFile,inFormat=args.alnFormat,tempDir=tempDir)
-	else:
-		stockholmDir = None
-
-	# Compose and run HMMER commands
-	cmds,resultDir = cmdScript(hmmDir=args.hmmDir, hmmFile=args.hmmFile, alnDir=stockholmDir, tempDir=tempDir, args=args)
-	run_cmd(cmds,verbose=args.verbose)
-
-	# Die if no hits found
-	if not glob.glob(os.path.join(os.path.abspath(resultDir),'*.tab')):
-		print("No hits found in %s . Quitting." % resultDir)
-		sys.exit(1)
-
-	# Import hits from nhmmer result files
-	hitTable = None
-	for resultfile in glob.glob(os.path.join(os.path.abspath(resultDir),'*.tab')):
-		hitTable = import_nhmmer(infile=resultfile,hitTable=hitTable,prefix=args.prefix)
-
-	# Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
-	hitsDict,hitIndex = table2dict(hitTable)
-
-	# If pairing is off, just report the hits
-	if args.nopairing:
-		writeTIRs(outDir=outDir, hitTable=hitTable, maxeval=args.maxeval, genome=genome)
-		# Remove temp directory
-		if not args.keeptemp:
-			shutil.rmtree(tempDir)
-		sys.exit(1)
-
-	# Populate hitIndex with acceptible candidate partners (compatible strand and distance.)
-	hitIndex = parseHits(hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist)
-
-	# Run iterative pairing procedure
-	hitIndex,paired,unpaired = iterateGetPairs(hitIndex, stableReps=args.stableReps)
-
-	# Write TIR hits to fasta for each pHMM
-	writeTIRs(outDir=outDir, hitTable=hitTable, maxeval=args.maxeval, genome=genome)
-
-	# Extract paired hit regions (candidate TEs / MITEs)
-	pairedEles = fetchElements(paired=paired, hitIndex=hitIndex, genome=genome)
-
-	# Write paired TIR features to fasta
-	writeElements(outDir, eleDict=pairedEles)
-
-	# Write paired features to gff3, optionally also report paired/unpaired TIRs
-	if args.gffOut:
-		# Get unpaired TIRs
-		if args.reportTIR in ['all','unpaired']:
-			unpairedTIRs = fetchUnpaired(hitIndex=hitIndex)
-		else:
-			unpairedTIRs = None
-	# Write gff3
-		gffWrite(outpath=args.gffOut, featureList=pairedEles, writeTIRs=args.reportTIR, unpaired=unpairedTIRs)
-
-	# Remove temp directory
-	if not args.keeptemp:
-		shutil.rmtree(tempDir)
-
-def mainArgs():
-	'''Parse command line arguments.'''
-	parser = argparse.ArgumentParser(
-							description	=	'Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DNA-Transposons.',
-							prog		=	'mapmite'
-							)
-	# Input
-	parser.add_argument('--genome',type=str,required=True,help='Path to target genome that will be queried with HMMs.')
-	parser.add_argument('--hmmDir',type=str,default=None,help='Directory containing pre-prepared TIR-pHMMs.')
-	parser.add_argument('--hmmFile',type=str,default=None,help='Path to single TIR-pHMM file. Incompatible with "--hmmDir".')
-	parser.add_argument('--alnDir',type=str,default=None,help='Path to directory containing only TIR alignments to be converted to HMM.')
-	parser.add_argument('--alnFile',type=str,default=None,help='Provide a single TIR alignment to be converted to HMM. Incompatible with "--alnDir".')
-	parser.add_argument('--alnFormat',default='fasta',choices=["clustal","emboss","fasta","fasta-m10","ig","maf","mauve","nexus","phylip","phylip-sequential","phylip-relaxed","stockholm"],
-						help='Alignments provided with "--alnDir" or "--alnFile" are all in this format.') 
-	# Pairing heuristics
-	parser.add_argument('--stableReps',type=int,default=0,help='Number of times to iterate pairing procedure when no additional pairs are found AND remaining unpaired hits > 0.')
-	# Output and housekeeping
-	parser.add_argument('--outdir',type=str,default=None,help='All output files will be written to this directory.')
-	parser.add_argument('--prefix',type=str,default=None,help='Add prefix to all TIRs and Paired elements detected in this run. Useful when running same TIR-pHMM against many genomes.(Default = None)')
-	parser.add_argument('--nopairing',action='store_true',default=False,help='If set, only report TIR-pHMM hits. Do not attempt pairing.')
-	parser.add_argument('--gffOut',type=str,default=None,help='GFF3 annotation filename. Do not write annotations if not set.')
-	parser.add_argument('--reportTIR',default='all',choices=[None,'all','paired','unpaired'],help='Options for reporting TIRs in GFF annotation file.') 
-	parser.add_argument('--keeptemp',action='store_true',default=False,help='If set do not delete temp file directory.')
-	parser.add_argument('-v','--verbose',action='store_true',default=False,help='Set syscall reporting to verbose.')
-	# HMMER options
-	parser.add_argument('--cores',type=int,default=1,help='Set number of cores available to hmmer software.')
-	parser.add_argument('--maxeval',type=float,default=0.001,help='Maximum e-value allowed for valid hit. Default = 0.001')
-	parser.add_argument('--maxdist',type=int,default=None,help='Maximum distance allowed between TIR candidates to consider valid pairing.')
-	parser.add_argument('--nobias',action='store_true',default=False,help='Turn OFF bias correction of scores in nhmmer.')
-	parser.add_argument('--matrix',type=str,default=None,help='Use custom DNA substitution matrix with nhmmer.')
-	# Non-standard HMMER paths
-	parser.add_argument('--hmmpress',type=str,default='hmmpress',help='Set location of hmmpress if not in path.')
-	parser.add_argument('--nhmmer',type=str,default='nhmmer',help='Set location of nhmmer if not in path.')
-	parser.add_argument('--hmmbuild',type=str,default='hmmbuild',help='Set location of hmmbuild if not in path.')
-	args = parser.parse_args()
-	return args
-
-if __name__== '__main__':
-	args = mainArgs()
-	main(args)
-
 
 """
 # Notes:

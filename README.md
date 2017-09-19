@@ -1,6 +1,7 @@
 # TIRmite
 
-Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DNA-Transposons.  
+Map TIR-pHMM models to genomic sequences for annotation of MITES and complete 
+DNA-Transposons.  
 
 # Table of contents
 
@@ -11,9 +12,7 @@ Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DN
     * [Example usage](#example-usage)
     * [Standard options](#standard-options)
     * [Custom DNA matrices](#custom-dna-matrices)
-
 * [License](#license)
-
 
 # About TIRmite
 
@@ -32,13 +31,13 @@ Three classes of output are produced:
   1. Use nhmmer genome with TIR-pHMM
   2. Import all hits below *--maxeval* threshold
   3. For each significant TIR match identify candidate partners, where:
-    * Is on same sequence
+    * Is on the same sequence
     * Hit is in complementary orientation
     * Distance is <= *--maxdist*
   4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
   5. Pair reciprocal top candidate hits 
   6. For unpaired hits, find first unpaired candidate partner and check for reciprocity.
-  7. If first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of currect candidate reciprocal.)
+  7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
   8. Iterate steps 6-7 until all TIRs are paired OR number of iterations without new pairing exceeds *--stableReps*
 
 # Options and usage
@@ -48,22 +47,23 @@ Three classes of output are produced:
 Dependencies:
 TIRmite requires [HMMER3](http://hmmer.org) to be installed.
 
-Install from PyPi:
-```
-pip install tirmite
-```
+Installation options:
 
-Clone and install from this repository:
-```
+```bash
+# Install from PyPi:
+pip install tirmite
+
+# Clone and install from this repository:
 git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite && pip install -e .
 ```
 
 ## Example usage
 
-Example: Report all hits and vaild pairings of TIR_A in target.fasta (interval <= 50000), and write gff annotation file.
+Report all hits and valid pairings of TIR_A in target.fasta (interval <= 50000), 
+and write GFF3 annotation file.
 
 ```
-./tirmite.py --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 50000
+tirmite --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 50000
 ```
 
 ## Standard options
@@ -71,7 +71,7 @@ Example: Report all hits and vaild pairings of TIR_A in target.fasta (interval <
 Run `tirmite --help` to view the program's most commonly used options:
 
 ```
-usage: tirmite [-h] --genome GENOME [--hmmDir HMMDIR] [--hmmFile HMMFILE]
+Usage: tirmite [-h] --genome GENOME [--hmmDir HMMDIR] [--hmmFile HMMFILE]
                  [--alnDir ALNDIR] [--alnFile ALNFILE]
                  [--alnFormat {clustal,emboss,fasta,fasta-m10,ig,maf,mauve,nexus,phylip,phylip-sequential,phylip-relaxed,stockholm}]
                  [--stableReps STABLEREPS] [--outdir OUTDIR] [--prefix PREFIX]
@@ -82,7 +82,7 @@ usage: tirmite [-h] --genome GENOME [--hmmDir HMMDIR] [--hmmFile HMMFILE]
                  [--nhmmer NHMMER] [--hmmbuild HMMBUILD]
 
 Help:
-  -h, --help              Show this help message and exit
+  -h, --help              Show this help message and exit.
 
 Input options:
   --genome                Path to target genome that will be queried with HMMs.
@@ -91,7 +91,7 @@ Input options:
   --hmmDir                Directory containing pre-prepared TIR-pHMMs.
   --hmmFile               Path to single TIR-pHMM file. 
                             Incompatible with "--hmmDir".
-  --alnDir                Path to directory containing only TIR alignments to be converted to HMM.
+  --alnDir                Path to the directory containing only TIR alignments to be converted to HMM.
   --alnFile               Provide a single TIR alignment to be converted to HMM. 
                             Incompatible with "--alnDir".
   --alnFormat             Alignments provided with "--alnDir" or "--alnFile" are all in this format.
@@ -121,7 +121,7 @@ Output and housekeeping:
   -v, --verbose           Set syscall reporting to verbose.
 
 HMMER options:
-  --cores                 Set number of cores available to hmmer software.
+  --cores                 Set the number of cores available to hmmer software.
                             (Default = 1)
   --maxeval               Maximum e-value allowed for valid hit.
                             (Default = 0.001)

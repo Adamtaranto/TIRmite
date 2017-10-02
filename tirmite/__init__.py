@@ -9,11 +9,15 @@
 # complete DNA-Transposons.                                            #
 ########################################################################
 
+import re
 import os
 import sys
 import glob
 import shutil
+import tempfile
+import subprocess
 from .hmmer_wrappers import *
+from .bowtie2_wrappers import *
 import pandas as pd
 from Bio import SeqIO
 from Bio import AlignIO
@@ -43,6 +47,54 @@ def dochecks(args):
 	os.makedirs(tempDir)
 	# Return full path to output and temp directories
 	return outDir,tempDir
+
+class Error (Exception): pass
+
+def decode(x):
+	try:
+		s = x.decode()
+	except:
+		return x
+	return s
+
+def cleanID(s):
+	"""Remove non alphanumeric characters from string. Replace whitespace with underscores."""
+	s = re.sub(r"[^\w\s]", '', s)
+	s = re.sub(r"\s+", '_', s)
+	return s
+
+def _write_script(cmds,script):
+	'''Write commands into a bash script'''
+	f = open(script, 'w+')
+	for cmd in cmds:
+		print(cmd, file=f)
+	f.close()
+
+def syscall(cmd, verbose=False):
+	'''Manage error handling when making syscalls'''
+	if verbose:
+		print('Running command:', cmd, flush=True)
+	try:
+		output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
+	except subprocess.CalledProcessError as error:
+		print('The following command failed with exit code', error.returncode, file=sys.stderr)
+		print(cmd, file=sys.stderr)
+		print('\nThe output was:\n', file=sys.stderr)
+		print(error.output.decode(), file=sys.stderr)
+		raise Error('Error running command:', cmd)
+	if verbose:
+		print(decode(output))
+
+def run_cmd(cmds,verbose=False):
+	'''Write and excute HMMER script'''
+	tmpdir = tempfile.mkdtemp(prefix='tmp.', dir=os.getcwd())
+	original_dir = os.getcwd()
+	os.chdir(tmpdir)
+	script = 'run_jobs.sh'
+	_write_script(cmds,script)
+	syscall('bash ' + script, verbose=verbose)
+	os.chdir(original_dir)
+	shutil.rmtree(tmpdir)
 
 def isfile(path):
 	if not os.path.isfile(path):
@@ -89,6 +141,15 @@ def importFasta(file):
 	for rec in records:
 		recordsDict[rec.id] = rec
 	return recordsDict
+
+def getbtName(file):
+	"""Load seqs from file. Check if more than one record. report first id lable."""
+	# Read in elements from fasta file, convert seqrecord iterator to list.
+	records = list(SeqIO.parse(file, "fasta"))
+	# Check only one seq
+	if len(records) > 1:
+		print('Warning: %s contains multiple sequences! \n May result is incorrect TIR pairing.' % file)
+	return cleanID(str(records[1].id))
 
 def convertAlign(alnDir=None,alnFile=None,inFormat='fasta',tempDir=None):
 	''' Convert input alignments into Stockholm format.'''
@@ -164,6 +225,55 @@ def import_nhmmer(infile=None,hitTable=None,prefix=None):
 		# If an existing table was passed, concatenate
 		df = pd.concat([df,hitTable], ignore_index=True)
 	# Sort hits by HMM, Chromosome, location, and strand
+	df = df.sort_values(['model','target','hitStart','hitEnd','strand'], ascending=[True,True,True,True,True])
+	# Reindex
+	df = df.reset_index(drop=True)
+	if prefix:
+		df['model'] = str(prefix) + df['model'].astype(str)
+	return df
+
+def import_mapped(infile=None,tirName="refTIR",hitTable=None,prefix=None):
+	''' Read bowtie2 mapped TIR locations from bedfile to pandas dataframe.'''
+	print('Bowtie2 mapped reads will not be filtered on e-value.')
+	hitRecords = list()
+	with open(infile, "rU") as f:
+		for line in f.readlines():
+			li = line.strip()
+			if not li.startswith("#"):
+				li = li.split()
+				if li[3] == '+':
+					hitRecords.append({
+					'target':str(li[0]),
+					'model':tirName,
+					'hmmStart':'NA',
+					'hmmEnd':'NA',
+					'hitStart':int(li[1]),
+					'hitEnd':int(li[2]),
+					'strand':str(li[3]),
+					'evalue':0,
+					'score':'NA',
+					'bias':'NA'})
+				elif li[3] == '-':
+					hitRecords.append({
+					'target':str(li[0]),
+					'model':tirName,
+					'hmmStart':'NA',
+					'hmmEnd':'NA',
+					'hitStart':int(li[1]),
+					'hitEnd':int(li[2]),
+					'strand':str(li[3]),
+					'evalue':0,
+					'score':'NA',
+					'bias':'NA'})
+	# Convert list of dicts into dataframe
+	df = pd.DataFrame(hitRecords)
+	# Reorder columns
+	cols = ['model','target','hitStart','hitEnd','strand','evalue','score','bias','hmmStart','hmmEnd']
+	df = df.ix[:, cols]
+	if hitTable is not None:
+		# If an existing table was passed, concatenate
+		df = pd.concat([df,hitTable], ignore_index=True)
+	# Sort hits by model, Chromosome, location, and strand
 	df = df.sort_values(['model','target','hitStart','hitEnd','strand'], ascending=[True,True,True,True,True])
 	# Reindex
 	df = df.reset_index(drop=True)
@@ -405,7 +515,7 @@ def fetchUnpaired(hitIndex=None):
 				orphans.append(orphan)
 	return orphans
 
-def	gffWrite(outpath=None, featureList=list(), writeTIRs=True, unpaired=None):
+def	gffWrite(outpath=None, featureList=list(), writeTIRs=True, unpaired=None,suppressMeta=False):
 	'''	Write predicted paired-TIR features (i.e. MITEs) from fetchElements() as GFF3.
 		Optionally, write child TIRS and orphan TIRs to GFF3 also.'''
 	# If path to output gff3 file not provided, set default location.

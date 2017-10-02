@@ -1,25 +1,6 @@
-import re
 import os
-import sys
 import glob
 import shutil
-import tempfile
-import subprocess
-
-class Error (Exception): pass
-
-def decode(x):
-	try:
-		s = x.decode()
-	except:
-		return x
-	return s
-
-def cleanID(s):
-	"""Remove non alphanumeric characters from string. Replace whitespace with underscores."""
-	s = re.sub(r"[^\w\s]", '', s)
-	s = re.sub(r"\s+", '_', s)
-	return s
 
 def _hmmbuild_command(exePath="hmmbuild",modelname=None,cores=None,inAlign=None,outdir=None):
 	'''Construct the hmmbuild command'''
@@ -84,13 +65,6 @@ def _nhmmer_command(exePath="nhmmer",modelPath=None,genome=None,evalue=None,nobi
 	command += " --noali --notextw --dna --max " + os.path.abspath(modelPath) + " " + os.path.abspath(genome)
 	return command,outdir
 
-def _write_script(cmds,script):
-	'''Write commands into a bash script'''
-	f = open(script, 'w+')
-	for cmd in cmds:
-		print(cmd, file=f)
-	f.close()
-
 def cmdScript(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
 	if tempDir:
 		tempDir = os.path.abspath(tempDir)
@@ -126,29 +100,3 @@ def cmdScript(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
 		cmds.append(nhmmerCmd)
 	# Return list of cmds and location of file result files
 	return cmds,resultDir
-
-def syscall(cmd, verbose=False):
-	'''Manage error handling when making syscalls'''
-	if verbose:
-		print('Running command:', cmd, flush=True)
-	try:
-		output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
-	except subprocess.CalledProcessError as error:
-		print('The following command failed with exit code', error.returncode, file=sys.stderr)
-		print(cmd, file=sys.stderr)
-		print('\nThe output was:\n', file=sys.stderr)
-		print(error.output.decode(), file=sys.stderr)
-		raise Error('Error running command:', cmd)
-	if verbose:
-		print(decode(output))
-
-def run_cmd(cmds,verbose=False):
-	'''Write and excute HMMER script'''
-	tmpdir = tempfile.mkdtemp(prefix='tmp.', dir=os.getcwd())
-	original_dir = os.getcwd()
-	os.chdir(tmpdir)
-	script = 'run_jobs.sh'
-	_write_script(cmds,script)
-	syscall('bash ' + script, verbose=verbose)
-	os.chdir(original_dir)
-	shutil.rmtree(tmpdir)

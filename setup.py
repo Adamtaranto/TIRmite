@@ -27,7 +27,7 @@ Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DN
 """
 
 setup(name='tirmite',
-      version='0.1.0',
+      version='1.0.0',
       description=desc,
       long_description=readme(),
       url='https://github.com/Adamtaranto/TIRmite',
@@ -36,7 +36,7 @@ setup(name='tirmite',
       license='MIT',
       packages=['tirmite'],
       classifiers=pypi_classifiers,
-      keywords=["Transposon","TIR","MITE","TE","HMM"],
+      keywords=["Transposon","TIR","MITE","TE","HMM",'Bowtie2'],
       install_requires=install_requires,
       include_package_data=True,
       zip_safe=False,

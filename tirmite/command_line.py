@@ -1,9 +1,9 @@
+import os
+import sys
+import glob
+import shutil
 import tirmite
 import argparse
-import shutil
-import glob
-import sys
-import os
 
 def mainArgs():
 	'''Parse command line arguments.'''
@@ -88,7 +88,7 @@ def main():
 		bam2bed_cmds,mappedPath = tirmite._bam2bed_cmd(samPath=args.samtools,bedPath=args.bedtools,tempDir=tempDir)
 		cmds += bam2bed_cmds
 		# Run mapp and filter
-		tirmite.run_cmd(cmds,verbose=args.verbose)
+		tirmite.run_cmd(cmds,verbose=args.verbose,keeptemp=args.keeptemp)
 		# Import mapping locations
 		hitTable = tirmite.import_mapped(infile=mappedPath,tirName=btTIRname,prefix=args.prefix)
 	else:
@@ -100,7 +100,7 @@ def main():
 
 		# Compose and run HMMER commands
 		cmds,resultDir = tirmite.cmdScript(hmmDir=args.hmmDir, hmmFile=args.hmmFile, alnDir=stockholmDir, tempDir=tempDir, args=args)
-		tirmite.run_cmd(cmds,verbose=args.verbose)
+		tirmite.run_cmd(cmds,verbose=args.verbose,keeptemp=args.keeptemp)
 
 		# Die if no hits found
 		if not glob.glob(os.path.join(os.path.abspath(resultDir),'*.tab')):
@@ -130,23 +130,24 @@ def main():
 	hitIndex,paired,unpaired = tirmite.iterateGetPairs(hitIndex, stableReps=args.stableReps)
 
 	# Write TIR hits to fasta for each pHMM
-	tirmite.writeTIRs(outDir=outDir, hitTable=hitTable, maxeval=args.maxeval, genome=genome)
+	tirmite.writeTIRs(outDir=outDir, hitTable=hitTable, maxeval=args.maxeval, genome=genome, prefix=args.prefix)
 
-	# Extract paired hit regions (candidate TEs / MITEs)
+	# Extract paired hit regions (candidate TEs / MITEs) elements are stored as list of gffTup objects
 	pairedEles = tirmite.fetchElements(paired=paired, hitIndex=hitIndex, genome=genome)
 
 	# Write paired TIR features to fasta
-	tirmite.writeElements(outDir, eleDict=pairedEles)
+	tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
 
 	# Write paired features to gff3, optionally also report paired/unpaired TIRs
 	if args.gffOut:
 		# Get unpaired TIRs
 		if args.reportTIR in ['all','unpaired']:
+			# Unpaired TIR features are stored as list of gffTup objects
 			unpairedTIRs = tirmite.fetchUnpaired(hitIndex=hitIndex)
 		else:
 			unpairedTIRs = None
 	# Write gff3
-		tirmite.gffWrite(outpath=args.gffOut, featureList=pairedEles, writeTIRs=args.reportTIR, unpaired=unpairedTIRs,suppressMeta=args.useBowtie2)
+		tirmite.gffWrite(outpath=os.path.join(outDir,args.gffOut), featureList=pairedEles, writeTIRs=args.reportTIR, unpaired=unpairedTIRs,suppressMeta=args.useBowtie2,prefix=args.prefix)
 
 	# Remove temp directory
 	if not args.keeptemp:

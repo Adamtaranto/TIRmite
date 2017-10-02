@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 #python 3
 #tirmite.py
-#Version 1.0 Adam Taranto, August 2017
 #Contact, Adam Taranto, adam.taranto@anu.edu.au
 
 ########################################################################
@@ -16,8 +15,6 @@ import glob
 import shutil
 import tempfile
 import subprocess
-from .hmmer_wrappers import *
-from .bowtie2_wrappers import *
 import pandas as pd
 from Bio import SeqIO
 from Bio import AlignIO
@@ -25,6 +22,8 @@ from datetime import datetime
 from collections import Counter
 from collections import namedtuple
 from operator import attrgetter
+from .hmmer_wrappers import _hmmbuild_command,_hmmpress_command,_nhmmer_command
+from .bowtie2_wrappers import _bowtie2build_cmd,_bowtie2_cmd,_bam2bed_cmd
 
 def dochecks(args):
 	"""Housekeeping tasks: Create output files/dirs and temp dirs as required."""
@@ -85,7 +84,7 @@ def syscall(cmd, verbose=False):
 	if verbose:
 		print(decode(output))
 
-def run_cmd(cmds,verbose=False):
+def run_cmd(cmds,verbose=False,keeptemp=False):
 	'''Write and excute HMMER script'''
 	tmpdir = tempfile.mkdtemp(prefix='tmp.', dir=os.getcwd())
 	original_dir = os.getcwd()
@@ -94,7 +93,8 @@ def run_cmd(cmds,verbose=False):
 	_write_script(cmds,script)
 	syscall('bash ' + script, verbose=verbose)
 	os.chdir(original_dir)
-	shutil.rmtree(tmpdir)
+	if not keeptemp:
+		shutil.rmtree(tmpdir)
 
 def isfile(path):
 	if not os.path.isfile(path):
@@ -149,7 +149,43 @@ def getbtName(file):
 	# Check only one seq
 	if len(records) > 1:
 		print('Warning: %s contains multiple sequences! \n May result is incorrect TIR pairing.' % file)
-	return cleanID(str(records[1].id))
+	return cleanID(str(records[0].id))
+
+def cmdScript(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
+	if tempDir:
+		tempDir = os.path.abspath(tempDir)
+		if not os.path.isdir(tempDir):
+			os.makedirs(tempDir)
+	else:
+		tempDir = os.getcwd()
+	# Create hmm database dir
+	hmmDB = os.path.join(tempDir,"hmmDB")
+	if not os.path.isdir(hmmDB):
+		os.makedirs(hmmDB)
+	# Copy all existing hmms to hmmDB
+	if hmmDir:
+		for hmm in glob.glob(os.path.join(hmmDir,'*.hmm')):
+			shutil.copy2(hmm,hmmDB)
+	if hmmFile:
+		shutil.copy2(hmmFile,hmmDB)
+	# Write cmds to list
+	cmds = list()
+	# Process alignments 
+	if alnDir:
+		build_cmds = list()
+		for alignment in glob.glob(os.path.join(alnDir,'*')):
+			modelName = os.path.splitext(os.path.basename(alignment))[0]
+			hmmbuildCmd,modelPath = _hmmbuild_command(exePath=args.hmmbuild,modelname=modelName,cores=args.cores,inAlign=alignment,outdir=tempDir)
+			build_cmds.append(hmmbuildCmd)
+		run_cmd(build_cmds,verbose=args.verbose,keeptemp=args.keeptemp)
+	# Press and write nhmmer cmd for all models in hmmDB directory
+	for hmm in glob.glob(os.path.join(hmmDB,'*.hmm')):
+		hmmPressCmd = _hmmpress_command(exePath=args.hmmpress, hmmfile=hmm)
+		nhmmerCmd,resultDir = _nhmmer_command(exePath=args.nhmmer,nobias=args.nobias,matrix=args.matrix,modelPath=hmm,genome=args.genome,evalue=args.maxeval,cores=args.cores,outdir=tempDir)
+		cmds.append(hmmPressCmd)
+		cmds.append(nhmmerCmd)
+	# Return list of cmds and location of file result files
+	return cmds,resultDir
 
 def convertAlign(alnDir=None,alnFile=None,inFormat='fasta',tempDir=None):
 	''' Convert input alignments into Stockholm format.'''
@@ -228,8 +264,8 @@ def import_nhmmer(infile=None,hitTable=None,prefix=None):
 	df = df.sort_values(['model','target','hitStart','hitEnd','strand'], ascending=[True,True,True,True,True])
 	# Reindex
 	df = df.reset_index(drop=True)
-	if prefix:
-		df['model'] = str(prefix) + df['model'].astype(str)
+	#if prefix:
+	#	df['model'] = str(prefix) + '_' + df['model'].astype(str)
 	return df
 
 def import_mapped(infile=None,tirName="refTIR",hitTable=None,prefix=None):
@@ -277,8 +313,8 @@ def import_mapped(infile=None,tirName="refTIR",hitTable=None,prefix=None):
 	df = df.sort_values(['model','target','hitStart','hitEnd','strand'], ascending=[True,True,True,True,True])
 	# Reindex
 	df = df.reset_index(drop=True)
-	if prefix:
-		df['model'] = str(prefix) + df['model'].astype(str)
+	#if prefix:
+	#	df['model'] = str(prefix) + '_' + df['model'].astype(str)
 	return df
 
 def table2dict(hitTable):
@@ -294,10 +330,10 @@ def table2dict(hitTable):
 		for chr in hitTable[hitTable['model'] == hmm].target.unique():
 			hitsDict[hmm][chr] = list()
 	# Set up named tuple
-	hitTup = namedtuple('Elem', ['model','target','hitStart','hitEnd','strand','idx'])
+	hitTup = namedtuple('Elem', ['model','target','hitStart','hitEnd','strand','idx','evalue'])
 	# Add each record to dicts
 	for row in hitTable.iterrows():
-		record = hitTup(row[1].model,row[1].target,int(row[1].hitStart),int(row[1].hitEnd),row[1].strand,row[0])
+		record = hitTup(row[1].model,row[1].target,int(row[1].hitStart),int(row[1].hitEnd),row[1].strand,row[0],row[1].evalue)
 		# Log hit for model on chromosome
 		hitsDict[row[1].model][row[1].target].append(record)
 		# Populate tracker
@@ -441,7 +477,7 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None):
 			if row['strand'] == '-':
 				hitrecord = hitrecord.reverse_complement(id=hitrecord.id + "_rc")
 			hitrecord.name = hitrecord.id 
-			hitrecord.description = '_'.join([row['target'],row['strand'],row['hitStart'],row['hitEnd'],'modelAlignment:' + row['hmmStart'],row['hmmEnd']])
+			hitrecord.description = '_'.join(['[' + str(row['target']) + ':' + str(row['strand']),str(row['hitStart']),str(row['hitEnd']) + ' modelAlignment:' + row['hmmStart'],row['hmmEnd'] + ' E-value:' + str(row['evalue']) + ']'])
 			# Append record to list
 			seqList.append(hitrecord)
 		else:
@@ -449,8 +485,12 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None):
 	# Return seqrecord list and total hit count for model
 	return seqList,hitcount 
 
-def writeTIRs(outDir=None, hitTable=None, maxeval=0.001, genome=None):
+def writeTIRs(outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None):
 	''' Write all hits per Model to a multifasta in the outdir'''
+	if prefix:
+		prefix = cleanID(prefix) + '_'
+	else:
+		prefix = ''
 	if outDir:
 		outDir = os.path.abspath(outDir)
 		if not os.path.isdir(outDir):
@@ -460,11 +500,14 @@ def writeTIRs(outDir=None, hitTable=None, maxeval=0.001, genome=None):
 	for model in hitTable['model'].unique():
 		# List of TIR seqrecords, and count of hits
 		seqList,hitcount = extractTIRs(model=model, hitTable=hitTable, maxeval=maxeval, genome=genome)
-		outfile = os.path.join(outDir,model + "_hits_" + str(hitcount) + ".fasta")
+		outfile = os.path.join(outDir, prefix + model + "_hits_" + str(hitcount) + ".fasta")
 		# Write extracted hits to model outfile
 		with open(outfile, "w") as handle:
 			for seq in seqList:
+				seq.id = prefix + str(seq.id)
 				SeqIO.write(seq, handle, "fasta")
+
+#CS10_Chromosome_02_+_88294_88353_modelAlignment:1_60
 
 def flipTIRs(x,y):
 	''' Sort hits into left and right TIRs.'''
@@ -475,7 +518,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
 	''' Extract complete sequence of paired elements, 
 		asign names and child TIRs for use in seq and GFF reporting.'''
 	TIRelements = dict()
-	gffTup = namedtuple('gffElem', ['model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'leftHit' , 'rightHit','seq'])
+	gffTup = namedtuple('gffElem', ['model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'leftHit' , 'rightHit','seq','evalue'])
 	for model in paired.keys():
 		TIRelements[model] = list()
 		model_counter = 0
@@ -488,36 +531,45 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
 			eleSeq = genome[leftHit.target][int(leftHit.hitStart)-1:int(rightHit.hitEnd)]
 			eleSeq.id = eleID
 			eleSeq.name = eleID
-			eleSeq.description = '_'.join([leftHit.target,str(leftHit.hitStart),str(rightHit.hitEnd)]) + " len=" + str(rightHit.hitEnd-leftHit.hitStart)
-			TIRelement = gffTup(model, leftHit.target , leftHit.hitStart , rightHit.hitEnd , leftHit.strand , "TIR_Element", eleID, leftHit,rightHit, eleSeq)
+			eleSeq.description = '_'.join([ '[' + leftHit.target + ':' + str(leftHit.hitStart),str(rightHit.hitEnd)]) + " len=" + str(rightHit.hitEnd-leftHit.hitStart) + ']'
+			TIRelement = gffTup(model, leftHit.target , leftHit.hitStart , rightHit.hitEnd , leftHit.strand , "TIR_Element", eleID, leftHit,rightHit, eleSeq,'NA')
 			TIRelements[model].append(TIRelement)
 	# Return list of element info tuples
 	return TIRelements
 
-def writeElements(outDir, eleDict=None):
+def writeElements(outDir, eleDict=None, prefix=None):
 	''' Takes dict of extracted sequences keyed by model. Writes to fasta by model.'''
+	if prefix:
+		prefix = cleanID(prefix) + '_'
+	else:
+		prefix = ''
 	for model in eleDict.keys():
-		outfile = os.path.join(outDir,model + '_elements.fasta')
+		outfile = os.path.join(outDir,prefix + model + '_elements.fasta')
 		with open(outfile, "w") as handle:
-			for seq in eleDict[model]:
-				SeqIO.write(seq.seq, handle, "fasta")
+			for element in eleDict[model]:
+				element.seq.id = prefix + str(element.seq.id)
+				SeqIO.write(element.seq, handle, "fasta")
 
 def fetchUnpaired(hitIndex=None):
 	'''	Take list of unpaired hit IDs from listunpaired(),
 		Compose TIR gff3 record. '''
 	orphans = list()
-	gffTup = namedtuple('gffElem', ['model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'leftHit' , 'rightHit', 'seq'])
+	gffTup = namedtuple('gffElem', ['model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'leftHit' , 'rightHit', 'seq','evalue'])
 	for model in hitIndex.keys():
 		for recID in hitIndex[model].keys():
 			if not hitIndex[model][recID]['partner']:
 				x = hitIndex[model][recID]['rec']
-				orphan = gffTup(x.model, x.target , x.hitStart , x.hitEnd , x.strand , "orphan_TIR", x.idx, None , None, None)
+				orphan = gffTup(x.model, x.target , x.hitStart , x.hitEnd , x.strand , "orphan_TIR", x.idx, None , None, None, x.evalue)
 				orphans.append(orphan)
 	return orphans
 
-def	gffWrite(outpath=None, featureList=list(), writeTIRs=True, unpaired=None,suppressMeta=False):
+def	gffWrite(outpath=None, featureList=list(), writeTIRs=True, unpaired=None, suppressMeta=False, prefix=None):
 	'''	Write predicted paired-TIR features (i.e. MITEs) from fetchElements() as GFF3.
 		Optionally, write child TIRS and orphan TIRs to GFF3 also.'''
+	if prefix:
+		prefix = cleanID(prefix) + '_'
+	else:
+		prefix = ''
 	# If path to output gff3 file not provided, set default location.
 	if not outpath:
 		outpath = os.path.join(os.getcwd(),"tirmite_features.gff3")
@@ -540,26 +592,26 @@ def	gffWrite(outpath=None, featureList=list(), writeTIRs=True, unpaired=None,sup
 		for x in sortedFeatures:
 			if x.type == "orphan_TIR" and writeTIRs in ['all','unpaired']:
 				file.write('\t'.join(	[str(x.chromosome),"tirmite",x.type,str(x.start),str(x.end),".",x.strand,".",
-										'ID=' + str(x.model) + "_" + str(x.id) + ';model=' + str(x.model) + ';']
+										'ID=' + prefix + str(x.model) + "_" + str(x.id) + ';model=' + str(x.model) + ';evalue=' + str(x.evalue) + ';']
 										) + '\n'
 										)
 			if x.type == "TIR_Element":
 				# Write Element line
 				file.write('\t'.join(	[str(x.chromosome),"tirmite",x.type,str(x.start),str(x.end),".",x.strand,".",
-										'ID=' + str(x.id) + ';model=' + str(x.model) + ';']
+										'ID=' + prefix + str(x.id) + ';model=' + str(x.model) + ';']
 										) + '\n'
 										)
 				if writeTIRs in ['all','paired']:
 					# Write left TIR line as child
 					l = x.leftHit
 					file.write('\t'.join(	[str(l.target),"tirmite","paired_TIR",str(l.hitStart),str(l.hitEnd),".",l.strand,".",
-											'ID=' + str(x.model) + "_" + str(l.idx) + ';model=' + str(x.model) + ';Parent=' + str(x.id) + ';']
+											'ID=' + prefix + str(x.model) + "_" + str(l.idx) + ';model=' + str(x.model) + ';Parent=' + str(x.id) + ';evalue=' + str(l.evalue) + ';']
 											) + '\n'
 											)
 					# Write right TIR line as child on neg strand
 					r = x.rightHit
 					file.write('\t'.join(	[str(r.target),"tirmite","paired_TIR",str(r.hitStart),str(r.hitEnd),".",r.strand,".",
-											'ID=' + str(x.model) + "_" + str(r.idx) + ';model=' + str(x.model) + ';Parent=' + str(x.id) + ';']
+											'ID=' + prefix + str(x.model) + "_" + str(r.idx) + ';model=' + str(x.model) + ';Parent=' + str(x.id) + ';evalue=' + str(r.evalue) + ';']
 											) + '\n'
 											)
 

@@ -99,6 +99,17 @@ Input options:
                             "nexus","phylip","phylip-sequential","phylip-relaxed","stockholm"]
 
 
+Alternative search methods:
+  --useBowtie2            If set, map short TIR to genome with bowtie2. 
+                            Potentially useful for very short though highly conserved TIRs where 
+                            TIR-pHMM hits return high e-values.
+  --btTIR                 Fasta file containing a single TIR to be mapped with bowtie2.
+  --bowtie2               Set location of bowtie2 if not in PATH.
+  --bt2build              Set location of bowtie2-build if not in PATH.
+  --samtools              Set location of samtools if not in PATH.
+  --bedtools              Set location of bedtools if not in PATH.
+  
+
 Pairing heuristics:
   --stableReps            Number of times to iterate pairing procedure when no additional pairs are 
                             found AND remaining unpaired hits > 0.

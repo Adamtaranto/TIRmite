@@ -1,7 +1,8 @@
 # TIRmite
 
-Map TIR-pHMM models to genomic sequences for annotation of MITES and complete 
-DNA-Transposons.  
+Build and map profile Hidden Markov Models for Terminal Inverted repeat 
+families (TIR-pHMMs) to genomic sequences for annotation of MITES and complete 
+DNA-Transposons with variable internal sequence composition.
 
 # Table of contents
 
@@ -24,7 +25,8 @@ built from aligned TIRs oriented as 5' outer edge --> 3' inner edge.
 Three classes of output are produced:
   1. All significant TIR hit sequences written to fasta (per query HMM).
   2. Candidate elements comprised of paired TIRs are written to fasta (per query HMM).
-  3. Genomic annotations of candidate elements and, optionally, TIR hits are written as a single GFF3 file.
+  3. Genomic annotations of candidate elements and, optionally, TIR hits 
+  (paired and unpaired) are written as a single GFF3 file.
 
 # Algorithm overview
 
@@ -44,8 +46,12 @@ Three classes of output are produced:
 
 ## Installing TIRmite
 
-Dependencies:
-TIRmite requires [HMMER3](http://hmmer.org) to be installed.
+Dependencies:  
+  - [HMMER3](http://hmmer.org)
+  - Optional for experimental Bowtie2 mapping mode:
+    - bowtie2
+    - samtools
+    - bedtools
 
 Installation options:
 
@@ -72,14 +78,16 @@ Run `tirmite --help` to view the program's most commonly used options:
 
 ```
 Usage: tirmite [-h] --genome GENOME [--hmmDir HMMDIR] [--hmmFile HMMFILE]
-                 [--alnDir ALNDIR] [--alnFile ALNFILE]
-                 [--alnFormat {clustal,emboss,fasta,fasta-m10,ig,maf,mauve,nexus,phylip,phylip-sequential,phylip-relaxed,stockholm}]
-                 [--stableReps STABLEREPS] [--outdir OUTDIR] [--prefix PREFIX]
-                 [--nopairing][--gffOut GFFOUT]
-                 [--reportTIR {None,all,paired,unpaired}] [--keeptemp] [-v]
-                 [--cores CORES] [--maxeval MAXEVAL] [--maxdist MAXDIST]
-                 [--nobias] [--matrix MATRIX] [--hmmpress HMMPRESS]
-                 [--nhmmer NHMMER] [--hmmbuild HMMBUILD]
+               [--alnDir ALNDIR] [--alnFile ALNFILE]
+               [--alnFormat {clustal,emboss,fasta,fasta-m10,ig,maf,mauve,nexus,phylip,phylip-sequential,phylip-relaxed,stockholm}]
+               [--useBowtie2] [--btTIR BTTIR] [--bowtie2 BOWTIE2]
+               [--bt2build BT2BUILD] [--samtools SAMTOOLS]
+               [--bedtools BEDTOOLS] [--stableReps STABLEREPS]
+               [--outdir OUTDIR] [--prefix PREFIX] [--nopairing]
+               [--gffOut GFFOUT] [--reportTIR {None,all,paired,unpaired}]
+               [--keeptemp] [-v] [--cores CORES] [--maxeval MAXEVAL]
+               [--maxdist MAXDIST] [--nobias] [--matrix MATRIX]
+               [--hmmpress HMMPRESS] [--nhmmer NHMMER] [--hmmbuild HMMBUILD]
 
 Help:
   -h, --help              Show this help message and exit.
@@ -101,7 +109,7 @@ Input options:
 
 Alternative search methods:
   --useBowtie2            If set, map short TIR to genome with bowtie2. 
-                            Potentially useful for very short though highly conserved TIRs where 
+                            Experimental method, potentially useful for very short though highly conserved TIRs where 
                             TIR-pHMM hits return high e-values.
   --btTIR                 Fasta file containing a single TIR to be mapped with bowtie2.
   --bowtie2               Set location of bowtie2 if not in PATH.

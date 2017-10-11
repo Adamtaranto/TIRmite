@@ -1,5 +1,6 @@
 import re 
 import os
+from shlex import quote
 
 def cleanID(s):
 	"""Remove non alphanumeric characters from string. Replace whitespace with underscores."""
@@ -23,22 +24,22 @@ def _hmmbuild_command(exePath="hmmbuild",modelname=None,cores=None,inAlign=None,
 	if not os.path.isdir(outdir):
 		os.makedirs(outdir)
 	# Base command
-	command = exePath + " --dna -n " + modelname
+	command = quote(exePath) + " --dna -n " + modelname
 	# Optional set cores
 	if cores:
 		command += ' --cpu ' + str(cores)
 	if outdir:
-		modelout = os.path.join(outdir,modelname + ".hmm ")
+		modelout = os.path.join(outdir,modelname + ".hmm")
 	else:
-		modelout = modelname + ".hmm "
+		modelout = modelname + ".hmm"
 	# Append output file name and source alignment, return command string
-	command += ' ' + os.path.abspath(modelout) + os.path.abspath(inAlign)
+	command = ' '.join([command,quote(os.path.abspath(modelout)),quote(os.path.abspath(inAlign))])
 	return command,os.path.abspath(modelout)
 
 def _hmmpress_command(exePath="hmmpress", hmmfile=None):
 	'''Construct the hmmbuild command'''
 	# Base command
-	command = exePath + " -f " + os.path.abspath(hmmfile)
+	command = quote(exePath) + " -f " + quote(os.path.abspath(hmmfile))
 	return command
 
 def _nhmmer_command(exePath="nhmmer",modelPath=None,genome=None,evalue=None,nobias=False,matrix=None,cores=None,outdir=None):
@@ -58,7 +59,7 @@ def _nhmmer_command(exePath="nhmmer",modelPath=None,genome=None,evalue=None,nobi
 		os.makedirs(outdir)
 	# Create resultfile name
 	outfile = os.path.join(os.path.abspath(outdir),model_base + ".tab")
-	command = exePath + " --tblout " + outfile
+	command = quote(exePath) + " --tblout " + quote(outfile)
 	if cores:
 			command += ' --cpu ' + str(cores)
 	if evalue:
@@ -66,6 +67,6 @@ def _nhmmer_command(exePath="nhmmer",modelPath=None,genome=None,evalue=None,nobi
 	if nobias:
 		command += ' --nobias'
 	if matrix:
-		command += ' --mxfile ' + os.path.abspath(matrix)
-	command += " --noali --notextw --dna --max " + os.path.abspath(modelPath) + " " + os.path.abspath(genome)
+		command += ' --mxfile ' + quote(os.path.abspath(matrix))
+	command += " --noali --notextw --dna --max " + quote(os.path.abspath(modelPath)) + " " + quote(os.path.abspath(genome))
 	return command,outdir

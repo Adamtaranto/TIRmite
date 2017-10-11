@@ -20,6 +20,7 @@ pypi_classifiers = [
 install_requires = [
     "pandas>=0.20.3",
     'biopython>=1.70',
+    "pymummer>=0.10.3",
 ]
 
 desc = """
@@ -27,7 +28,7 @@ Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DN
 """
 
 setup(name='tirmite',
-      version='1.0.0',
+      version='1.1.0',
       description=desc,
       long_description=readme(),
       url='https://github.com/Adamtaranto/TIRmite',
@@ -42,7 +43,12 @@ setup(name='tirmite',
       zip_safe=False,
       entry_points={
         'console_scripts': [
-            'tirmite=tirmite.command_line:main',
+            'tirmite=tirmite.cmd_tirmite:main',
+            'tsplit-LTR=tirmite.cmd_LTR:main',
+            'tsplit-TIR=tirmite.cmd_TIR:main',
         ],
     },
     )
+
+
+

@@ -1,12 +1,20 @@
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+<p align="center">
+  <img src="docs/tirmite_hexlogo.jpg"  width="350" height="350" title="tirmite_hex">
+</p>
+
 # TIRmite
 
-Build and map profile Hidden Markov Models for Terminal Inverted repeat 
+Build and map profile Hidden Markov Models for Terminal Inverted Repeat 
 families (TIR-pHMMs) to genomic sequences for annotation of MITES and complete 
 DNA-Transposons with variable internal sequence composition.  
 
 
 TIRmite is packaged with *tSplit* a tool for extraction of terminal repeats 
 from complete transposons.
+
+Current version: 1.1.4
 
 # Table of contents
 
@@ -18,21 +26,19 @@ from complete transposons.
     * [Standard options](#standard-options)
     * [Custom DNA matrices](#custom-dna-matrices)
 * [Additional tools](additional-tools)
-* [tSplit](tsplit)
-* [tSplit algorithm overview](tsplit-algorithm-overview)
-* [tSplit options and usage](tsplit-options-and-usage)
-  * [tSplit example usage](tsplit-example-usage)
-  * [tsplit-LTR](tsplit-ltr)
-  * [tsplit-TIR](tsplit-tir)
-  * [tSplit options](tsplit-options)
+    * [tSplit](tsplit)
+    * [tSplit algorithm overview](tsplit-algorithm-overview)
+    * [tSplit options and usage](tsplit-options-and-usage)
+* [Issues](#issues)
 * [License](#license)
+* [Logo](#logo)
 
-# About TIRmite
+
+## About TIRmite
 
 TIRmite will use profile-HMM models of Terminal Inverted Repeats (TIRs) for 
 genome-wide annotation of TIR families. These can be provided by the user or
 built from aligned TIRs oriented as 5' outer edge --> 3' inner edge.
-
 
 Three classes of output are produced:
   1. All significant TIR hit sequences written to fasta (per query HMM).
@@ -40,185 +46,182 @@ Three classes of output are produced:
   3. Genomic annotations of candidate elements and, optionally, TIR hits 
   (paired and unpaired) are written as a single GFF3 file.
 
-# Algorithm overview
+## Algorithm overview
 
-  1. Use nhmmer genome with TIR-pHMM
-  2. Import all hits below *--maxeval* threshold
-  3. For each significant TIR match identify candidate partners, where:
-    * Is on the same sequence
-    * Hit is in complementary orientation
-    * Distance is <= *--maxdist*
+  1. Use nhmmer genome with TIR-pHMM.
+  2. Import all hits below *--maxeval* threshold.
+  3. For each significant TIR match identify candidate partners, where:  
+    * Is on the same sequence.  
+    * Hit is in complementary orientation.  
+    * Distance is <= *--maxdist*.  
+    * Hit length is >= model length \* *--mincov*.  
   4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
-  5. Pair reciprocal top candidate hits 
+  5. Pair reciprocal top candidate hits.
   6. For unpaired hits, find first unpaired candidate partner and check for reciprocity.
   7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
-  8. Iterate steps 6-7 until all TIRs are paired OR number of iterations without new pairing exceeds *--stableReps*
+  8. Iterate steps 6-7 until all TIRs are paired OR number of iterations without new pairing exceeds *--stableReps*.
 
-# Options and usage
+## Options and usage
 
-## Installing TIRmite
+### Installing TIRmite
+
+TIRmite requires Python >= v3.6
 
 Dependencies:  
   - TIR-pHMM build and search
     * [HMMER3](http://hmmer.org)
-  - Optional for experimental Bowtie2 mapping mode:
-    - [bowtie2](http://bowtie-bio.sourceforge.net/bowtie2/index.shtml)
-    - [samtools](https://github.com/samtools/samtools)
-    - [bedtools](http://bedtools.readthedocs.io/en/latest/)
   - Extract terminal repeats from predicted TEs
     * [pymummer](https://pypi.python.org/pypi/pymummer) version >= 0.10.3 with wrapper for nucmer option *--diagfactor*.
     * [MUMmer](http://mummer.sourceforge.net/)
     * [BLAST+](ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/) (Optional)
 
-Installation options:
+Installation options:  
+
+Clone from this repository and install as a local Python package.
 
 ```bash
-# Install from PyPi:
-pip install tirmite
-
-# Clone and install from this repository:
-git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite && pip install -e .
+% git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite && pip install -e .
 ```
 
-## Example usage
+Install from PyPi.
 
-Report all hits and valid pairings of TIR_A in target.fasta (interval <= 50000), 
+```bash
+% pip install tirmite
+```
+
+Install from Bioconda.
+```bash
+% conda install -c bioconda tirmite
+```
+
+Test installation.
+
+```bash
+# Print version number and exit.
+% tirmite --version
+tirmite 1.1.4
+
+# Get usage information
+% tirmite --help
+```
+
+### Example usage
+
+Report all hits and valid pairings of TIR_A in target.fasta (interval <= 10000, hits cover > 40% len of hmm model), 
 and write GFF3 annotation file.
 
-```
-tirmite --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 50000
+```bash
+% tirmite --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 10000 --mincov 0.4
 ```
 
-## Standard options
+### Standard options
 
 Run `tirmite --help` to view the program's most commonly used options:
 
 ```
-Usage: tirmite [-h] --genome GENOME [--hmmDir HMMDIR] [--hmmFile HMMFILE]
-               [--alnDir ALNDIR] [--alnFile ALNFILE]
-               [--alnFormat {clustal,emboss,fasta,fasta-m10,ig,maf,mauve,nexus,phylip,phylip-sequential,phylip-relaxed,stockholm}]
-               [--useBowtie2] [--btTIR BTTIR] [--bowtie2 BOWTIE2]
-               [--bt2build BT2BUILD] [--samtools SAMTOOLS]
-               [--bedtools BEDTOOLS] [--stableReps STABLEREPS]
-               [--outdir OUTDIR] [--prefix PREFIX] [--nopairing]
-               [--gffOut GFFOUT] [--reportTIR {None,all,paired,unpaired}]
+tirmite [-h] [--version] --genome GENOME [--hmmDir HMMDIR]
+               [--hmmFile HMMFILE] [--alnDir ALNDIR] [--alnFile ALNFILE]
+               [--alnFormat {clustal,fasta,nexus,phylip,stockholm}]
+               [--pairbed PAIRBED] [--stableReps STABLEREPS] [--outdir OUTDIR]
+               [--prefix PREFIX] [--nopairing] [--gffOut]
+               [--reportTIR {None,all,paired,unpaired}] [--padlen PADLEN]
                [--keeptemp] [-v] [--cores CORES] [--maxeval MAXEVAL]
                [--maxdist MAXDIST] [--nobias] [--matrix MATRIX]
-               [--hmmpress HMMPRESS] [--nhmmer NHMMER] [--hmmbuild HMMBUILD]
+               [--mincov MINCOV] [--hmmpress HMMPRESS] [--nhmmer NHMMER]
+               [--hmmbuild HMMBUILD]
 
-Help:
-  -h, --help              Show this help message and exit.
-
-Input options:
-  --genome                Path to target genome that will be queried with HMMs.
-                            Note: Sequence names must be unique.
-                            (required)
-  --hmmDir                Directory containing pre-prepared TIR-pHMMs.
-  --hmmFile               Path to single TIR-pHMM file. 
-                            Incompatible with "--hmmDir".
-  --alnDir                Path to the directory containing only TIR alignments to be converted to HMM.
-  --alnFile               Provide a single TIR alignment to be converted to HMM. 
-                            Incompatible with "--alnDir".
-  --alnFormat             Alignments provided with "--alnDir" or "--alnFile" are all in this format.
-                            Choices=["clustal","emboss","fasta","fasta-m10","ig","maf","mauve",
-                            "nexus","phylip","phylip-sequential","phylip-relaxed","stockholm"]
-
-
-Alternative search methods:
-  --useBowtie2            If set, map short TIR to genome with bowtie2. 
-                            Experimental method, potentially useful for very short though highly conserved TIRs where 
-                            TIR-pHMM hits return high e-values.
-  --btTIR                 Fasta file containing a single TIR to be mapped with bowtie2.
-  --bowtie2               Set location of bowtie2 if not in PATH.
-  --bt2build              Set location of bowtie2-build if not in PATH.
-  --samtools              Set location of samtools if not in PATH.
-  --bedtools              Set location of bedtools if not in PATH.
+Info: 
+  -h, --help            Show this help message and exit
+  --version             Show program's version number and exit
   
+Input options:
+  --genome              Path to target genome that will be queried with HMMs.
+                          Note: Sequence names must be unique. (required)
+  --hmmDir              Directory containing pre-prepared TIR-pHMMs.
+  --hmmFile             Path to single TIR-pHMM file. Incompatible with "--hmmDir".
+  --alnDir              Path to directory containing only TIR alignments to be
+                          converted to HMM.
+  --alnFile             Provide a single TIR alignment to be converted to HMM.
+                          Incompatible with "--alnDir".
+  --alnFormat           Alignments provided with "--alnDir" or "--alnFile" are
+                          all in this format.
+                          Choices=["clustal","fasta","nexus","phylip", "stockholm"]
+  --pairbed             If set TIRmite will preform pairing on TIRs from
+                          custom bedfile only.
 
 Pairing heuristics:
-  --stableReps            Number of times to iterate pairing procedure when no additional pairs are 
-                            found AND remaining unpaired hits > 0.
-                            (Default = 0)
-
+  --stableReps          Number of times to iterate pairing procedure when no
+                         additional pairs are found AND remaining unpaired hits > 0.
+                         (Default = 0)
 
 Output and housekeeping:
-  --outdir                All output files will be written to this directory.
-  --gffOut                GFF3 annotation filename.
-  --reportTIR             Options for reporting TIRs in GFF annotation file.
-                            Choices=[None,'all','paired','unpaired']
-                            (Default = 'all')
-  --prefix                Add prefix to all TIRs and Paired elements detected in this run. 
-                            Useful when running same TIR-pHMM against many genomes.
-                            (Default = None)
-  --nopairing             If set, only report TIR-pHMM hits. Do not attempt pairing.
-                            (Default = False)
-  --keeptemp              If set do not delete temp file directory.
-                            (Default = False)
-  -v, --verbose           Set syscall reporting to verbose.
-
+  --outdir OUTDIR       All output files will be written to this directory.
+  --prefix PREFIX       Add prefix to all TIRs and Paired elements detected in
+                          this run. Useful when running same TIR-pHMM against
+                          many genomes.
+                          (Default = None)
+  --nopairing           If set, only report TIR-pHMM hits. Do not attempt
+                          pairing.
+                          (Default = False)
+  --gffOut              If set report features as prefix.gff3. File saved to
+                          outdir.
+                          (Default = False)
+  --reportTIR           Options for reporting TIRs in GFF annotation file.
+                          Choices=[None,'all','paired','unpaired']
+                          (Default = 'all')
+  --padlen              Extract x bases either side of TIR when writing TIRs to fasta.
+                          (Default = None)
+  --keeptemp            If set do not delete temp file directory.
+                          (Default = False)
+  -v, --verbose         Set syscall reporting to verbose.
+  
 HMMER options:
-  --cores                 Set the number of cores available to hmmer software.
-                            (Default = 1)
-  --maxeval               Maximum e-value allowed for valid hit.
-                            (Default = 0.001)
-  --maxdist               Maximum distance allowed between TIR candidates to consider valid pairing.
-  --nobias                Turn OFF bias correction of scores in nhmmer.
-                            (Default = False)
-  --matrix                Use custom DNA substitution matrix with nhmmer.
-
+  --cores               Set number of cores available to hmmer software.
+  --maxeval             Maximum e-value allowed for valid hit.
+                          (Default = 0.001)
+  --maxdist             Maximum distance allowed between TIR candidates to
+                          consider valid pairing.
+                          (Default = None)
+  --nobias              Turn OFF bias correction of scores in nhmmer.
+                          (Default = False)
+  --matrix              Use custom DNA substitution matrix with nhmmer.
+  --mincov              Minimum valid hit length as prop of model length.
+                          (Default = 0.5)
 
 Non-standard HMMER paths:
-  --hmmpress              Set location of hmmpress if not in path.
-  --nhmmer                Set location of nhmmer if not in path.
-  --hmmbuild              Set location of hmmbuild if not in path.
+  --hmmpress            Set location of hmmpress if not in PATH.
+  --nhmmer              Set location of nhmmer if not in PATH.
+  --hmmbuild            Set location of hmmbuild if not in PATH.
 ```
 
-## Custom DNA Matrices
+### Custom DNA Matrices
 
 nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores. 
 Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4) 
 
-# Additional tools
+## Additional tools
 
-# tSplit
+### tSplit
 
-Extract terminal repeats from retrotransposons (LTRs) or DNA transposons (TIRs).  
+Extract Terminal Inverted Repeats (TIRs) DNA transposons.  
 
-# tSplit algorithm overview
+### tSplit algorithm overview
 
 tSplit attempts to identify terminal repeats in transposable elements by 
 first aligning each element to itself using nucmer, and then applying a set of 
-tuneable heuristics to select an alignment pair most likely to represent an LTR or TIR.  
+tuneable heuristics to select an alignment pair most likely to represent a TIR.  
 
-  1. Exclude all diagonal/self-matches 
-  2. If tsplit-LTR: Retain only alignment pairs on the same strand (tandem repeats)
-  3. If tsplit-TIR: Retain only alignment pairs on opposite strands (inverse repeats)
-  4. Retain pairs for which the 5' match begins within x bases of element start
+  1. Exclude all diagonal/self-matches
+  2. If tsplit-TIR: Retain only alignment pairs on opposite strands (inverse repeats)
+  3. Retain pairs for which the 5' match begins within x bases of element start
      and whose 3' match ends within x bases of element end
-  5. Exclude alignment pairs which overlap (potential SSRs)
-  6. If multiple candidates remain select alignment pair with largest internal segment 
+  4. Exclude alignment pairs which overlap (potential SSRs)
+  5. If multiple candidates remain select alignment pair with largest internal segment 
   (i.e. closest to element ends)
 
-# tSplit options and usage  
+### tSplit options and usage  
 
-## tSplit example usage  
-
-TE-splitter contains two programs: tsplit-LTR and tsplit-TIR, for extracting long terminal 
-repeats and terminal inverted repeats, respectively. Options are the same
-for each.  
-
-## tsplit-LTR 
-
-For each element in *retroelements.fasta* split into internal and external segments. 
-Split segments will be written to *LTR_split_TE-splitter_output.fasta* with suffix "_I" 
-for internal or "_LTR" for external segments. LTRs must be at least 10bp in length and 
-share 80% identity and occur within 10bp of each end of the input element.
-
-```bash
-tsplit-LTR -i retroelements.fasta -p LTR_split
-```
-
-## tsplit-TIR
+### tSplit example usage  
 
 For each element in *dna-transposons.fasta* split into internal and external (TIR) segments. 
 Split segments will be written to *TIR_split_TE-splitter_output.fasta* with suffix "_I" for 
@@ -227,17 +230,18 @@ identity and occur within 10bp of each end of the input element. Additionally, s
 MITEs will be constructed by concatenation of left and right TIRs, with internal segments 
 excised.
 
+
 ```bash
-tsplit-TIR -i dna-transposons.fasta -p TIR_split --makemites
+% tsplit-TIR -i dna-transposons.fasta -p TIR_split
 ```
 
-## tSplit options
+### tSplit options
 
-Run `tsplit-LTR --help` or `tsplit-TIR --help` to view the programs' most commonly used 
+Run `tsplit-TIR --help` to view the programs' most commonly used 
 options:
 
 ```
-Usage: tsplit-[LTR or TIR] [-h] -i INFILE [-p PREFIX] [-d OUTDIR]
+Usage: tsplit-TIR [-h] -i INFILE [-p PREFIX] [-d OUTDIR]
                         [--splitmode {all,split,internal,external,None}]
                         [--makemites] [--keeptemp] [-v] [-m MAXDIST]
                         [--minid MINID] [--minterm MINTERM] [--minseed MINSEED]
@@ -289,6 +293,14 @@ Alignment settings:
                       Note: Increase value for greater tolerance of indels between terminal repeats.
 ```
 
-# License
+## Issues
+
+Submit feedback to the [Issue Tracker](https://github.com/Adamtaranto/TIRmite/issues)
+
+## License
 
 Software provided under MIT license.
+
+## Logo
+
+Termite hex-sticker was designed by [@Super_Coleider](www.instagram.com/Super_Coleider).

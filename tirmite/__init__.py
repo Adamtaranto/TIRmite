@@ -27,6 +27,10 @@ from .bowtie2_wrappers import _bowtie2build_cmd,_bowtie2_cmd,_bam2bed_cmd
 from .runBlastn import makeBlast, run_blast
 from pymummer import coords_file, alignment, nucmer
 
+__version__ = "1.1.4"
+
+class Error (Exception): pass
+
 def dochecks(args):
 	"""Housekeeping tasks: Create output files/dirs and temp dirs as required."""
 	# Check that specified files exist
@@ -122,9 +126,11 @@ def syscall(cmd, verbose=False):
 	if verbose:
 		print(decode(output))
 
-def run_cmd(cmds,verbose=False,keeptemp=False):
+def run_cmd(cmds,verbose=False,tempDir=None,keeptemp=False):
 	'''Write and excute HMMER script'''
-	tmpdir = tempfile.mkdtemp(prefix='tmp.', dir=os.getcwd())
+	if not tempDir:
+		tempDir = os.getcwd()
+	tmpdir = tempfile.mkdtemp(prefix='tmp.', dir=tempDir)
 	original_dir = os.getcwd()
 	os.chdir(tmpdir)
 	script = 'run_jobs.sh'
@@ -223,7 +229,7 @@ def cmdScript(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
 		cmds.append(hmmPressCmd)
 		cmds.append(nhmmerCmd)
 	# Return list of cmds and location of file result files
-	return cmds,resultDir
+	return cmds,resultDir,hmmDB
 
 def convertAlign(alnDir=None,alnFile=None,inFormat='fasta',tempDir=None):
 	''' Convert input alignments into Stockholm format.'''
@@ -306,6 +312,43 @@ def import_nhmmer(infile=None,hitTable=None,prefix=None):
 	#	df['model'] = str(prefix) + '_' + df['model'].astype(str)
 	return df
 
+
+def import_BED(infile=None,hitTable=None,prefix=None):
+	''' Read TIR bedfile to pandas dataframe.'''
+	# Format: Chrm, start, end, name, evalue, strand
+	hitRecords = list()
+	with open(infile, "rU") as f:
+		for line in f.readlines():
+			li = line.strip()
+			if not li.startswith("#"):
+				li = li.split()
+				hitRecords.append({
+				'target':li[0],
+				'model':li[3],
+				'hmmStart':'NA',
+				'hmmEnd':'NA',
+				'hitStart':li[1],
+				'hitEnd':li[2],
+				'strand':li[5],
+				'evalue':li[4],
+				'score':'NA',
+				'bias':'NA'})
+	# Convert list of dicts into dataframe
+	df = pd.DataFrame(hitRecords)
+	# Reorder columns
+	cols = ['model','target','hitStart','hitEnd','strand','evalue','score','bias','hmmStart','hmmEnd']
+	df = df.ix[:, cols]
+	if hitTable is not None:
+		# If an existing table was passed, concatenate
+		df = pd.concat([df,hitTable], ignore_index=True)
+	# Sort hits by HMM, Chromosome, location, and strand
+	df = df.sort_values(['model','target','hitStart','hitEnd','strand'], ascending=[True,True,True,True,True])
+	# Reindex
+	df = df.reset_index(drop=True)
+	#if prefix:
+	#	df['model'] = str(prefix) + '_' + df['model'].astype(str)
+	return df
+
 def import_mapped(infile=None,tirName="refTIR",hitTable=None,prefix=None):
 	''' Read bowtie2 mapped TIR locations from bedfile to pandas dataframe.'''
 	print('Bowtie2 mapped reads will not be filtered on e-value.')
@@ -354,6 +397,31 @@ def import_mapped(infile=None,tirName="refTIR",hitTable=None,prefix=None):
 	#if prefix:
 	#	df['model'] = str(prefix) + '_' + df['model'].astype(str)
 	return df
+
+def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
+		modelLens = dict()
+		for hmm in glob.glob(os.path.join(hmmDB,'*.hmm')):
+			hmmLen = None
+			hmmName = None
+			with open(hmm, "rU") as f:
+				for line in f.readlines():
+					li = line.strip()
+					if li.startswith("LENG"):
+						hmmLen = int(li.split()[1])
+					if li.startswith("NAME"):
+						hmmName = str(li.split()[1])
+				if hmmLen and hmmName:
+					modelLens[hmmName] = hmmLen
+		for model in modelLens.keys():
+			minlen = modelLens[model] * mincov
+			hitTable = hitTable.ix[~((hitTable['model'] == model) & ((hitTable['hitEnd'].astype(int) - hitTable['hitStart'].astype(int)) + 1 < minlen))]
+		return hitTable
+
+def filterHitsEval(maxeval=None, hitTable=None):
+	''' Filter hitTable df to remove hits with e-value in excess of --maxeval.
+	'''
+	hitTable = hitTable.ix[((hitTable['evalue'].astype(float)) < float(maxeval))]
+	return hitTable
 
 def table2dict(hitTable):
 	''' Convert pandas dataframe of nhmmer hits into dict[model][chrom] 
@@ -503,14 +571,20 @@ def iterateGetPairs(hitIndex, stableReps=0):
 	# Return results
 	return hitIndex,paired,unpaired
 
-def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None):
+def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=None):
 	''' For significant hits in model, compose seqrecords.'''
+	# Note: Padding not yet enabled for TIR extraction.
 	hitcount = 0
 	seqList = list()
 	for index,row in hitTable[hitTable['model'] == model].iterrows():
 		if float(row['evalue']) <= maxeval:
 			hitcount += 1
-			hitrecord = genome[row['target']][int(row['hitStart'])-1:int(row['hitEnd'])]
+			if padlen:
+				hitrecord = genome[row['target']][int(row['hitStart'])-1-padlen:int(row['hitStart'])-1].lower() + \
+				genome[row['target']][int(row['hitStart'])-1:int(row['hitEnd'])] + \
+				genome[row['target']][int(row['hitEnd']):int(row['hitEnd'])+padlen].lower()
+			else:
+				hitrecord = genome[row['target']][int(row['hitStart'])-1:int(row['hitEnd'])]
 			hitrecord.id = model + '_' + str(index)
 			if row['strand'] == '-':
 				hitrecord = hitrecord.reverse_complement(id=hitrecord.id + "_rc")
@@ -523,8 +597,9 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None):
 	# Return seqrecord list and total hit count for model
 	return seqList,hitcount 
 
-def writeTIRs(outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None):
+def writeTIRs(outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None, padlen=None):
 	''' Write all hits per Model to a multifasta in the outdir'''
+	# Note: Padding not yet enabled for TIR extraction.
 	if prefix:
 		prefix = cleanID(prefix) + '_'
 	else:
@@ -537,7 +612,7 @@ def writeTIRs(outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=Non
 		outDir = os.getcwd()
 	for model in hitTable['model'].unique():
 		# List of TIR seqrecords, and count of hits
-		seqList,hitcount = extractTIRs(model=model, hitTable=hitTable, maxeval=maxeval, genome=genome)
+		seqList,hitcount = extractTIRs(model=model, hitTable=hitTable, maxeval=maxeval, genome=genome, padlen=padlen)
 		outfile = os.path.join(outDir, prefix + model + "_hits_" + str(hitcount) + ".fasta")
 		# Write extracted hits to model outfile
 		with open(outfile, "w") as handle:
@@ -585,6 +660,53 @@ def writeElements(outDir, eleDict=None, prefix=None):
 		outfile = os.path.join(outDir,prefix + model + '_elements.fasta')
 		with open(outfile, "w") as handle:
 			for element in eleDict[model]:
+				element.seq.id = prefix + str(element.seq.id)
+				SeqIO.write(element.seq, handle, "fasta")
+
+def writePairedTIRs(outDir=None,paired=None, hitIndex=None, genome=None, prefix=None, padlen=None):
+	''' Extract TIR sequence of paired hits, write to fasta.'''
+	# Note: Sequence padding not yet enabled for paired TIRs
+	TIRpairs = dict()
+	gffTup = namedtuple('gffElem', ['model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'leftHit' , 'rightHit','seq','evalue'])
+	for model in paired.keys():
+		TIRpairs[model] = list()
+		model_counter = 0
+		for x,y in paired[model]:
+			model_counter += 1
+			x = hitIndex[model][x]['rec']
+			y = hitIndex[model][y]['rec']
+			leftHit,rightHit = flipTIRs(x,y)
+			eleID = model + "_TIRpair_" + str(model_counter)
+			# If padlen set, extract hit with x bases either side
+			if padlen:
+				eleSeqLeft = genome[leftHit.target][int(leftHit.hitStart)-1-padlen:int(leftHit.hitStart)-1].lower() + \
+				genome[leftHit.target][int(leftHit.hitStart)-1:int(leftHit.hitEnd)] + \
+				genome[leftHit.target][int(leftHit.hitEnd):int(leftHit.hitEnd)+padlen].lower()
+				eleSeqRight = genome[leftHit.target][int(rightHit.hitStart)-1-padlen:int(rightHit.hitStart)-1].lower() + \
+				genome[leftHit.target][int(rightHit.hitStart)-1:int(rightHit.hitEnd)] + \
+				genome[leftHit.target][int(rightHit.hitEnd):int(rightHit.hitEnd)+padlen].lower()
+			else:
+				eleSeqLeft = genome[leftHit.target][int(leftHit.hitStart)-1:int(leftHit.hitEnd)]
+				eleSeqRight = genome[leftHit.target][int(rightHit.hitStart)-1:int(rightHit.hitEnd)]	
+			eleSeqRight = eleSeqRight.reverse_complement()
+			eleSeqLeft.id = eleID + "_L"
+			eleSeqLeft.name = eleID + "_L"
+			eleSeqLeft.description = '_'.join([ '[' + leftHit.target + ':' + str(leftHit.hitStart),str(leftHit.hitEnd)]) + ']'
+			eleSeqRight.id = eleID + "_R"
+			eleSeqRight.name = eleID + "_R"
+			eleSeqRight.description = '_'.join([ '[' + leftHit.target + ':' + str(rightHit.hitEnd),str(rightHit.hitStart)]) + ']'
+			TIRleft = gffTup(model, leftHit.target , leftHit.hitStart , leftHit.hitEnd , leftHit.strand , "TIR", eleSeqLeft.id, leftHit,rightHit, eleSeqLeft,'NA')
+			TIRright = gffTup(model, leftHit.target , rightHit.hitStart , rightHit.hitEnd , leftHit.strand , "TIR", eleSeqRight.id, leftHit,rightHit, eleSeqRight,'NA')
+			TIRpairs[model].append(TIRleft)
+			TIRpairs[model].append(TIRright)
+	if prefix:
+		prefix = cleanID(prefix) + '_'
+	else:
+		prefix = ''
+	for model in TIRpairs.keys():
+		outfile = os.path.join(outDir,prefix + model + '_paired_TIR_hits_' + str(model_counter * 2) + '.fasta')
+		with open(outfile, "w") as handle:
+			for element in TIRpairs[model]:
 				element.seq.id = prefix + str(element.seq.id)
 				SeqIO.write(element.seq, handle, "fasta")
 
@@ -699,6 +821,8 @@ def getLTRs(elements=None, flankdist=10, minid=80, minterm=10, minseed=5, diagfa
 		alignments = [hit for hit in alignments if hit.ref_end < hit.qry_start]
 		# Sort largest to smallest dist between end of ref (subject) and start of query (hit)
 		# x.qry_start (3') - x.ref_end (5') = Length of internal segment
+		#Note: Need to check that this sorts correctlly for alignments is same orientation.
+		print("Warning: Check candidate pairs are correctly sorted.")
 		alignments = sorted(alignments, key=lambda x: (x.qry_start - x.ref_end), reverse=True)
 		# If alignments exist after filtering report features using alignment pair with largest 
 		# internal segment i.e. first element in sorted list.
@@ -730,7 +854,7 @@ def getLTRs(elements=None, flankdist=10, minid=80, minterm=10, minseed=5, diagfa
 			manageTemp(tempPath=tempFasta, scrub=True)
 			manageTemp(tempPath=tempCoords, scrub=True)
 
-def getTIRs(elements=None, flankdist=10, minid=80, minterm=10, minseed=5, diagfactor=0.3, mites=False, report='split', temp=None,keeptemp=False,alignTool='nucmer',verbose=False):
+def getTIRs(elements=None, flankdist=2, minid=80, minterm=10, minseed=5, diagfactor=0.3, mites=False, report='split', temp=None,keeptemp=False,alignTool='nucmer',verbose=False):
 	""" 
 	Align elements to self and attempt to identify TIRs. 
 	Optionally attempt to construct synthetic MITEs from TIRs.
@@ -776,29 +900,30 @@ def getTIRs(elements=None, flankdist=10, minid=80, minterm=10, minseed=5, diagfa
 		# Scrub overlappying ref / query segments, and also complementary 3' to 5' flank hits
 		alignments = [hit for hit in alignments if hit.ref_end < hit.qry_end]
 		# Sort largest to smallest dist between end of ref (subject) and start of query (hit)
-		# x.qry_start - x.ref_end = length of internal segment
-		alignments = sorted(alignments, key=lambda x: (x.qry_end - x.ref_end), reverse=True)
+		# x.qry_end - x.ref_end = 5'end of right TIR - 3' end of left TIR = length of internal segment
+		# TIR pair with smallest internal segment (longest TIRs) is first in list.
+		alignments = sorted(alignments, key=lambda x: (x.qry_end - x.ref_end), reverse=False)
 		# If alignments exist after filtering report features using alignment pair with largest 
 		# internal segment i.e. first element in sorted list.
 		if alignments:
 			if verbose:
 				[print(x) for x in alignments]
-			if report == 'all':
-				yield rec
-			if report in ['split','external']:
+			if report in ['split','external','all']:
 				# yield TIR slice - append "_TIR"
 				extSeg = rec[alignments[0].ref_start:alignments[0].ref_end + 1]
 				extSeg.id = extSeg.id + "_TIR"
 				extSeg.name = extSeg.id
 				extSeg.description = "[" + rec.id + " TIR segment]"
 				yield extSeg
-			if report in ['split','internal']:
+			if report in ['split','internal','all']:
 				# yield internal slice - append "_I"
 				intSeg = rec[alignments[0].ref_end:alignments[0].qry_end + 1]
 				intSeg.id = intSeg.id + "_I"
 				intSeg.name = intSeg.id
 				intSeg.description = "[" + rec.id + " internal segment]"
 				yield intSeg
+			if report == 'all':
+				yield rec
 			if mites:
 				# Assemble TIRs into hypothetical MITEs
 				synMITE = rec[alignments[0].ref_start:alignments[0].ref_end + 1] + rec[alignments[0].qry_end:alignments[0].qry_start + 1]

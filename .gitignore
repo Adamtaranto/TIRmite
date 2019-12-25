@@ -2,6 +2,7 @@
 data/
 temp/
 test/
+pkg-mgt/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

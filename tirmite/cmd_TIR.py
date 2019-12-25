@@ -53,8 +53,8 @@ def mainArgs():
 							)
 	parser.add_argument('-m', '--maxdist',
 							type	=	int,
-							default	=	10,
-							help	=	'Terminal repeat candidates must be no more than this many bases from end of input element. (Default: 10)\
+							default	=	2,
+							help	=	'Terminal repeat candidates must be no more than this many bases from end of input element. (Default: 2)\
 										Note: Increase this value if you suspect that your element is nested within some flanking sequence.'
 							)
 	parser.add_argument('--minid',

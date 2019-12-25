@@ -5,7 +5,6 @@ def readme():
         return f.read()
 
 pypi_classifiers = [
-    'Programming Language :: Python :: 2.7',
     'Programming Language :: Python :: 3',
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -23,12 +22,10 @@ install_requires = [
     "pymummer>=0.10.3",
 ]
 
-desc = """
-Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DNA-Transposons.
-"""
+desc = """Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DNA-Transposons."""
 
 setup(name='tirmite',
-      version='1.1.0',
+      version='1.1.4',
       description=desc,
       long_description=readme(),
       url='https://github.com/Adamtaranto/TIRmite',
@@ -37,7 +34,7 @@ setup(name='tirmite',
       license='MIT',
       packages=['tirmite'],
       classifiers=pypi_classifiers,
-      keywords=["Transposon","TIR","MITE","TE","HMM",'Bowtie2'],
+      keywords=["Transposon","TIR","MITE","TE","HMM"],
       install_requires=install_requires,
       include_package_data=True,
       zip_safe=False,

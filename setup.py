@@ -1,8 +1,10 @@
 from setuptools import setup
 
+
 def readme():
     with open('README.md') as f:
         return f.read()
+
 
 pypi_classifiers = [
     'Programming Language :: Python :: 3',
@@ -35,7 +37,7 @@ setup(name='tirmite',
       license='MIT',
       packages=['tirmite'],
       classifiers=pypi_classifiers,
-      keywords=["Transposon","TIR","MITE","TE","HMM"],
+      keywords=["Transposon", "TIR", "MITE", "TE", "HMM"],
       install_requires=install_requires,
       include_package_data=True,
       zip_safe=False,
@@ -45,8 +47,5 @@ setup(name='tirmite',
             'tsplit-LTR=tirmite.cmd_LTR:main',
             'tsplit-TIR=tirmite.cmd_TIR:main',
         ],
-    },
-    )
-
-
-
+        },
+      )

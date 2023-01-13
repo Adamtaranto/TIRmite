@@ -43,13 +43,6 @@ def mainArgs():
     parser.add_argument('--pairbed', type=str,
                         default=None,
                         help='If set TIRmite will preform pairing on TIRs from custom bedfile only.')
-    # Alternative search method
-    #parser.add_argument('--useBowtie2',action='store_true',default=False,help='If set, map short TIR to genome with bowtie2. Potentially useful for very short though highly conserved TIRs where TIR-pHMM hits return high e-values.')
-    #parser.add_argument('--btTIR',type=str,default=None,help='Fasta file containing a single TIR to be mapped with bowtie2.')
-    #parser.add_argument('--bowtie2',type=str,default='bowtie2',help='Set location of bowtie2 if not in PATH.')
-    #parser.add_argument('--bt2build',type=str,default='bowtie2-build',help='Set location of bowtie2-build if not in PATH.')
-    #parser.add_argument('--samtools',type=str,default='samtools',help='Set location of samtools if not in PATH.')
-    #parser.add_argument('--bedtools',type=str,default='bedtools',help='Set location of bedtools if not in PATH.')
     # Pairing heuristics
     parser.add_argument('--stableReps',type=int,
                         default=0,
@@ -127,7 +120,6 @@ def main():
     args = mainArgs()
 
     # Check for required programs.
-    # tools = [args.hmmpress,args.nhmmer,args.hmmbuild,args.bowtie2,args.bt2build,args.samtools,args.bedtools]
     tools = [args.hmmpress, args.nhmmer, args.hmmbuild]
 
     missing_tools = []
@@ -144,22 +136,6 @@ def main():
     # Load reference genome
     log("Log: Loading genome from: %s " % args.genome)
     genome = tirmite.importFasta(args.genome)
-
-    #if args.useBowtie2:
-    #    # Check that input fasta exists
-    #    tirmite.isfile(args.btTIR)
-    #    btTIRname = tirmite.getbtName(args.btTIR)
-    #    # Compose bowtie map and filter commands
-    #    cmds = list()
-    #    cmds.append(tirmite._bowtie2build_cmd(bt2Path=args.bt2build,genome=args.genome))
-    #    cmds.append(tirmite._bowtie2_cmd(bt2Path=args.bowtie2,tirFasta=args.btTIR,cores=args.cores))
-    #    bam2bed_cmds,mappedPath = tirmite._bam2bed_cmd(samPath=args.samtools,bedPath=args.bedtools,tempDir=tempDir)
-    #    cmds += bam2bed_cmds
-    #    # Run mapp and filter
-    #    tirmite.run_cmd(cmds,verbose=args.verbose,keeptemp=args.keeptemp)
-    #    # Import mapping locations
-    #    hitTable = tirmite.import_mapped(infile=mappedPath,tirName=btTIRname,prefix=args.prefix)
-    #else:
 
     # Import custom TIR hits from BEDfile.
     if args.pairbed:
@@ -352,3 +328,6 @@ def main():
     # Remove temp directory
     if not args.keeptemp:
         shutil.rmtree(tempDir)
+
+if __name__ == "__main__":
+    main()

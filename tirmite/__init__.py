@@ -21,7 +21,6 @@ from collections import Counter
 from collections import namedtuple
 from operator import attrgetter
 from .hmmer_wrappers import _hmmbuild_command, _hmmpress_command, _nhmmer_command
-from .bowtie2_wrappers import _bowtie2build_cmd, _bowtie2_cmd, _bam2bed_cmd
 from .runBlastn import makeBlast, run_blast
 from pymummer import coords_file, alignment, nucmer
 
@@ -405,67 +404,6 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     # if prefix:
     #    df['model'] = str(prefix) + '_' + df['model'].astype(str)
     return df
-
-
-def import_mapped(infile=None, tirName="refTIR", hitTable=None, prefix=None):
-    ''' Read bowtie2 mapped TIR locations from bedfile to pandas dataframe.'''
-    print('Bowtie2 mapped reads will not be filtered on e-value.')
-    hitRecords = list()
-    with open(infile, "rU") as f:
-        for line in f.readlines():
-            li = line.strip()
-            if not li.startswith("#"):
-                li = li.split()
-                if li[3] == '+':
-                    hitRecords.append({
-                        'target': str(li[0]),
-                        'model': tirName,
-                        'hmmStart': 'NA',
-                        'hmmEnd': 'NA',
-                        'hitStart': int(li[1]),
-                        'hitEnd': int(li[2]),
-                        'strand': str(li[3]),
-                        'evalue': 0,
-                        'score': 'NA',
-                        'bias': 'NA'})
-                elif li[3] == '-':
-                    hitRecords.append({
-                        'target': str(li[0]),
-                        'model': tirName,
-                        'hmmStart': 'NA',
-                        'hmmEnd': 'NA',
-                        'hitStart': int(li[1]),
-                        'hitEnd': int(li[2]),
-                        'strand': str(li[3]),
-                        'evalue': 0,
-                        'score': 'NA',
-                        'bias': 'NA'})
-    # Convert list of dicts into dataframe
-    df = pd.DataFrame(hitRecords)
-    # Reorder columns
-    cols = ['model',
-            'target',
-            'hitStart',
-            'hitEnd',
-            'strand',
-            'evalue',
-            'score',
-            'bias',
-            'hmmStart',
-            'hmmEnd']
-    df = df.ix[:, cols]
-    if hitTable is not None:
-        # If an existing table was passed, concatenate
-        df = pd.concat([df, hitTable], ignore_index=True)
-    # Sort hits by model, Chromosome, location, and strand
-    df = df.sort_values(['model', 'target', 'hitStart', 'hitEnd', 'strand'],
-                        ascending=[True, True, True, True, True])
-    # Reindex
-    df = df.reset_index(drop=True)
-    # if prefix:
-    #    df['model'] = str(prefix) + '_' + df['model'].astype(str)
-    return df
-
 
 def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
     modelLens = dict()
@@ -978,96 +916,6 @@ def gffWrite(outpath=None, featureList=list(), writeTIRs=True,
                                           + str(r.evalue) + ';']) + '\n'
                                )
 
-
-def getLTRs(elements=None, flankdist=10, minid=80, minterm=10, minseed=5,
-            diagfactor=0.3, report='split', temp=None, keeptemp=False,
-            alignTool='nucmer', verbose=False):
-    """Align elements to self and attempt to identify LTRs."""
-    # Set temp directory to cwd if none.
-    if not temp:
-        temp = os.getcwd()
-    # For each candidate LTR element
-    for rec in elements:
-        # Create temp paths for single element fasta and alignment coords
-        tempFasta = os.path.join(temp, cleanID(rec.id) + '.fasta')
-        tempCoords = tempFasta + '.coords'
-        # Write current element to single fasta
-        manageTemp(record=rec, tempPath=tempFasta, scrub=False)
-        # Align to self with nucmer
-        if alignTool == 'nucmer':
-            # Compose Nucmer script for current element vs self
-            runner = nucmer.Runner(tempFasta, tempFasta, tempCoords,
-                                   min_id=minid,
-                                   min_length=minseed,
-                                   diagfactor=diagfactor,
-                                   mincluster=minterm,
-                                   breaklen=200,
-                                   maxmatch=True,
-                                   simplify=False
-                                   )
-            # Execute nucmer
-            runner.run()
-        elif alignTool == 'blastn':
-            # Alternatively, use blastn as search tool and write
-            # nucmer.coords-like output.
-            cmds = makeBlast(seq=tempFasta, outfile=tempCoords, pid=minid)
-            run_blast(cmds, verbose=verbose)
-        # Import coords file to iterator object
-        file_reader = coords_file.reader(tempCoords)
-        # Exclude hits to self. Also converts iterator output to stable list
-        alignments = [hit for hit in file_reader if not hit.is_self_hit()]
-        # Filter hits less than min length (Done internally for nucmer,
-        # not blastn.)
-        alignments = [hit for hit in alignments if hit.ref_end - hit.ref_start >= minterm]
-        # Filter for hits on same strand i.e. tandem repeats / LTRs
-        alignments = [hit for hit in alignments if hit.on_same_strand()]
-        # Filter for 5' repeats which begin within x bases of element start
-        alignments = [hit for hit in alignments if hit.ref_start <= flankdist]
-        # Filter for 5' repeats whose 3' match ends within x bases of element end
-        alignments = [hit for hit in alignments if len(rec) - hit.qry_end <= flankdist]
-        # Scrub overlappying ref / query segments, and also complementary
-        # 3' to 5' flank hits
-        alignments = [hit for hit in alignments if hit.ref_end < hit.qry_start]
-        # Sort largest to smallest dist between end of ref (subject) and start
-        # of query (hit)
-        # x.qry_start (3') - x.ref_end (5') = Length of internal segment
-        # Note: Need to check that this sorts correctlly for alignments is same
-        # orientation.
-        print("Warning: Check candidate pairs are correctly sorted.")
-        alignments = sorted(alignments,
-                            key=lambda x: (x.qry_start - x.ref_end),
-                            reverse=True)
-        # If alignments exist after filtering report features using alignment
-        # pair with largest internal segment i.e. first element in sorted list.
-        if alignments:
-            if verbose:
-                [print(x) for x in alignments]
-            if report == 'all':
-                # yield original element
-                yield rec
-            if report in ['split', 'external']:
-                # yield LTR slice - append "_LTR"
-                extSeg = rec[alignments[0].ref_start:alignments[0].ref_end + 1]
-                extSeg.id = extSeg.id + "_LTR"
-                extSeg.name = extSeg.id
-                extSeg.description = "[" + rec.id + " LTR segment]"
-                yield extSeg
-            if report in ['split', 'internal']:
-                # yield internal slice - append "_I"
-                intSeg = rec[alignments[0].ref_end:alignments[0].qry_start + 1]
-                intSeg.id = intSeg.id + "_I"
-                intSeg.name = intSeg.id
-                intSeg.description = "[" + rec.id + " internal segment]"
-                yield intSeg
-        else:
-            # If alignment list empty after filtering print alert and continue
-            print('No LTRs found for candidate element: %s' % rec.id)
-        # Scrub single fasta and coords file for current element.
-        if not keeptemp:
-            manageTemp(tempPath=tempFasta, scrub=True)
-            manageTemp(tempPath=tempCoords, scrub=True)
-
-
 def getTIRs(elements=None, flankdist=2, minid=80, minterm=10,
             minseed=5, diagfactor=0.3, mites=False, report='split',
             temp=None, keeptemp=False, alignTool='nucmer', verbose=False):
@@ -1078,7 +926,7 @@ def getTIRs(elements=None, flankdist=2, minid=80, minterm=10,
     # Set temp directory to cwd if none.
     if not temp:
         temp = os.getcwd()
-    # For each candidate LTR element
+    # For each candidate TIR element
     for rec in elements:
         # Create temp paths for single element fasta and alignment coords
         tempFasta = os.path.join(temp, cleanID(rec.id) + '.fasta')

@@ -146,3 +146,6 @@ def main():
     # Remove temp directory
     if not args.keeptemp:
         shutil.rmtree(tempdir)
+
+if __name__ == "__main__":
+    main()

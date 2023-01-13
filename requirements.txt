@@ -1,0 +1,4 @@
+pandas
+tqdm
+biopython
+pymummer>=0.10.3

@@ -135,6 +135,7 @@ def main():
 
     # Load reference genome
     log("Log: Loading genome from: %s " % args.genome)
+    ## Fix: Do not load fasta into genome!
     genome = tirmite.importFasta(args.genome)
 
     # Import custom TIR hits from BEDfile.

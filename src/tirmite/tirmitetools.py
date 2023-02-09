@@ -73,7 +73,7 @@ def tSplitchecks(args):
     # Return full path to output file and temp directory
     return outpath, tempDir
 
-
+## Fix: Do not load fasta into genome!
 def importFasta2List(file):
     """Load elements from multifasta file. Check that seq IDs are unique."""
     # Read in elements from multifasta file, convert seqrecord iterator to list
@@ -157,7 +157,7 @@ def getTimestring():
     dt = "%s%03d" % (dt, int(micro) / 1000)
     return dt
 
-
+## Fix: Do not load fasta into genome!
 def checkUniqueID(records):
     """Check that IDs for input elements are unique."""
     seqIDs = [records[x].id for x in range(len(records))]
@@ -170,7 +170,7 @@ def checkUniqueID(records):
     else:
         pass
 
-
+## Fix: Do not load fasta into genome!
 def manageTemp(record=None, tempPath=None, scrub=False):
     """Create single sequence fasta files or scrub temp files."""
     if scrub and tempPath:
@@ -182,7 +182,7 @@ def manageTemp(record=None, tempPath=None, scrub=False):
         with open(tempPath, "w") as f:
             SeqIO.write(record, f, "fasta")
 
-
+## Fix: Do not load fasta into genome!
 def importFasta(file):
     """Load elements from multifasta file. Check that seq IDs are unique."""
     # Read in elements from multifasta file, convert seqrecord iterator to list
@@ -195,7 +195,7 @@ def importFasta(file):
         recordsDict[rec.id] = rec
     return recordsDict
 
-
+## Fix: Do not load fasta into genome!
 def getbtName(file):
     """Load seqs from file. Check if more than one record.
     Report first id lable."""
@@ -616,7 +616,7 @@ def iterateGetPairs(hitIndex, stableReps=0):
     # Return results
     return hitIndex, paired, unpaired
 
-
+## Fix: Do not load fasta into genome!
 def extractTIRs(model=None, hitTable=None, maxeval=0.001,
                 genome=None, padlen=None):
     ''' For significant hits in model, compose seqrecords.'''
@@ -644,7 +644,7 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001,
     # Return seqrecord list and total hit count for model
     return seqList, hitcount
 
-
+## Fix: Do not load fasta into genome!
 def writeTIRs(outDir=None, hitTable=None, maxeval=0.001,
               genome=None, prefix=None, padlen=None):
     ''' Write all hits per Model to a multifasta in the outdir'''
@@ -682,7 +682,7 @@ def flipTIRs(x, y):
     left2right = sorted([x, y], key=attrgetter('hitStart', 'hitEnd'))
     return (left2right[0], left2right[1])
 
-
+## Fix: Do not load fasta into genome!
 def fetchElements(paired=None, hitIndex=None, genome=None):
     ''' Extract complete sequence of paired elements,
         asign names and child TIRs for use in seq and GFF reporting.'''
@@ -724,7 +724,9 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
     # Return list of element info tuples
     return TIRelements
 
-
+## Fix: Do not load fasta into genome!
+## Probably fine, but could just store coords in eledict (from fetchElements)
+## and fetch from index at time of writing.
 def writeElements(outDir, eleDict=None, prefix=None):
     ''' Takes dict of extracted sequences keyed by model.
     Writes to fasta by model.'''
@@ -739,7 +741,7 @@ def writeElements(outDir, eleDict=None, prefix=None):
                 element.seq.id = prefix + str(element.seq.id)
                 SeqIO.write(element.seq, handle, "fasta")
 
-
+## Fix: Do not load fasta into genome!
 def writePairedTIRs(outDir=None, paired=None, hitIndex=None,
                     genome=None, prefix=None, padlen=None):
     ''' Extract TIR sequence of paired hits, write to fasta.'''
@@ -996,7 +998,7 @@ def getTIRs(elements=None, flankdist=2, minid=80, minterm=10,
             manageTemp(tempPath=tempFasta, scrub=True)
             manageTemp(tempPath=tempCoords, scrub=True)
 
-
+## Fix: Do not load fasta into genome!
 def segWrite(outfile, segs=None):
     """
     Take a generator object yielding seqrecords and

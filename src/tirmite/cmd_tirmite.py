@@ -2,7 +2,7 @@
 # -*- coding: UTF-8 -*-
 
 from tirmite import __version__
-import .tirmitetools as tirmite
+import tirmite.tirmitetools as tirmite
 import os
 import sys
 import glob

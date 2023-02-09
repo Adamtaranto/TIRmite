@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 
-import tirmite as tsplit
+import .tirmitetools as tsplit
 import argparse
 import shutil
 

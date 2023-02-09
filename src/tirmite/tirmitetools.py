@@ -1,11 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: UTF-8 -*-
-
-'''
-Map TIR-pHMM models to genomic sequences for annotation of MITES and
-complete DNA-Transposons.
-'''
-
 import re
 import os
 import sys
@@ -23,8 +15,6 @@ from operator import attrgetter
 from .hmmer_wrappers import _hmmbuild_command, _hmmpress_command, _nhmmer_command
 from .runBlastn import makeBlast, run_blast
 from pymummer import coords_file, alignment, nucmer
-
-__version__ = "1.1.4"
 
 
 class Error (Exception):

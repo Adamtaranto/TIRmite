@@ -38,7 +38,7 @@ def mainArgs():
                         default=None,
                         help='Provide a single TIR alignment to be converted to HMM. Incompatible with "--alnDir".')
     parser.add_argument('--alnFormat', default='fasta',
-                        choices=["clustal","fasta","nexus","phylip","stockholm"],
+                        choices=["clustal","fasta","stockholm"],
                         help='Alignments provided with "--alnDir" or "--alnFile" are all in this format.')
     parser.add_argument('--pairbed', type=str,
                         default=None,

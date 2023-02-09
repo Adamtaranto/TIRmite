@@ -14,7 +14,7 @@ dependencies:
   - bioconda::samtools
   - bioconda::pysam
   - bioconda::blast
-  - bioconda::hmmer2
+  - bioconda::hmmer
   - jupyter
  #- pip:
  #  - packagefrompip

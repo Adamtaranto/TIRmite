@@ -4,3 +4,4 @@ biopython
 pymummer>=0.10.3
 pyfaidx
 pysam
+#mummer, hmmer, blast, samtools

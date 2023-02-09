@@ -12,9 +12,15 @@
 Dockerfile
 docker-compose.yml
 .dockerignore
+.devcontainer
+
+# Dev
+dev
+docs
+environment.yml
 
 # Documentation
-README.md
+#README.md
 CHANGELOG.md
 CONTRIBUTING.md
 CODE_OF_CONDUCT.md

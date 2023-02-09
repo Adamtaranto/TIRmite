@@ -26,13 +26,13 @@ classifiers = [
 dynamic = ["version","dependencies"]
 
 [tool.setuptools.dynamic]
-version = {attr = "titmite.__version__"}
+version = {attr = "tirmite.__version__"}
 dependencies = {file = "requirements.txt"}
 
 [project.urls]
-homepage = "https://github.com/adamtaranto/titmite"
-documentation = "https://github.com/adamtaranto/titmite"
-repository = "https://github.com/adamtaranto/titmite"
+homepage = "https://github.com/adamtaranto/tirmite"
+documentation = "https://github.com/adamtaranto/tirmite"
+repository = "https://github.com/adamtaranto/tirmite"
 
 [project.scripts]
 my-script = "alloallo.module:function"

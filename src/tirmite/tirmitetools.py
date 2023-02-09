@@ -195,18 +195,6 @@ def importFasta(file):
         recordsDict[rec.id] = rec
     return recordsDict
 
-## Fix: Do not load fasta into genome!
-def getbtName(file):
-    """Load seqs from file. Check if more than one record.
-    Report first id lable."""
-    # Read in elements from fasta file, convert seqrecord iterator to list.
-    records = list(SeqIO.parse(file, "fasta"))
-    # Check only one seq
-    if len(records) > 1:
-        print('Warning: %s contains multiple sequences! \n May result in \
-              incorrect TIR pairing.' % file)
-    return cleanID(str(records[0].id))
-
 
 def cmdScript(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
     if tempDir:

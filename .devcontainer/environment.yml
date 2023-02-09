@@ -9,6 +9,7 @@ dependencies:
   - pandas
   - tqdm
   - bioconda::pymummer>=0.10.3
+  - bioconda::mummer
   - bioconda::pyfaidx
   - bioconda::samtools
   - bioconda::pysam

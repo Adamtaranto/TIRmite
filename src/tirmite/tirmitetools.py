@@ -12,8 +12,8 @@ from datetime import datetime
 from collections import Counter
 from collections import namedtuple
 from operator import attrgetter
-from .hmmer_wrappers import _hmmbuild_command, _hmmpress_command, _nhmmer_command
-from .runBlastn import makeBlast, run_blast
+from tirmite.hmmer_wrappers import _hmmbuild_command, _hmmpress_command, _nhmmer_command
+from tirmite.runBlastn import makeBlast, run_blast
 from pymummer import coords_file, alignment, nucmer
 
 

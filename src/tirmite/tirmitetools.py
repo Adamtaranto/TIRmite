@@ -45,45 +45,6 @@ def dochecks(args):
     return outDir, tempDir
 
 
-def tSplitchecks(args):
-    """Housekeeping tasks: Create output files/dirs
-    and temp dirs as required."""
-    if not os.path.isfile(args.infile):
-        print("Input sequence file does not exist. Quitting.")
-        sys.exit(1)
-    # Make outDir if does not exist else set to current dir.
-    if args.outdir:
-        absOutDir = os.path.abspath(args.outdir)
-        if not os.path.isdir(args.outdir):
-            os.makedirs(absOutDir)
-        outDir = absOutDir
-    else:
-        outDir = os.getcwd()
-    # Make temp directory
-    tempDir = os.path.join(os.getcwd(), "temp_" + getTimestring())
-    os.makedirs(tempDir)
-    # Set prefix to infile basename if none
-    if not args.prefix:
-        prefix = os.path.splitext(os.path.basename(args.infile))[0]
-    else:
-        prefix = args.prefix
-    # Create outfile paths
-    outfile = prefix + "_tsplit_output.fasta"
-    outpath = os.path.join(outDir, outfile)
-    # Return full path to output file and temp directory
-    return outpath, tempDir
-
-## Fix: Do not load fasta into genome!
-def importFasta2List(file):
-    """Load elements from multifasta file. Check that seq IDs are unique."""
-    # Read in elements from multifasta file, convert seqrecord iterator to list
-    records = list(SeqIO.parse(file, "fasta"))
-    # Check names are unique
-    checkUniqueID(records)
-    # If unique, return record list.
-    return records
-
-
 class Error (Exception):
     pass
 
@@ -986,20 +947,7 @@ def getTIRs(elements=None, flankdist=2, minid=80, minterm=10,
             manageTemp(tempPath=tempFasta, scrub=True)
             manageTemp(tempPath=tempCoords, scrub=True)
 
-## Fix: Do not load fasta into genome!
-def segWrite(outfile, segs=None):
-    """
-    Take a generator object yielding seqrecords and
-    write each to outfile in fasta format.
-    """
-    seqcount = 0
-    if segs:
-        with open(outfile, "w") as handle:
-            for seq in segs:
-                seqcount += 1
-                SeqIO.write(seq, handle, "fasta")
-        if seqcount == 0:
-            os.remove(outfile)
+
 
 # gffTup fields: 'model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'score','bias', 'evalue', 'leftHit' , 'rightHit', 'eleSeq'
 # Types: "TIR_Element", "orphan_TIR"

@@ -18,7 +18,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
-    "Natural Language :: English",
     "Topic :: Scientific/Engineering :: Bio-Informatics",
     "License :: OSI Approved :: MIT License",
     ]
@@ -35,7 +34,7 @@ documentation = "https://github.com/adamtaranto/tirmite"
 repository = "https://github.com/adamtaranto/tirmite"
 
 [project.scripts]
-my-script = "alloallo.module:function"
+#my-script = "package.module:function"
 tirmite = "tirmite.cmd_tirmite:main"
 tsplit-TIR = "tirmite.cmd_TIR:main"
 
@@ -44,7 +43,8 @@ tsplit-TIR = "tirmite.cmd_TIR:main"
 # https://setuptools.pypa.io/en/latest/userguide/pyproject_config.html
 # https://github.com/TezRomacH/python-package-template/blob/master/pyproject.toml
 # https://martin-thoma.com/pyproject-toml/
-# https://godatadriven.com/blog/a-practical-guide-to-setuptools-and-pyproject-toml/
+# https://godatadriven.com/blog/a-practical-guide-to-setuptools-and-pyproject-toml/ # Great guide!
 # https://packaging-guide.openastronomy.org/en/latest/minimal.html
 # https://setuptools.pypa.io/en/latest/userguide/declarative_config.html
 # https://towardsdatascience.com/setuptools-python-571e7d5500f2#:~:text=be%20more%20appropriate.-,The%20setup.,as%20the%20command%20line%20interface.
+# https://python-poetry.org/docs/pyproject/

@@ -4,7 +4,10 @@ from shlex import quote
 
 
 def cleanID(s):
-    """Remove non alphanumeric characters from string. Replace whitespace with underscores."""
+    """
+    Remove non alphanumeric characters from string.
+    Replace whitespace with underscores.
+    """
     s = re.sub(r"[^\w\s]", "", s)
     s = re.sub(r"\s+", "_", s)
     return s
@@ -13,7 +16,9 @@ def cleanID(s):
 def _hmmbuild_command(
     exePath="hmmbuild", modelname=None, cores=None, inAlign=None, outdir=None
 ):
-    """Construct the hmmbuild command"""
+    """
+    Construct the hmmbuild command.
+    """
     # Make model name compliant
     modelname = cleanID(modelname)
     # Check for outdir
@@ -44,7 +49,9 @@ def _hmmbuild_command(
 
 
 def _hmmpress_command(exePath="hmmpress", hmmfile=None):
-    """Construct the hmmbuild command"""
+    """
+    Construct the hmmbuild command.
+    """
     # Base command
     command = quote(exePath) + " -f " + quote(os.path.abspath(hmmfile))
     return command
@@ -60,7 +67,9 @@ def _nhmmer_command(
     cores=None,
     outdir=None,
 ):
-    """Construct the nhmmer command"""
+    """
+    Construct the nhmmer command
+    """
     # Get model hmm basename
     model_base = os.path.splitext(os.path.basename(modelPath))[0]
     # Check for outdir
@@ -92,4 +101,3 @@ def _nhmmer_command(
         + quote(os.path.abspath(genome))
     )
     return command, outdir
-

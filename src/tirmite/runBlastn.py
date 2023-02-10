@@ -1,9 +1,9 @@
-import os
-import sys
-import shutil
-import tempfile
-import subprocess
 from shlex import quote
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
 
 
 class Error(Exception):

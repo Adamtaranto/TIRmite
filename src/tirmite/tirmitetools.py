@@ -1,20 +1,20 @@
-import re
-import os
-import sys
-import glob
-import shutil
-import tempfile
-import subprocess
-import pandas as pd
-from Bio import SeqIO
 from Bio import AlignIO
-from datetime import datetime
+from Bio import SeqIO
 from collections import Counter
 from collections import namedtuple
+from datetime import datetime
 from operator import attrgetter
+from pymummer import coords_file, nucmer  # alignment
 from tirmite.hmmer_wrappers import _hmmbuild_command, _hmmpress_command, _nhmmer_command
 from tirmite.runBlastn import makeBlast, run_blast
-from pymummer import coords_file, alignment, nucmer
+import glob
+import os
+import pandas as pd
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
 
 
 class Error(Exception):
@@ -22,8 +22,10 @@ class Error(Exception):
 
 
 def dochecks(args):
-    """Housekeeping tasks:
-    Create output files/dirs and temp dirs as required."""
+    """
+    Housekeeping tasks:
+    Create output files/dirs and temp dirs as required.
+    """
     # Check that specified files exist
     isfile(args.genome)
     if args.hmmFile:
@@ -58,15 +60,19 @@ def decode(x):
 
 
 def cleanID(s):
-    """Remove non alphanumeric characters from string.
-    Replace whitespace with underscores."""
+    """
+    Remove non alphanumeric characters from string.
+    Replace whitespace with underscores.
+    """
     s = re.sub(r"[^\w\s]", "", s)
     s = re.sub(r"\s+", "_", s)
     return s
 
 
 def _write_script(cmds, script):
-    """Write commands into a bash script"""
+    """
+    Write commands into a bash script
+    """
     f = open(script, "w+")
     for cmd in cmds:
         print(cmd, file=f)
@@ -74,7 +80,9 @@ def _write_script(cmds, script):
 
 
 def syscall(cmd, verbose=False):
-    """Manage error handling when making syscalls"""
+    """
+    Manage error handling when making syscalls
+    """
     if verbose:
         print("Running command:", cmd, flush=True)
     try:
@@ -94,7 +102,9 @@ def syscall(cmd, verbose=False):
 
 
 def run_cmd(cmds, verbose=False, tempDir=None, keeptemp=False):
-    """Write and excute HMMER script"""
+    """
+    Write and excute HMMER script
+    """
     if not tempDir:
         tempDir = os.getcwd()
     tmpdir = tempfile.mkdtemp(prefix="tmp.", dir=tempDir)
@@ -115,7 +125,9 @@ def isfile(path):
 
 
 def getTimestring():
-    """Return int only string of current datetime with milliseconds."""
+    """
+    Return int only string of current datetime with milliseconds.
+    """
     (dt, micro) = datetime.utcnow().strftime("%Y%m%d%H%M%S.%f").split(".")
     dt = "%s%03d" % (dt, int(micro) / 1000)
     return dt
@@ -123,7 +135,9 @@ def getTimestring():
 
 ## Fix: Do not load fasta into genome!
 def checkUniqueID(records):
-    """Check that IDs for input elements are unique."""
+    """
+    Check that IDs for input elements are unique.
+    """
     seqIDs = [records[x].id for x in range(len(records))]
     IDcounts = Counter(seqIDs)
     duplicates = [k for k, v in IDcounts.items() if v > 1]
@@ -137,7 +151,9 @@ def checkUniqueID(records):
 
 ## Fix: Do not load fasta into genome!
 def manageTemp(record=None, tempPath=None, scrub=False):
-    """Create single sequence fasta files or scrub temp files."""
+    """
+    Create single sequence fasta files or scrub temp files.
+    """
     if scrub and tempPath:
         try:
             os.remove(tempPath)
@@ -150,7 +166,9 @@ def manageTemp(record=None, tempPath=None, scrub=False):
 
 ## Fix: Do not load fasta into genome!
 def importFasta(file):
-    """Load elements from multifasta file. Check that seq IDs are unique."""
+    """
+    Load elements from multifasta file. Check that seq IDs are unique.
+    """
     # Read in elements from multifasta file, convert seqrecord iterator to list
     records = list(SeqIO.parse(file, "fasta"))
     # Check names are unique
@@ -215,7 +233,9 @@ def cmdScript(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
 
 
 def convertAlign(alnDir=None, alnFile=None, inFormat="fasta", tempDir=None):
-    """ Convert input alignments into Stockholm format."""
+    """
+    Convert input alignments into Stockholm format.
+    """
     # Construct out model path
     if tempDir:
         alnOutDir = os.path.join(os.path.abspath(tempDir), "temp_aln")
@@ -249,7 +269,9 @@ def convertAlign(alnDir=None, alnFile=None, inFormat="fasta", tempDir=None):
 
 
 def import_nhmmer(infile=None, hitTable=None, prefix=None):
-    """ Read nhmmer tab files to pandas dataframe."""
+    """
+    Read nhmmer tab files to pandas dataframe.
+    """
     hitRecords = list()
     with open(infile, "rU") as f:
         for line in f.readlines():
@@ -318,7 +340,9 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
 
 
 def import_BED(infile=None, hitTable=None, prefix=None):
-    """ Read TIR bedfile to pandas dataframe."""
+    """
+    Read TIR bedfile to pandas dataframe.
+    """
     # Format: Chrm, start, end, name, evalue, strand
     hitRecords = list()
     with open(infile, "rU") as f:
@@ -401,15 +425,18 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
 
 
 def filterHitsEval(maxeval=None, hitTable=None):
-    """ Filter hitTable df to remove hits with e-value in excess of --maxeval.
+    """
+    Filter hitTable df to remove hits with e-value in excess of --maxeval.
     """
     hitTable = hitTable.ix[((hitTable["evalue"].astype(float)) < float(maxeval))]
     return hitTable
 
 
 def table2dict(hitTable):
-    """ Convert pandas dataframe of nhmmer hits into dict[model][chrom]
-        and index[model] = [hitlist].withCandidates and pairing status"""
+    """
+    Convert pandas dataframe of nhmmer hits into dict[model][chrom]
+    and index[model] = [hitlist].withCandidates and pairing status.
+    """
     # Set up empty dict
     hitsDict = dict()
     hitIndex = dict()
@@ -443,7 +470,9 @@ def table2dict(hitTable):
 
 
 def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
-    """Populate hitIndex with pairing candidates"""
+    """
+    Populate hitIndex with pairing candidates
+    """
     if not maxDist:
         maxDist = float("inf")
     for hmm in hitIndex.keys():
@@ -481,9 +510,11 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
 
 
 def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
-    """Provided with a hitID (ref) and the ID of its nearest unpaired
+    """
+    Provided with a hitID (ref) and the ID of its nearest unpaired
     candidate partner (mate), check if ref is also the nearest unpaired
-    partner to mate."""
+    partner to mate.
+    """
     # Init result trackers
     found = None
     mateFUP = None
@@ -509,8 +540,10 @@ def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
 
 
 def getPairs(hitIndex=None, paired=None):
-    """Loop over all hit for all models and search for reciprocity within
-        2 degrees of the top unpaired candidate for each unpaired hit."""
+    """
+    Loop over all hit for all models and search for reciprocity within
+    2 degrees of the top unpaired candidate for each unpaired hit.
+    """
     # If pair tracker not given
     if not paired:
         # Create dict of empty lists, keyed by model name
@@ -549,7 +582,9 @@ def getPairs(hitIndex=None, paired=None):
 
 
 def countUnpaired(hitIndex):
-    """How many hits are still unpaired across all models."""
+    """
+    How many hits are still unpaired across all models.
+    """
     count = 0
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
@@ -559,7 +594,9 @@ def countUnpaired(hitIndex):
 
 
 def listunpaired(hitIndex):
-    """Return list of all unpaired hit IDs"""
+    """
+    Return list of all unpaired hit IDs.
+    """
     unpaired = list()
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
@@ -569,8 +606,10 @@ def listunpaired(hitIndex):
 
 
 def iterateGetPairs(hitIndex, stableReps=0):
-    """ Iterate pairing procedure for all models until no unpaired hits remain or
-        number of reps without change is exceeded."""
+    """
+    Iterate pairing procedure for all models until no unpaired hits remain or
+    number of reps without change is exceeded.
+    """
     # Init stable repeat counter
     reps = 0
     # Run initial pairing
@@ -597,7 +636,9 @@ def iterateGetPairs(hitIndex, stableReps=0):
 
 ## Fix: Do not load fasta into genome!
 def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=None):
-    """ For significant hits in model, compose seqrecords."""
+    """
+    For significant hits in model, compose seqrecords.
+    """
     # Note: Padding not yet enabled for TIR extraction.
     hitcount = 0
     seqList = list()
@@ -644,7 +685,9 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=No
 def writeTIRs(
     outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None, padlen=None
 ):
-    """ Write all hits per Model to a multifasta in the outdir"""
+    """
+    Write all hits per Model to a multifasta in the outdir
+    """
     # Note: Padding not yet enabled for TIR extraction.
     if prefix:
         prefix = cleanID(prefix) + "_"
@@ -679,15 +722,19 @@ def writeTIRs(
 
 
 def flipTIRs(x, y):
-    """ Sort hits into left and right TIRs."""
+    """
+    Sort hits into left and right TIRs.
+    """
     left2right = sorted([x, y], key=attrgetter("hitStart", "hitEnd"))
     return (left2right[0], left2right[1])
 
 
 ## Fix: Do not load fasta into genome!
 def fetchElements(paired=None, hitIndex=None, genome=None):
-    """ Extract complete sequence of paired elements,
-        asign names and child TIRs for use in seq and GFF reporting."""
+    """
+    Extract complete sequence of paired elements,
+    asign names and child TIRs for use in seq and GFF reporting.
+    """
     TIRelements = dict()
     gffTup = namedtuple(
         "gffElem",
@@ -751,8 +798,10 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
 ## Probably fine, but could just store coords in eledict (from fetchElements)
 ## and fetch from index at time of writing.
 def writeElements(outDir, eleDict=None, prefix=None):
-    """ Takes dict of extracted sequences keyed by model.
-    Writes to fasta by model."""
+    """
+    Takes dict of extracted sequences keyed by model.
+    Writes to fasta by model.
+    """
     if prefix:
         prefix = cleanID(prefix) + "_"
     else:
@@ -769,7 +818,9 @@ def writeElements(outDir, eleDict=None, prefix=None):
 def writePairedTIRs(
     outDir=None, paired=None, hitIndex=None, genome=None, prefix=None, padlen=None
 ):
-    """ Extract TIR sequence of paired hits, write to fasta."""
+    """
+    Extract TIR sequence of paired hits, write to fasta.
+    """
     # Note: Sequence padding not yet enabled for paired TIRs
     TIRpairs = dict()
     gffTup = namedtuple(
@@ -895,8 +946,10 @@ def writePairedTIRs(
 
 
 def fetchUnpaired(hitIndex=None):
-    """    Take list of unpaired hit IDs from listunpaired(),
-        Compose TIR gff3 record. """
+    """
+    Take list of unpaired hit IDs from listunpaired(),
+    Compose TIR gff3 record. 
+    """
     orphans = list()
     gffTup = namedtuple(
         "gffElem",
@@ -943,6 +996,7 @@ def gffWrite(
     suppressMeta=False,
     prefix=None,
 ):
+
     """
     Write predicted paired-TIR features (i.e. MITEs) from fetchElements()
     as GFF3. Optionally, write child TIRS and orphan TIRs to GFF3 also.
@@ -1107,6 +1161,7 @@ def getTIRs(
     alignTool="nucmer",
     verbose=False,
 ):
+
     """
     Align elements to self and attempt to identify TIRs.
     Optionally attempt to construct synthetic MITEs from TIRs.
@@ -1210,6 +1265,7 @@ def getTIRs(
 # gffTup fields: 'model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'score','bias', 'evalue', 'leftHit' , 'rightHit', 'eleSeq'
 # Types: "TIR_Element", "orphan_TIR"
 
+
 """
 # Notes:
 ## nhmmer output format (Warning: Fields delimited by random number of spaces. Convert to tabs.)
@@ -1250,7 +1306,9 @@ hmmalign -o outfile.aln \
 --outformat Stockholm \ #[Stockholm, Pfam, A2M, PSIBLAST]
 <hmmfile> <seqfile>
 
+
 """
+
 
 """
 # Useful attributes of pymummer objects:
@@ -1272,4 +1330,5 @@ hmmalign -o outfile.aln \
 #coord.reverse_reference()
 #coord.qry_coords()
 #coord.ref_coords()
+
 """

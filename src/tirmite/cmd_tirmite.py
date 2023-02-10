@@ -2,12 +2,12 @@
 # -*- coding: UTF-8 -*-
 
 from tirmite import __version__
-import tirmite.tirmitetools as tirmite
-import os
-import sys
-import glob
-import shutil
 import argparse
+import glob
+import os
+import shutil
+import sys
+import tirmite.tirmitetools as tirmite
 
 
 def log(*args, **kwargs):

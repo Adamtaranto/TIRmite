@@ -1,15 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 
+from tirmite.tirmitetools import checkUniqueID, getTIRs
 import argparse
 import shutil
-from tirmite.tirmitetools import checkUniqueID, getTIRs
 
 
 def mainArgs():
     parser = argparse.ArgumentParser(
-        description="Extract terminal repeats from retrotransposons (LTRs) or DNA transposons (TIRs). \
-                                            Optionally, compose synthetic MITES from complete DNA transposons.",
+        description="Extract terminal repeats from DNA transposons (TIRs). \
+                    Optionally, compose synthetic MITES from complete DNA transposons.",
         prog="exterminate",
     )
     parser.add_argument(

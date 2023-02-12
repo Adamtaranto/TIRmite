@@ -17,6 +17,7 @@ import sys
 import tempfile
 
 
+# Note sure why I did this. Test removal.
 class Error(Exception):
     pass
 
@@ -133,7 +134,7 @@ def getTimestring():
     return dt
 
 
-## Fix: Do not load fasta into genome!
+# Fix: Do not load fasta into genome!
 def checkUniqueID(records):
     """
     Check that IDs for input elements are unique.
@@ -149,7 +150,7 @@ def checkUniqueID(records):
         pass
 
 
-## Fix: Do not load fasta into genome!
+# Fix: Do not load fasta into genome!
 def manageTemp(record=None, tempPath=None, scrub=False):
     """
     Create single sequence fasta files or scrub temp files.
@@ -164,7 +165,7 @@ def manageTemp(record=None, tempPath=None, scrub=False):
             SeqIO.write(record, f, "fasta")
 
 
-## Fix: Do not load fasta into genome!
+# Fix: Do not load fasta into genome!
 def importFasta(file):
     """
     Load elements from multifasta file. Check that seq IDs are unique.
@@ -634,7 +635,7 @@ def iterateGetPairs(hitIndex, stableReps=0):
     return hitIndex, paired, unpaired
 
 
-## Fix: Do not load fasta into genome!
+# Fix: Do not load fasta into genome!
 def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=None):
     """
     For significant hits in model, compose seqrecords.
@@ -681,7 +682,7 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=No
     return seqList, hitcount
 
 
-## Fix: Do not load fasta into genome!
+# Fix: Do not load fasta into genome!
 def writeTIRs(
     outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None, padlen=None
 ):
@@ -729,7 +730,7 @@ def flipTIRs(x, y):
     return (left2right[0], left2right[1])
 
 
-## Fix: Do not load fasta into genome!
+# Fix: Do not load fasta into genome!
 def fetchElements(paired=None, hitIndex=None, genome=None):
     """
     Extract complete sequence of paired elements,
@@ -794,7 +795,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
     return TIRelements
 
 
-## Fix: Do not load fasta into genome!
+# Fix: Do not load fasta into genome!
 ## Probably fine, but could just store coords in eledict (from fetchElements)
 ## and fetch from index at time of writing.
 def writeElements(outDir, eleDict=None, prefix=None):
@@ -814,7 +815,7 @@ def writeElements(outDir, eleDict=None, prefix=None):
                 SeqIO.write(element.seq, handle, "fasta")
 
 
-## Fix: Do not load fasta into genome!
+# Fix: Do not load fasta into genome!
 def writePairedTIRs(
     outDir=None, paired=None, hitIndex=None, genome=None, prefix=None, padlen=None
 ):

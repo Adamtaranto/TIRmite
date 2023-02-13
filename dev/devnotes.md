@@ -12,6 +12,7 @@ Update stderr/stdout reports
 Update check for existing files methods
 Add progress reporting
 Pair with kd tree
+
 ## Package structure
 Clean up __init__.py files
 Split functions into modules

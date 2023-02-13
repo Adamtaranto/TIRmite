@@ -1,12 +1,13 @@
 # Code updates 
 
-1. Re-structure package and split functions into modules
-2. Use bedtools index to store seq on disk
+1. Re-structure package and split functions into modules + make central wrapper tools module
+2. Use bedtools index to store seq on disk (minimise time for new seqrecords in memory)
 3. Add docstrings 
 4. Add logging
 5. Add progress reporting
 6. Update check for existing files methods
 7. Change entry points to use sub-commands
+8. Fix duplicate gffline when hits from BED bug
 
 # Dev tests
 - Set up devcontainer for codespaces

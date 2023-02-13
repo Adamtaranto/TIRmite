@@ -7,6 +7,8 @@ import glob
 import os
 import shutil
 import sys
+from tirmite.utils import dochecks, importFasta
+from tirmite.hmmer_wrappers import cmdScriptHMMER
 import tirmite.tirmitetools as tirmite
 
 
@@ -213,12 +215,12 @@ def main():
         log("You may need to install them to use all features.")
 
     # Create output and temp paths as required
-    outDir, tempDir = tirmite.dochecks(args)
+    outDir, tempDir = dochecks(args)
 
     # Load reference genome
     log("Log: Loading genome from: %s " % args.genome)
     ## Fix: Do not load fasta into genome!
-    genome = tirmite.importFasta(args.genome)
+    genome = importFasta(args.genome)
 
     # Import custom TIR hits from BEDfile.
     if args.pairbed:
@@ -291,7 +293,7 @@ def main():
                 sys.exit(1)
 
         # Compose and run HMMER commands
-        cmds, resultDir, hmmDB = tirmite.cmdScript(
+        cmds, resultDir, hmmDB = cmdScriptHMMER(
             hmmDir=args.hmmDir,
             hmmFile=args.hmmFile,
             alnDir=stockholmDir,

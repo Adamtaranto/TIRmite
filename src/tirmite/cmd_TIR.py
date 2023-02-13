@@ -1,9 +1,15 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 
-from tirmite.tirmitetools import checkUniqueID, getTIRs
+from Bio import SeqIO
+from pymummer import coords_file, nucmer  # alignment
+from tirmite.runBlastn import makeBlast
+from tirmite.wrapping import run_cmd
+from tirmite.utils import manageTemp, cleanID, getTimestring, checkUniqueID
 import argparse
+import os
 import shutil
+import sys
 
 
 def mainArgs():
@@ -161,6 +167,120 @@ def importFasta2List(file):
     checkUniqueID(records)
     # If unique, return record list.
     return records
+
+
+def getTIRs(
+    elements=None,
+    flankdist=2,
+    minid=80,
+    minterm=10,
+    minseed=5,
+    diagfactor=0.3,
+    mites=False,
+    report="split",
+    temp=None,
+    keeptemp=False,
+    alignTool="nucmer",
+    verbose=False,
+):
+    """
+    Align elements to self and attempt to identify TIRs.
+    Optionally attempt to construct synthetic MITEs from TIRs.
+    """
+    # Set temp directory to cwd if none.
+    if not temp:
+        temp = os.getcwd()
+    # For each candidate TIR element
+    for rec in elements:
+        # Create temp paths for single element fasta and alignment coords
+        tempFasta = os.path.join(temp, cleanID(rec.id) + ".fasta")
+        tempCoords = tempFasta + ".coords"
+        # Write current element to single fasta
+        manageTemp(record=rec, tempPath=tempFasta, scrub=False)
+        # Align to self with nucmer
+        if alignTool == "nucmer":
+            # Compose Nucmer script for current element vs self
+            runner = nucmer.Runner(
+                tempFasta,
+                tempFasta,
+                tempCoords,
+                min_id=minid,
+                min_length=minseed,
+                diagfactor=diagfactor,
+                mincluster=minterm,
+                breaklen=200,
+                maxmatch=True,
+                simplify=False,
+            )
+            # Execute nucmer
+            runner.run()
+        elif alignTool == "blastn":
+            # Alternatively, use blastn as search tool and write nucmer.coords-like output.
+            cmds = makeBlast(seq=tempFasta, outfile=tempCoords, pid=minid)
+            run_cmd(cmds, verbose=verbose)
+        # Import coords file to iterator object
+        file_reader = coords_file.reader(tempCoords)
+        # Exclude hits to self. Also converts iterator output to stable list
+        alignments = [hit for hit in file_reader if not hit.is_self_hit()]
+        # Filter hits less than min length (Done internally for nucmer, not blastn.)
+        alignments = [
+            hit for hit in alignments if hit.ref_end - hit.ref_start >= minterm
+        ]
+        # Filter for hits on same strand i.e. tandem repeats / LTRs
+        alignments = [hit for hit in alignments if not hit.on_same_strand()]
+        # Filter for 5' repeats which begin within x bases of element start
+        alignments = [hit for hit in alignments if hit.ref_start <= flankdist]
+        # Scrub overlappying ref / query segments, and also complementary
+        # 3' to 5' flank hits
+        alignments = [hit for hit in alignments if hit.ref_end < hit.qry_end]
+        # Sort largest to smallest dist between end of ref (subject) and start
+        # of query (hit)
+        # x.qry_end - x.ref_end = 5'end of right TIR - 3' end of left
+        # TIR = length of internal segment
+        # TIR pair with smallest internal segment (longest TIRs) is first in list.
+        alignments = sorted(
+            alignments, key=lambda x: (x.qry_end - x.ref_end), reverse=False
+        )
+        # If alignments exist after filtering report features using alignment
+        # pair with largest internal segment i.e. first element in sorted list.
+        if alignments:
+            if verbose:
+                [print(x) for x in alignments]
+            if report in ["split", "external", "all"]:
+                # yield TIR slice - append "_TIR"
+                extSeg = rec[alignments[0].ref_start : alignments[0].ref_end + 1]
+                extSeg.id = extSeg.id + "_TIR"
+                extSeg.name = extSeg.id
+                extSeg.description = "[" + rec.id + " TIR segment]"
+                yield extSeg
+            if report in ["split", "internal", "all"]:
+                # yield internal slice - append "_I"
+                intSeg = rec[alignments[0].ref_end : alignments[0].qry_end + 1]
+                intSeg.id = intSeg.id + "_I"
+                intSeg.name = intSeg.id
+                intSeg.description = "[" + rec.id + " internal segment]"
+                yield intSeg
+            if report == "all":
+                yield rec
+            if mites:
+                # Assemble TIRs into hypothetical MITEs
+                synMITE = (
+                    rec[alignments[0].ref_start : alignments[0].ref_end + 1]
+                    + rec[alignments[0].qry_end : alignments[0].qry_start + 1]
+                )
+                synMITE.id = synMITE.id + "_synMITE"
+                synMITE.name = synMITE.id
+                synMITE.description = (
+                    "[Synthetic MITE constructed from " + rec.id + " TIRs]"
+                )
+                yield synMITE
+        else:
+            # If alignment list empty after filtering print alert and continue
+            print("No TIRs found for candidate element: %s" % rec.id)
+        # Scrub single fasta and coords file for current element.
+        if not keeptemp:
+            manageTemp(tempPath=tempFasta, scrub=True)
+            manageTemp(tempPath=tempCoords, scrub=True)
 
 
 ## Fix: Do not load fasta into genome!

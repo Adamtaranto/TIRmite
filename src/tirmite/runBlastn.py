@@ -1,49 +1,4 @@
 from shlex import quote
-import os
-import shutil
-import subprocess
-import sys
-import tempfile
-
-
-class Error(Exception):
-    pass
-
-
-def decode(x):
-    try:
-        s = x.decode()
-    except:
-        return x
-    return s
-
-
-def _write_script(cmds, script):
-    """Write commands into a bash script"""
-    f = open(script, "w+")
-    for cmd in cmds:
-        print(cmd, file=f)
-    f.close()
-
-
-def syscall(cmd, verbose=False):
-    """Manage error handling when making syscalls"""
-    if verbose:
-        print("Running command:", cmd, flush=True)
-    try:
-        output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
-    except subprocess.CalledProcessError as error:
-        print(
-            "The following command failed with exit code",
-            error.returncode,
-            file=sys.stderr,
-        )
-        print(cmd, file=sys.stderr)
-        print("\nThe output was:\n", file=sys.stderr)
-        print(error.output.decode(), file=sys.stderr)
-        raise Error("Error running command:", cmd)
-    if verbose:
-        print(decode(output))
 
 
 def makeBlast(seq=None, outfile=None, pid=60):
@@ -58,18 +13,6 @@ def makeBlast(seq=None, outfile=None, pid=60):
         + str(pid)
     )
     return [cmd]
-
-
-def run_blast(cmds, verbose=False):
-    """Write and excute HMMER script"""
-    tmpdir = tempfile.mkdtemp(prefix="tmp.", dir=os.getcwd())
-    original_dir = os.getcwd()
-    os.chdir(tmpdir)
-    script = "run_jobs.sh"
-    _write_script(cmds, script)
-    syscall("bash " + script, verbose=verbose)
-    os.chdir(original_dir)
-    shutil.rmtree(tmpdir)
 
 
 """
@@ -89,4 +32,3 @@ slen			[LEN Q] Length of the query sequence
 qframe sframe	[FRM] 	Reading frame for the reference AND query sequence alignments respectively 
 qseqid sseqid	[TAGS] 	The reference AND query FastA IDs respectively. All output coordinates and lengths are relative to the forward strand of the reference DNA sequence.
 """
-

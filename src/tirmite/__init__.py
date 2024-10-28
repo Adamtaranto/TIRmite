@@ -854,9 +854,11 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                         str(rightHit.hitEnd),
                     ]
                 )
-                + " len=" + str(rightHit.hitEnd - leftHit.hitStart) + "]"
+                + " len="
+                + str(rightHit.hitEnd - leftHit.hitStart)
+                + "]"
             )
-            
+
             TIRelement = gffTup(
                 model,
                 leftHit.target,
@@ -870,7 +872,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                 eleSeq,
                 "NA",
             )
-            
+
             TIRelements[model].append(TIRelement)
     # Return list of element info tuples
     return TIRelements

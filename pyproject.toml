@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tirmite"
+description = "Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DNA-Transposons."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Adam Taranto", email = "adam.p.taranto@gmail.com" }
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: MIT License",
+]
+
+dependencies = ["pandas>=0.20.3", 'biopython>=1.70', "pymummer>=0.10.3",]
+
+dynamic = ["version"]
+
+[project.urls]
+homepage = "https://github.com/adamtaranto/TIRmite"
+documentation = "https://github.com/adamtaranto/TIRmite"
+repository = "https://github.com/adamtaranto/TIRmite"
+
+[project.scripts]
+tirmite="tirmite.cmd_tirmite:main"
+tsplit-LTR="tirmite.cmd_LTR:main"
+tsplit-TIR="tirmite.cmd_TIR:main"
+
+[tool.hatch.build]
+source = "src"
+
+exclude = [
+    "environment.yml",
+    ".github",
+    ".vscode",
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.vcs]
+tag-pattern = "v*"  # Git tags starting with 'v' will be used for versioning
+fallback-version = "0.0.0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/tirmite/_version.py"
+
+[project.optional-dependencies]
+tests = ["pytest"]

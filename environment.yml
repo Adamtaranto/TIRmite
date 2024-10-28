@@ -1,0 +1,15 @@
+name: tirmite
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python 3.12
+  - "pymummer>=0.10.3"
+  - hmmer
+  - blast
+  - pip
+  - pip:
+      - "biopython>=1.70"
+      - "pandas>=0.20.3"
+      - hatch
+      - pytest

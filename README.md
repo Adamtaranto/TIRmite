@@ -65,7 +65,7 @@ Three classes of output are produced:
 
 ### Installing TIRmite
 
-TIRmite requires Python >= v3.6
+TIRmite requires Python >= v3.8
 
 Dependencies:  
   - TIR-pHMM build and search

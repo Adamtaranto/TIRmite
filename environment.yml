@@ -4,7 +4,9 @@ channels:
   - bioconda
 dependencies:
   - python 3.12
-  - "pymummer>=0.10.3" 
+  - "pymummer>=0.10.3"
+  - hmmer
+  - blast
   - pip
   - pip:
       - "biopython>=1.70"

@@ -3,6 +3,13 @@ data/
 temp/
 test/
 pkg-mgt/
+devnotes/
+
+# Mac stuff
+.DS_Store
+
+# Versioning
+src/tirmite/_version.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

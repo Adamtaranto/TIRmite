@@ -298,7 +298,7 @@ def convertAlign(alnDir=None, alnFile=None, inFormat="fasta", tempDir=None):
         # Make outpath
         outAln = os.path.join(alnOutDir, inBase + ".stockholm")
         # Open files
-        input_handle = open(infile, "rU")
+        input_handle = open(infile, "r")
         output_handle = open(outAln, "w")
         # Read alignment
         alignments = AlignIO.parse(input_handle, inFormat)
@@ -313,7 +313,7 @@ def convertAlign(alnDir=None, alnFile=None, inFormat="fasta", tempDir=None):
 def import_nhmmer(infile=None, hitTable=None, prefix=None):
     """Read nhmmer tab files to pandas dataframe."""
     hitRecords = list()
-    with open(infile, "rU") as f:
+    with open(infile, "r") as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith("#"):
@@ -363,7 +363,7 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
         "hmmStart",
         "hmmEnd",
     ]
-    df = df.ix[:, cols]
+    df = df.loc[:, cols]
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
@@ -383,7 +383,7 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     """Read TIR bedfile to pandas dataframe."""
     # Format: Chrm, start, end, name, evalue, strand
     hitRecords = list()
-    with open(infile, "rU") as f:
+    with open(infile, "r") as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith("#"):
@@ -417,7 +417,7 @@ def import_BED(infile=None, hitTable=None, prefix=None):
         "hmmStart",
         "hmmEnd",
     ]
-    df = df.ix[:, cols]
+    df = df.loc[:, cols]
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
@@ -437,7 +437,7 @@ def import_mapped(infile=None, tirName="refTIR", hitTable=None, prefix=None):
     """Read bowtie2 mapped TIR locations from bedfile to pandas dataframe."""
     print("Bowtie2 mapped reads will not be filtered on e-value.")
     hitRecords = list()
-    with open(infile, "rU") as f:
+    with open(infile, "r") as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith("#"):
@@ -487,7 +487,7 @@ def import_mapped(infile=None, tirName="refTIR", hitTable=None, prefix=None):
         "hmmStart",
         "hmmEnd",
     ]
-    df = df.ix[:, cols]
+    df = df.loc[:, cols]
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
@@ -508,7 +508,7 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
     for hmm in glob.glob(os.path.join(hmmDB, "*.hmm")):
         hmmLen = None
         hmmName = None
-        with open(hmm, "rU") as f:
+        with open(hmm, "r") as f:
             for line in f.readlines():
                 li = line.strip()
                 if li.startswith("LENG"):
@@ -519,7 +519,7 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
                 modelLens[hmmName] = hmmLen
     for model in modelLens.keys():
         minlen = modelLens[model] * mincov
-        hitTable = hitTable.ix[
+        hitTable = hitTable.loc[
             ~(
                 (hitTable["model"] == model)
                 & (
@@ -534,7 +534,7 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
 
 def filterHitsEval(maxeval=None, hitTable=None):
     """Filter hitTable df to remove hits with e-value in excess of --maxeval."""
-    hitTable = hitTable.ix[((hitTable["evalue"].astype(float)) < float(maxeval))]
+    hitTable = hitTable.loc[((hitTable["evalue"].astype(float)) < float(maxeval))]
     return hitTable
 
 
@@ -854,9 +854,9 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                         str(rightHit.hitEnd),
                     ]
                 )
-                + " len="
+                + " len=" + str(rightHit.hitEnd - leftHit.hitStart) + "]"
             )
-            +str(rightHit.hitEnd - leftHit.hitStart) + "]"
+            
             TIRelement = gffTup(
                 model,
                 leftHit.target,
@@ -870,6 +870,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                 eleSeq,
                 "NA",
             )
+            
             TIRelements[model].append(TIRelement)
     # Return list of element info tuples
     return TIRelements

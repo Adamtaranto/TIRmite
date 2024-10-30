@@ -21,11 +21,8 @@ from collections import Counter
 from collections import namedtuple
 from operator import attrgetter
 from .hmmer_wrappers import _hmmbuild_command, _hmmpress_command, _nhmmer_command
-from .bowtie2_wrappers import _bowtie2build_cmd, _bowtie2_cmd, _bam2bed_cmd
 from .runBlastn import makeBlast, run_blast
 from pymummer import coords_file, alignment, nucmer
-
-from tirmite._version import __version__
 
 
 class Error(Exception):
@@ -422,76 +419,6 @@ def import_BED(infile=None, hitTable=None, prefix=None):
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
     # Sort hits by HMM, Chromosome, location, and strand
-    df = df.sort_values(
-        ["model", "target", "hitStart", "hitEnd", "strand"],
-        ascending=[True, True, True, True, True],
-    )
-    # Reindex
-    df = df.reset_index(drop=True)
-    # if prefix:
-    #    df['model'] = str(prefix) + '_' + df['model'].astype(str)
-    return df
-
-
-def import_mapped(infile=None, tirName="refTIR", hitTable=None, prefix=None):
-    """Read bowtie2 mapped TIR locations from bedfile to pandas dataframe."""
-    print("Bowtie2 mapped reads will not be filtered on e-value.")
-    hitRecords = list()
-    with open(infile, "r") as f:
-        for line in f.readlines():
-            li = line.strip()
-            if not li.startswith("#"):
-                li = li.split()
-                if li[3] == "+":
-                    hitRecords.append(
-                        {
-                            "target": str(li[0]),
-                            "model": tirName,
-                            "hmmStart": "NA",
-                            "hmmEnd": "NA",
-                            "hitStart": int(li[1]),
-                            "hitEnd": int(li[2]),
-                            "strand": str(li[3]),
-                            "evalue": 0,
-                            "score": "NA",
-                            "bias": "NA",
-                        }
-                    )
-                elif li[3] == "-":
-                    hitRecords.append(
-                        {
-                            "target": str(li[0]),
-                            "model": tirName,
-                            "hmmStart": "NA",
-                            "hmmEnd": "NA",
-                            "hitStart": int(li[1]),
-                            "hitEnd": int(li[2]),
-                            "strand": str(li[3]),
-                            "evalue": 0,
-                            "score": "NA",
-                            "bias": "NA",
-                        }
-                    )
-    # Convert list of dicts into dataframe
-    df = pd.DataFrame(hitRecords)
-    # Reorder columns
-    cols = [
-        "model",
-        "target",
-        "hitStart",
-        "hitEnd",
-        "strand",
-        "evalue",
-        "score",
-        "bias",
-        "hmmStart",
-        "hmmEnd",
-    ]
-    df = df.loc[:, cols]
-    if hitTable is not None:
-        # If an existing table was passed, concatenate
-        df = pd.concat([df, hitTable], ignore_index=True)
-    # Sort hits by model, Chromosome, location, and strand
     df = df.sort_values(
         ["model", "target", "hitStart", "hitEnd", "strand"],
         ascending=[True, True, True, True, True],

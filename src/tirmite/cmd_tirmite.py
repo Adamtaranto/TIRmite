@@ -1,14 +1,11 @@
-#!/usr/bin/env python
-# -*- coding: UTF-8 -*-
-
-from tirmite import __version__
-import os
-import sys
-import glob
-import shutil
-import tirmite
 import argparse
+import glob
+import os
+import shutil
+import sys
 
+import tirmite
+from tirmite._version import __version__
 
 def log(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)

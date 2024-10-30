@@ -1,6 +1,6 @@
-import re
-import os
 from shlex import quote
+import os
+import re
 
 
 def cleanID(s):

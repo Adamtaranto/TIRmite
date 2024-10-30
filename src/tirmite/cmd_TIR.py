@@ -1,10 +1,7 @@
-#!/usr/bin/env python
-# -*- coding: UTF-8 -*-
-
-import tirmite as tsplit
 import argparse
 import shutil
 
+import tirmite as tsplit
 
 def mainArgs():
     parser = argparse.ArgumentParser(

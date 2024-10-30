@@ -7,6 +7,7 @@ import sys
 import tirmite
 from tirmite._version import __version__
 
+
 def log(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 

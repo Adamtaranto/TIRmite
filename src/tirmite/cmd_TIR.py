@@ -3,6 +3,7 @@ import shutil
 
 import tirmite as tsplit
 
+
 def mainArgs():
     parser = argparse.ArgumentParser(
         description="Extract terminal repeats from retrotransposons (LTRs) or DNA transposons (TIRs). \

@@ -555,7 +555,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                 + str(rightHit.hitEnd - leftHit.hitStart)
                 + "]"
             )
-            
+
             TIRelement = gffTup(
                 model,
                 leftHit.target,

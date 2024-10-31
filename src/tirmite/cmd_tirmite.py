@@ -224,7 +224,7 @@ def main():
     outDir, tempDir = dochecks(args)
 
     # Load reference genome
-    logging.info("Log: Loading genome from: %s " % args.genome)
+    logging.info("Loading genome from: %s " % args.genome)
     genome = importFasta(args.genome)
 
     # Import custom TIR hits from BEDfile.
@@ -237,25 +237,25 @@ def main():
                 shutil.rmtree(tempDir)
             sys.exit(1)
 
-        logging.info("Log: Skipping HMM search. Using custom TIRs from file: %s" % args.pairbed)
+        logging.info("Skipping HMM search. Using custom TIRs from file: %s" % args.pairbed)
 
         # Import hits from BED file
         # Format: Chrm, start, end, name, evalue, strand
         hitTable = None
-        logging.info("Log: Loading custom TIR hits from: %s" % str(args.pairbed))
+        logging.info("Loading custom TIR hits from: %s" % str(args.pairbed))
         hitTable = tirmite.import_BED(
             infile=args.pairbed, hitTable=hitTable, prefix=args.prefix
         )
 
         # Apply hit e-value filters
-        logging.info("Log: Filtering hits with e-value > %s" % str(args.maxeval))
+        logging.info("Filtering hits with e-value > %s" % str(args.maxeval))
         hitCount = len(hitTable.index)
         hitTable = tirmite.filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
         logging.info(
-            "Log: Excluded %s hits on e-value criteria."
+            "Excluded %s hits on e-value criteria."
             % str(hitCount - len(hitTable.index))
         )
-        logging.info("Log: Remaining hits: %s " % str(len(hitTable.index)))
+        logging.info("Remaining hits: %s " % str(len(hitTable.index)))
 
         # Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
         hitsDict, hitIndex = tirmite.table2dict(hitTable)
@@ -269,7 +269,7 @@ def main():
                 genome=genome,
                 padlen=args.padlen,
             )
-            logging.info("Log: Pairing is off. Reporting hits only.")
+            logging.info("Pairing is off. Reporting hits only.")
             # Remove temp directory
             if not args.keeptemp:
                 shutil.rmtree(tempDir)
@@ -298,16 +298,14 @@ def main():
                 sys.exit(1)
 
         # Compose and run HMMER commands
-        cmds, resultDir, hmmDB = tirmite.cmdScript(
+        cmds, resultDir, hmmDB = cmdScriptHMMER(
             hmmDir=args.hmmDir,
             hmmFile=args.hmmFile,
             alnDir=stockholmDir,
             tempDir=tempDir,
             args=args,
         )
-        run_cmd(
-            cmds, verbose=args.verbose, tempDir=tempDir, keeptemp=args.keeptemp
-        )
+        run_cmd(cmds, verbose=args.verbose, tempDir=tempDir, keeptemp=args.keeptemp)
 
         # Die if no hits found
         if not glob.glob(os.path.join(os.path.abspath(resultDir), "*.tab")):

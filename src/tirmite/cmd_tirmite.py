@@ -5,9 +5,12 @@ import os
 import shutil
 import sys
 
-import tirmite
 from tirmite._version import __version__
+from tirmite.hmmer_wrappers import cmdScriptHMMER
 from tirmite.logs import init_logging
+from tirmite.utils import dochecks, importFasta
+from tirmite.wrapping import run_cmd
+import tirmite.tirmitetools as tirmite
 
 
 def mainArgs():
@@ -218,11 +221,11 @@ def main():
         logging.warning("You may need to install them to use all features.")
 
     # Create output and temp paths as required
-    outDir, tempDir = tirmite.dochecks(args)
+    outDir, tempDir = dochecks(args)
 
     # Load reference genome
     logging.info("Log: Loading genome from: %s " % args.genome)
-    genome = tirmite.importFasta(args.genome)
+    genome = importFasta(args.genome)
 
     # Import custom TIR hits from BEDfile.
     if args.pairbed:
@@ -302,7 +305,7 @@ def main():
             tempDir=tempDir,
             args=args,
         )
-        tirmite.run_cmd(
+        run_cmd(
             cmds, verbose=args.verbose, tempDir=tempDir, keeptemp=args.keeptemp
         )
 

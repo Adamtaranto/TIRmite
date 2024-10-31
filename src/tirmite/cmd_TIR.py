@@ -1,14 +1,22 @@
 import argparse
+import logging
 import shutil
 
 import tirmite as tsplit
+from tirmite.logs import init_logging
 
 
 def mainArgs():
     parser = argparse.ArgumentParser(
-        description="Extract terminal repeats from retrotransposons (LTRs) or DNA transposons (TIRs). \
-                                            Optionally, compose synthetic MITES from complete DNA transposons.",
-        prog="exterminate",
+        description="Extract terminal repeats from DNA transposons (TIRs). \
+                    Optionally, compose synthetic MITES from complete DNA transposons.",
+        prog="tsplit",
+    )
+    parser.add_argument(
+        "--loglevel",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set logging level. Default: 'DEBUG'",
     )
     parser.add_argument(
         "-i",
@@ -125,6 +133,9 @@ def main():
     """Do the work."""
     # Get cmd line args
     args = mainArgs()
+    
+    # Set up logging
+    init_logging(loglevel=args.loglevel)
 
     # Check for required programs.
     tools = ["delta-filter", "nucmer", "show-coords"]
@@ -134,13 +145,13 @@ def main():
     for tool in tools:
         missing_tools += missing_tool(tool)
     if missing_tools:
-        print(
+        logging.warning(
             (
                 "WARNING: Some tools required by Exterminate could not be found: "
                 + ", ".join(missing_tools)
             )
         )
-        print("You may need to install them to use all features.")
+        logging.warning("You may need to install them to use all features.")
 
     # Create output paths as required
     outpath, tempdir = tsplit.tSplitchecks(args)

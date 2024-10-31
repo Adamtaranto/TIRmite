@@ -1,10 +1,12 @@
-from Bio import AlignIO
-from Bio import SeqIO
 from collections import namedtuple
 from operator import attrgetter
 import glob
 import os
+
+from Bio import AlignIO
+from Bio import SeqIO
 import pandas as pd
+
 from tirmite.utils import cleanID
 
 
@@ -32,7 +34,7 @@ def convertAlign(alnDir=None, alnFile=None, inFormat="fasta", tempDir=None):
         # Make outpath
         outAln = os.path.join(alnOutDir, inBase + ".stockholm")
         # Open files
-        input_handle = open(infile, "rU")
+        input_handle = open(infile, "r")
         output_handle = open(outAln, "w")
         # Read alignment
         alignments = AlignIO.parse(input_handle, inFormat)
@@ -49,7 +51,7 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
     Read nhmmer tab files to pandas dataframe.
     """
     hitRecords = list()
-    with open(infile, "rU") as f:
+    with open(infile, "r") as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith("#"):
@@ -99,7 +101,7 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
         "hmmStart",
         "hmmEnd",
     ]
-    df = df.ix[:, cols]
+    df = df.loc[:, cols]
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
@@ -121,7 +123,7 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     """
     # Format: Chrm, start, end, name, evalue, strand
     hitRecords = list()
-    with open(infile, "rU") as f:
+    with open(infile, "r") as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith("#"):
@@ -155,7 +157,7 @@ def import_BED(infile=None, hitTable=None, prefix=None):
         "hmmStart",
         "hmmEnd",
     ]
-    df = df.ix[:, cols]
+    df = df.loc[:, cols]
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
@@ -176,7 +178,7 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
     for hmm in glob.glob(os.path.join(hmmDB, "*.hmm")):
         hmmLen = None
         hmmName = None
-        with open(hmm, "rU") as f:
+        with open(hmm, "r") as f:
             for line in f.readlines():
                 li = line.strip()
                 if li.startswith("LENG"):
@@ -187,7 +189,7 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
                 modelLens[hmmName] = hmmLen
     for model in modelLens.keys():
         minlen = modelLens[model] * mincov
-        hitTable = hitTable.ix[
+        hitTable = hitTable.loc[
             ~(
                 (hitTable["model"] == model)
                 & (
@@ -204,7 +206,7 @@ def filterHitsEval(maxeval=None, hitTable=None):
     """
     Filter hitTable df to remove hits with e-value in excess of --maxeval.
     """
-    hitTable = hitTable.ix[((hitTable["evalue"].astype(float)) < float(maxeval))]
+    hitTable = hitTable.loc[((hitTable["evalue"].astype(float)) < float(maxeval))]
     return hitTable
 
 
@@ -924,3 +926,26 @@ def gffWrite(
 
 # gffTup fields: 'model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'score','bias', 'evalue', 'leftHit' , 'rightHit', 'eleSeq'
 # Types: "TIR_Element", "orphan_TIR"
+
+
+"""
+# Useful attributes of pymummer objects:
+[x.ref_start for x in alignments]
+[x.ref_end for x in alignments]
+[x.qry_start for x in alignments]
+[x.qry_end for x in alignments]
+[x.hit_length_ref for x in alignments]
+[x.hit_length_qry for x in alignments]
+[x.percent_identity for x in alignments]
+[x.ref_length for x in alignments]
+[x.qry_length for x in alignments]
+[x.frame for x in alignments]
+[x.ref_name for x in alignments]
+[x.qry_name for x in alignments]
+
+## Don't use these, bizzaro format. Not indexed to 0. Cannot sort as ints.
+#coord.reverse_query()
+#coord.reverse_reference()
+#coord.qry_coords()
+#coord.ref_coords()
+"""

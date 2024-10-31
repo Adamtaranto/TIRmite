@@ -200,7 +200,7 @@ def main():
     """Do the work."""
     # Get cmd line args
     args = mainArgs()
-    
+
     # Set up logging
     init_logging(loglevel=args.loglevel)
 
@@ -234,7 +234,9 @@ def main():
                 shutil.rmtree(tempDir)
             sys.exit(1)
 
-        logging.info("Log: Skipping HMM search. Using custom TIRs from file: %s" % args.pairbed)
+        logging.info(
+            "Log: Skipping HMM search. Using custom TIRs from file: %s" % args.pairbed
+        )
 
         # Import hits from BED file
         # Format: Chrm, start, end, name, evalue, strand

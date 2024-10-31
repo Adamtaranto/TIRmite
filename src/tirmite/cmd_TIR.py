@@ -133,7 +133,7 @@ def main():
     """Do the work."""
     # Get cmd line args
     args = mainArgs()
-    
+
     # Set up logging
     init_logging(loglevel=args.loglevel)
 

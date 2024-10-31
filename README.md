@@ -14,8 +14,6 @@ DNA-Transposons with variable internal sequence composition.
 TIRmite is packaged with *tSplit* a tool for extraction of terminal repeats 
 from complete transposons.
 
-Current version: 1.1.5
-
 # Table of contents
 
 * [About TIRmite](#about-tirmite)
@@ -115,7 +113,7 @@ Test installation.
 ```bash
 # Print version number and exit.
 % tirmite --version
-tirmite 1.1.5
+tirmite 1.1.6
 
 # Get usage information
 % tirmite --help

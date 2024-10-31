@@ -10,7 +10,7 @@ def init_logging(loglevel="DEBUG"):
 
     # fmt = "%(asctime)s | %(levelname)8s | %(module)s:%(lineno)s:%(funcName)20s() | %(message)s"
     fmt = "%(asctime)s | %(levelname)s | %(message)s"
-    handler_sh = logging.StreamHandler(sys.stdout)
+    handler_sh = logging.StreamHandler(sys.stderr)
     handler_sh.setFormatter(CustomFormatter(fmt))
     logging.basicConfig(format=fmt, level=numeric_level, handlers=[handler_sh])
 

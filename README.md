@@ -75,15 +75,31 @@ Dependencies:
     * [MUMmer](http://mummer.sourceforge.net/)
     * [BLAST+](ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/) (Optional)
 
-Installation options:  
-
-Clone from this repository and install as a local Python package.
+You can create a Conda environment with these dependencies using the YAML files in this repo.
 
 ```bash
-% git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite && pip install -e .
+conda env create -f environment.yml
+
+conda activate tirmite
 ```
 
-Install from PyPi.
+Note: If you are using a Mac with an ARM64 (Apple Silicon) processor, BLAST is not currently available from Bioconda for this architecture. You can instead create a virtual OSX64 env like this:
+
+```bash
+conda env create -f env_osx64.yml
+
+conda activate tirmite-osx64
+```
+
+Installation options:  
+
+pip install the latest development version directly from this repo.
+
+```bash
+% pip install git+https://github.com/Adamtaranto/TIRmite.git
+```
+
+Install latest release from PyPi.
 
 ```bash
 % pip install tirmite
@@ -114,6 +130,16 @@ and write GFF3 annotation file.
 % tirmite --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 10000 --mincov 0.4
 ```
 
+If you don't have a HMM of your TIR, TIRmite can create one for you using an aligned sample of your TIR with `--alnFile`.
+
+To skip HMM search and run the pairing algorithm on a custom set of TIR hits (i.e. from blastn), you can provide hits in BED format with `--pairbed`.
+
+TIRs should always be oriented 5\`- 3\` with the lefthand TIR.
+
+In this example the two TIRs should be oriented to begin with "GA".
+
+5\` **GA\>\>\>\>\>\>\>** ATGC <<<<<<<TC 3\`  
+3\` CT>>>>>>>>  TACG <<<<<<<AG 5\`
 ### Standard options
 
 Run `tirmite --help` to view the program's most commonly used options:
@@ -300,7 +326,3 @@ Submit feedback to the [Issue Tracker](https://github.com/Adamtaranto/TIRmite/is
 ## License
 
 Software provided under MIT license.
-
-## Logo
-
-Termite hex-sticker was designed by [@Super_Coleider](www.instagram.com/Super_Coleider).

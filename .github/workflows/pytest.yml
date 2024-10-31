@@ -44,3 +44,4 @@ jobs:
           conda activate test-env
           pytest tests
         shell: bash -l {0}
+        

@@ -1,0 +1,15 @@
+name: tirmite-osx64
+channels:
+  - conda-forge/osx-64
+  - bioconda/osx-64
+dependencies:
+  - python 3.12
+  - "pymummer>=0.10.3"
+  - hmmer
+  - blast
+  - pip
+  - pip:
+      - "biopython>=1.70"
+      - "pandas>=0.20.3"
+      - hatch
+      - pytest

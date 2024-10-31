@@ -1,17 +1,16 @@
-#!/usr/bin/env python
-# -*- coding: UTF-8 -*-
-
-from tirmite import __version__
-import os
-import sys
-import glob
-import shutil
-import tirmite
 import argparse
+import glob
+import logging
+import os
+import shutil
+import sys
 
-
-def log(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+from tirmite._version import __version__
+from tirmite.hmmer_wrappers import cmdScriptHMMER
+from tirmite.logs import init_logging
+from tirmite.utils import dochecks, importFasta
+from tirmite.wrapping import run_cmd
+import tirmite.tirmitetools as tirmite
 
 
 def mainArgs():
@@ -25,6 +24,12 @@ def mainArgs():
         "--version",
         action="version",
         version="%(prog)s {version}".format(version=__version__),
+    )
+    parser.add_argument(
+        "--loglevel",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+        help="Set logging level. Default: 'DEBUG'",
     )
     # Input
     parser.add_argument(
@@ -69,14 +74,7 @@ def mainArgs():
         default=None,
         help="If set TIRmite will preform pairing on TIRs from custom bedfile only.",
     )
-    # Alternative search method
-    # parser.add_argument('--useBowtie2',action='store_true',default=False,help='If set, map short TIR to genome with bowtie2. Potentially useful for very short though highly conserved TIRs where TIR-pHMM hits return high e-values.')
-    # parser.add_argument('--btTIR',type=str,default=None,help='Fasta file containing a single TIR to be mapped with bowtie2.')
-    # parser.add_argument('--bowtie2',type=str,default='bowtie2',help='Set location of bowtie2 if not in PATH.')
-    # parser.add_argument('--bt2build',type=str,default='bowtie2-build',help='Set location of bowtie2-build if not in PATH.')
-    # parser.add_argument('--samtools',type=str,default='samtools',help='Set location of samtools if not in PATH.')
-    # parser.add_argument('--bedtools',type=str,default='bedtools',help='Set location of bedtools if not in PATH.')
-    # Pairing heuristics
+
     parser.add_argument(
         "--stableReps",
         type=int,
@@ -206,72 +204,60 @@ def main():
     # Get cmd line args
     args = mainArgs()
 
+    # Set up logging
+    init_logging(loglevel=args.loglevel)
+
     # Check for required programs.
-    # tools = [args.hmmpress,args.nhmmer,args.hmmbuild,args.bowtie2,args.bt2build,args.samtools,args.bedtools]
     tools = [args.hmmpress, args.nhmmer, args.hmmbuild]
 
     missing_tools = []
     for tool in tools:
         missing_tools += missing_tool(tool)
     if missing_tools:
-        log(
-            "WARNING: Some tools required by tirmite could not be found: "
+        logging.warning(
+            "Some tools required by tirmite could not be found: "
             + ", ".join(missing_tools)
         )
-        log("You may need to install them to use all features.")
+        logging.warning("You may need to install them to use all features.")
 
     # Create output and temp paths as required
-    outDir, tempDir = tirmite.dochecks(args)
+    outDir, tempDir = dochecks(args)
 
     # Load reference genome
-    log("Log: Loading genome from: %s " % args.genome)
-    genome = tirmite.importFasta(args.genome)
-
-    # if args.useBowtie2:
-    #    # Check that input fasta exists
-    #    tirmite.isfile(args.btTIR)
-    #    btTIRname = tirmite.getbtName(args.btTIR)
-    #    # Compose bowtie map and filter commands
-    #    cmds = list()
-    #    cmds.append(tirmite._bowtie2build_cmd(bt2Path=args.bt2build,genome=args.genome))
-    #    cmds.append(tirmite._bowtie2_cmd(bt2Path=args.bowtie2,tirFasta=args.btTIR,cores=args.cores))
-    #    bam2bed_cmds,mappedPath = tirmite._bam2bed_cmd(samPath=args.samtools,bedPath=args.bedtools,tempDir=tempDir)
-    #    cmds += bam2bed_cmds
-    #    # Run mapp and filter
-    #    tirmite.run_cmd(cmds,verbose=args.verbose,keeptemp=args.keeptemp)
-    #    # Import mapping locations
-    #    hitTable = tirmite.import_mapped(infile=mappedPath,tirName=btTIRname,prefix=args.prefix)
-    # else:
+    logging.info("Loading genome from: %s " % args.genome)
+    genome = importFasta(args.genome)
 
     # Import custom TIR hits from BEDfile.
     if args.pairbed:
         # Die if no input file
         if not glob.glob(os.path.abspath(args.pairbed)):
-            log("WARNING: BED file %s not found. Quitting." % args.pairbed)
+            logging.warning("BED file %s not found. Quitting." % args.pairbed)
             # Remove temp directory
             if not args.keeptemp:
                 shutil.rmtree(tempDir)
             sys.exit(1)
 
-        log("Log: Skipping HMM search. Using custom TIRs from file: %s" % args.pairbed)
+        logging.info(
+            "Skipping HMM search. Using custom TIRs from file: %s" % args.pairbed
+        )
 
         # Import hits from BED file
         # Format: Chrm, start, end, name, evalue, strand
         hitTable = None
-        log("Log: Loading custom TIR hits from: %s" % str(args.pairbed))
+        logging.info("Loading custom TIR hits from: %s" % str(args.pairbed))
         hitTable = tirmite.import_BED(
             infile=args.pairbed, hitTable=hitTable, prefix=args.prefix
         )
 
         # Apply hit e-value filters
-        log("Log: Filtering hits with e-value > %s" % str(args.maxeval))
+        logging.info("Filtering hits with e-value > %s" % str(args.maxeval))
         hitCount = len(hitTable.index)
         hitTable = tirmite.filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
-        log(
-            "Log: Excluded %s hits on e-value criteria."
+        logging.info(
+            "Excluded %s hits on e-value criteria."
             % str(hitCount - len(hitTable.index))
         )
-        log("Log: Remaining hits: %s " % str(len(hitTable.index)))
+        logging.info("Remaining hits: %s " % str(len(hitTable.index)))
 
         # Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
         hitsDict, hitIndex = tirmite.table2dict(hitTable)
@@ -285,7 +271,7 @@ def main():
                 genome=genome,
                 padlen=args.padlen,
             )
-            log("Log: Pairing is off. Reporting hits only.")
+            logging.info("Pairing is off. Reporting hits only.")
             # Remove temp directory
             if not args.keeptemp:
                 shutil.rmtree(tempDir)
@@ -307,27 +293,25 @@ def main():
         # If pre-built HMM provided, check correct format.
         if args.hmmFile:
             if os.path.splitext(os.path.basename(args.hmmFile))[1].lstrip(".") != "hmm":
-                log("WARNING: --hmmFile has non-hmm extension. Exiting.")
+                logging.warning("--hmmFile has non-hmm extension. Exiting.")
                 # Remove temp directory
                 if not args.keeptemp:
                     shutil.rmtree(tempDir)
                 sys.exit(1)
 
         # Compose and run HMMER commands
-        cmds, resultDir, hmmDB = tirmite.cmdScript(
+        cmds, resultDir, hmmDB = cmdScriptHMMER(
             hmmDir=args.hmmDir,
             hmmFile=args.hmmFile,
             alnDir=stockholmDir,
             tempDir=tempDir,
             args=args,
         )
-        tirmite.run_cmd(
-            cmds, verbose=args.verbose, tempDir=tempDir, keeptemp=args.keeptemp
-        )
+        run_cmd(cmds, verbose=args.verbose, tempDir=tempDir, keeptemp=args.keeptemp)
 
         # Die if no hits found
         if not glob.glob(os.path.join(os.path.abspath(resultDir), "*.tab")):
-            log("Log: No hits found in %s . Quitting." % resultDir)
+            logging.warning("No hits found in %s . Quitting." % resultDir)
             # Remove temp directory
             if not args.keeptemp:
                 shutil.rmtree(tempDir)
@@ -337,38 +321,38 @@ def main():
         hitTable = None
         modelCount = 0
         for resultfile in glob.glob(os.path.join(os.path.abspath(resultDir), "*.tab")):
-            log("Log: Loading nhmmer hits from: %s " % resultfile)
+            logging.info("Loading nhmmer hits from: %s " % resultfile)
             hitTable = tirmite.import_nhmmer(
                 infile=resultfile, hitTable=hitTable, prefix=args.prefix
             )
             modelCount += 1
 
-        log(
-            "Log: Imported %s hits from %s models. "
+        logging.info(
+            "Imported %s hits from %s models. "
             % (str(len(hitTable.index)), str(modelCount))
         )
 
         # Apply hit length filters
-        log("Log: Filtering hits with < %s model coverage. " % str(args.mincov))
+        logging.info("Filtering hits with < %s model coverage. " % str(args.mincov))
         hitCount = len(hitTable.index)
         hitTable = tirmite.filterHitsLen(
             hmmDB=hmmDB, mincov=args.mincov, hitTable=hitTable
         )
-        log(
-            "Log: Excluded %s hits on coverage criteria. "
+        logging.info(
+            "Excluded %s hits on coverage criteria. "
             % str(hitCount - len(hitTable.index))
         )
-        log("Log: Remaining hits: %s " % str(len(hitTable.index)))
+        logging.info("Remaining hits: %s " % str(len(hitTable.index)))
 
         # Apply hit e-value filters
-        log("Log: Filtering hits with e-value > %s" % str(args.maxeval))
+        logging.info("Filtering hits with e-value > %s" % str(args.maxeval))
         hitCount = len(hitTable.index)
         hitTable = tirmite.filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
-        log(
-            "Log: Excluded %s hits on e-value criteria."
+        logging.info(
+            "Excluded %s hits on e-value criteria."
             % str(hitCount - len(hitTable.index))
         )
-        log("Log: Remaining hits: %s " % str(len(hitTable.index)))
+        logging.info("Remaining hits: %s " % str(len(hitTable.index)))
 
         # Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
         hitsDict, hitIndex = tirmite.table2dict(hitTable)
@@ -382,7 +366,7 @@ def main():
                 genome=genome,
                 padlen=args.padlen,
             )
-            log("Log: Pairing is off. Reporting hits only.")
+            logging.info("Pairing is off. Reporting hits only.")
             # Remove temp directory
             if not args.keeptemp:
                 shutil.rmtree(tempDir)
@@ -401,7 +385,7 @@ def main():
     )
 
     # Write TIR hits to fasta for each pHMM
-    log("Log: Writing all valid TIR hits to fasta.")
+    logging.info("Writing all valid TIR hits to fasta.")
     tirmite.writeTIRs(
         outDir=outDir,
         hitTable=hitTable,
@@ -413,7 +397,7 @@ def main():
 
     # Write paired TIR hits to fasta. Pairs named as element ID + L/R tag.
     if args.reportTIR in ["all", "paired"]:
-        log("Log: Writing successfully paired TIRs to fasta.")
+        logging.info("Writing successfully paired TIRs to fasta.")
         tirmite.writePairedTIRs(
             outDir=outDir,
             paired=paired,
@@ -428,7 +412,7 @@ def main():
     pairedEles = tirmite.fetchElements(paired=paired, hitIndex=hitIndex, genome=genome)
 
     # Write paired-TIR features to fasta
-    log("Log: Writing TIR-elements to fasta.")
+    logging.info("Writing TIR-elements to fasta.")
     tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
 
     # Write paired features to gff3, optionally also report paired/unpaired TIRs
@@ -446,7 +430,7 @@ def main():
         else:
             gffOutPath = os.path.join(outDir, "tirmite_report.gff3")
         # Write gff3
-        log("Log: Writing features to gff: %s " % gffOutPath)
+        logging.info("Writing features to gff: %s " % gffOutPath)
         tirmite.gffWrite(
             outpath=gffOutPath,
             featureList=pairedEles,

@@ -69,8 +69,8 @@ Dependencies:
   - TIR-pHMM build and search
     * [HMMER3](http://hmmer.org)
   - Extract terminal repeats from predicted TEs
-    * [pymummer](https://pypi.python.org/pypi/pymummer) version >= 0.10.3 with wrapper for nucmer option *--diagfactor*.
-    * [MUMmer](http://mummer.sourceforge.net/)
+    * [pymummer](https://github.com/sanger-pathogens/pymummer) version >= 0.10.3 with wrapper for nucmer option *--diagfactor*.
+    * [MUMmer](https://github.com/mummer4/mummer)
     * [BLAST+](ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/) (Optional)
 
 You can create a Conda environment with these dependencies using the YAML files in this repo.

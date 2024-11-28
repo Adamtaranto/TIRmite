@@ -61,7 +61,7 @@ def makeBlast(seq=None, outfile=None, pid=60):
 
 
 def run_blast(cmds, verbose=False):
-    """Write and excute HMMER script"""
+    """Write and excute script"""
     tmpdir = tempfile.mkdtemp(prefix="tmp.", dir=os.getcwd())
     original_dir = os.getcwd()
     os.chdir(tmpdir)

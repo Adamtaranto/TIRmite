@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "TIRmite: Annotation of cryptic DNA-transposon variants with Hidden Markov Models."
+version: 1.1.7
+date-released: 2025-03-22
+authors:
+  - family-names: Taranto
+    given-names: Adam
+    orcid: https://orcid.org/0000-0003-4759-3475
+    affiliation: "The University of Melbourne"
+repository-code: "https://github.com/Adamtaranto/TIRmite"
+license: MIT
+abstract: >-
+  "TIRmite enables the annotation of cryptic DNA-transposon variants by using profile Hidden Markov Models of conserved flanking TIRs to identify highly divergent family members."
+keywords:
+  - genomics
+  - transposons
+  - bioinformatics
+preferred-citation:
+  type: software
+  authors:
+    - family-names: Taranto
+      given-names: Adam
+      orcid: https://orcid.org/0000-0003-4759-3475
+      affiliation: "The University of Melbourne"
+  title: "TIRmite: Annotation of cryptic DNA-transposon variants with Hidden Markov Models."
+  year: 2025
+  url: "https://github.com/Adamtaranto/TIRmite"
+  repository-code: "https://github.com/Adamtaranto/TIRmite"
+  # doi: TBA

@@ -1,9 +1,9 @@
-import re
-import subprocess
-import tempfile
-import sys
 import os
+import re
 import shutil
+import subprocess
+import sys
+import tempfile
 
 
 # Note sure why I did this. Test removal.

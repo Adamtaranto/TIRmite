@@ -1,7 +1,7 @@
-from shlex import quote
 import glob
 import os
 import re
+from shlex import quote
 import shutil
 
 from tirmite.wrapping import run_cmd

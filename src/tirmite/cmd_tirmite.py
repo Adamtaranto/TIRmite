@@ -8,9 +8,9 @@ import sys
 from tirmite._version import __version__
 from tirmite.hmmer_wrappers import cmdScriptHMMER
 from tirmite.logs import init_logging
+import tirmite.tirmitetools as tirmite
 from tirmite.utils import dochecks, importFasta
 from tirmite.wrapping import run_cmd
-import tirmite.tirmitetools as tirmite
 
 
 def mainArgs():

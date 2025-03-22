@@ -1,9 +1,10 @@
+from collections import Counter
 from datetime import datetime
 import os
-import sys
-from Bio import SeqIO
-from collections import Counter
 import re
+import sys
+
+from Bio import SeqIO
 
 
 def dochecks(args):

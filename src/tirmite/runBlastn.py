@@ -1,5 +1,5 @@
-from shlex import quote
 import os
+from shlex import quote
 import shutil
 import subprocess
 import sys

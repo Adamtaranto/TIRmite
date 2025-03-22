@@ -1,10 +1,9 @@
 from collections import namedtuple
-from operator import attrgetter
 import glob
+from operator import attrgetter
 import os
 
-from Bio import AlignIO
-from Bio import SeqIO
+from Bio import AlignIO, SeqIO
 import pandas as pd
 
 from tirmite.utils import cleanID

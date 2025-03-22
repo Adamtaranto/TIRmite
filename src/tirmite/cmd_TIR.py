@@ -9,7 +9,7 @@ from pymummer import coords_file, nucmer  # alignment
 
 from tirmite.logs import init_logging
 from tirmite.runBlastn import makeBlast
-from tirmite.utils import manageTemp, cleanID, getTimestring, checkUniqueID
+from tirmite.utils import checkUniqueID, cleanID, getTimestring, manageTemp
 from tirmite.wrapping import run_cmd
 
 

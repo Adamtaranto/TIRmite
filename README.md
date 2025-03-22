@@ -1,4 +1,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI version](https://badge.fury.io/py/TIRmite.svg)](https://badge.fury.io/py/TIRmite)
+[![codecov](https://codecov.io/gh/Adamtaranto/TIRmite/graph/badge.svg?token=DFEEPKDFZ0)](https://codecov.io/gh/Adamtaranto/TIRmite)
 
 <p align="center">
 <img src="https://raw.githubusercontent.com/Adamtaranto/TIRmite/main/docs/tirmite_hexlogo.jpg" width="256" height="256" title="tirmite_hex" />
@@ -106,6 +108,14 @@ Install latest release from PyPi.
 Install from Bioconda.
 ```bash
 % conda install -c bioconda tirmite
+```
+
+Clone from this repository and install as a local Python package.
+
+Do this if you want to edit the code.
+
+```bash
+git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite && pip install -e '.[dev]'
 ```
 
 Test installation.

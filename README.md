@@ -8,31 +8,23 @@
 
 # TIRmite
 
-Build and map profile Hidden Markov Models for Terminal Inverted Repeat 
-families (TIR-pHMMs) to genomic sequences for annotation of MITES and complete 
+Build and map profile Hidden Markov Models for Terminal Inverted Repeat
+families (TIR-pHMMs) to genomic sequences for annotation of MITES and complete
 DNA-Transposons with variable internal sequence composition.  
 
-
-TIRmite is packaged with *tSplit* a tool for extraction of terminal repeats 
-from complete transposons.
+If you have a draft TE model (i.e. from RepeatModeler or EDTA) and want to identify the TIR's to use with TIRmite - we recommend using [*tSplit*](https://github.com/Adamtaranto/TE-splitter/) a tool for extraction of terminal repeats from complete transposons.
 
 # Table of contents
 
 * [About TIRmite](#about-tirmite)
 * [Algorithm overview](#algorithm-overview)
 * [Options and usage](#options-and-usage)
-    * [Installing TIRmite](#installing-tirmite)
-    * [Example usage](#example-usage)
-    * [Standard options](#standard-options)
-    * [Custom DNA matrices](#custom-dna-matrices)
-* [Additional tools](additional-tools)
-    * [tSplit](tsplit)
-    * [tSplit algorithm overview](tsplit-algorithm-overview)
-    * [tSplit options and usage](tsplit-options-and-usage)
+  * [Installing TIRmite](#installing-tirmite)
+  * [Example usage](#example-usage)
+  * [Standard options](#standard-options)
+  * [Custom DNA matrices](#custom-dna-matrices)
 * [Issues](#issues)
 * [License](#license)
-* [Logo](#logo)
-
 
 ## About TIRmite
 
@@ -41,9 +33,10 @@ genome-wide annotation of TIR families. These can be provided by the user or
 built from aligned TIRs oriented as 5' outer edge --> 3' inner edge.
 
 Three classes of output are produced:
+
   1. All significant TIR hit sequences written to fasta (per query HMM).
   2. Candidate elements comprised of paired TIRs are written to fasta (per query HMM).
-  3. Genomic annotations of candidate elements and, optionally, TIR hits 
+  3. Genomic annotations of candidate elements and, optionally, TIR hits
   (paired and unpaired) are written as a single GFF3 file.
 
 ## Algorithm overview
@@ -67,13 +60,14 @@ Three classes of output are produced:
 
 TIRmite requires Python >= v3.8
 
-Dependencies:  
-  - TIR-pHMM build and search
-    * [HMMER3](http://hmmer.org)
-  - Extract terminal repeats from predicted TEs
-    * [pymummer](https://github.com/sanger-pathogens/pymummer) version >= 0.10.3 with wrapper for nucmer option *--diagfactor*.
-    * [MUMmer](https://github.com/mummer4/mummer)
-    * [BLAST+](ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/) (Optional)
+Dependencies:
+
+* TIR-pHMM build and search
+  * [HMMER3](http://hmmer.org)
+* Extract terminal repeats from predicted TEs
+  * [pymummer](https://github.com/sanger-pathogens/pymummer) version >= 0.10.3 with wrapper for nucmer option *--diagfactor*.
+  * [MUMmer](https://github.com/mummer4/mummer)
+  * [BLAST+](ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/) (Optional)
 
 You can create a Conda environment with these dependencies using the YAML files in this repo.
 
@@ -106,6 +100,7 @@ Install latest release from PyPi.
 ```
 
 Install from Bioconda.
+
 ```bash
 % conda install -c bioconda tirmite
 ```
@@ -123,7 +118,7 @@ Test installation.
 ```bash
 # Print version number and exit.
 % tirmite --version
-tirmite 1.1.6
+tirmite 1.2.0
 
 # Get usage information
 % tirmite --help
@@ -131,8 +126,7 @@ tirmite 1.1.6
 
 ### Example usage
 
-Report all hits and valid pairings of TIR_A in target.fasta (interval <= 10000, hits cover > 40% len of hmm model), 
-and write GFF3 annotation file.
+Report all hits and valid pairings of TIR_A in target.fasta (interval <= 10000, hits cover > 40% len of hmm model), and write GFF3 annotation file.
 
 ```bash
 % tirmite --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 10000 --mincov 0.4
@@ -148,11 +142,12 @@ In this example the two TIRs should be oriented to begin with "GA".
 
 5\` **GA\>\>\>\>\>\>\>** ATGC <<<<<<<TC 3\`  
 3\` CT>>>>>>>>  TACG <<<<<<<AG 5\`
+
 ### Standard options
 
 Run `tirmite --help` to view the program's most commonly used options:
 
-```
+```code
 tirmite [-h] [--version] --genome GENOME [--hmmDir HMMDIR]
                [--hmmFile HMMFILE] [--alnDir ALNDIR] [--alnFile ALNFILE]
                [--alnFormat {clustal,fasta,nexus,phylip,stockholm}]
@@ -230,102 +225,8 @@ Non-standard HMMER paths:
 
 ### Custom DNA Matrices
 
-nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores. 
-Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4) 
-
-## Additional tools
-
-### tSplit
-
-Extract Terminal Inverted Repeats (TIRs) DNA transposons.  
-
-### tSplit algorithm overview
-
-tSplit attempts to identify terminal repeats in transposable elements by 
-first aligning each element to itself using nucmer, and then applying a set of 
-tuneable heuristics to select an alignment pair most likely to represent a TIR.  
-
-  1. Exclude all diagonal/self-matches
-  2. If tsplit-TIR: Retain only alignment pairs on opposite strands (inverse repeats)
-  3. Retain pairs for which the 5' match begins within x bases of element start
-     and whose 3' match ends within x bases of element end
-  4. Exclude alignment pairs which overlap (potential SSRs)
-  5. If multiple candidates remain select alignment pair with largest internal segment 
-  (i.e. closest to element ends)
-
-### tSplit options and usage  
-
-### tSplit example usage  
-
-For each element in *dna-transposons.fasta* split into internal and external (TIR) segments. 
-Split segments will be written to *TIR_split_TE-splitter_output.fasta* with suffix "_I" for 
-internal or "_TIR" for external segments. TIRs must be at least 10bp in length and share 80% 
-identity and occur within 10bp of each end of the input element. Additionally, synthetic 
-MITEs will be constructed by concatenation of left and right TIRs, with internal segments 
-excised.
-
-
-```bash
-% tsplit-TIR -i dna-transposons.fasta -p TIR_split
-```
-
-### tSplit options
-
-Run `tsplit-TIR --help` to view the programs' most commonly used 
-options:
-
-```
-Usage: tsplit-TIR [-h] -i INFILE [-p PREFIX] [-d OUTDIR]
-                        [--splitmode {all,split,internal,external,None}]
-                        [--makemites] [--keeptemp] [-v] [-m MAXDIST]
-                        [--minid MINID] [--minterm MINTERM] [--minseed MINSEED]
-                        [--diagfactor DIAGFACTOR] [--method {blastn,nucmer}]
-
-Help:
-  -h, --help         Show this help message and exit.
-
-Input:
-  -i, --infile       Multifasta containing complete elements. 
-                       (Required)  
-
-Output:
-  -p, --prefix       All output files begin with this string.  (Default:[infile basename])  
-  -d, --outdir       Write output files to this directory. (Default: cwd)  
-  --keeptemp         If set do not remove temp directory on completion.
-  -v, --verbose      If set, report progress.
-
-Report settings:
-  --splitmode        Options: {all,split,internal,external,None} 
-                       all = Report input sequence as well as internal and external segments.  
-                       split = Report internal and external segments after splitting.  
-                       internal = Report only internal segments.  
-                       external = Report only terminal repeat segments.  
-                       None = Only report synthetic MITES (when --makemites is also set).  
-                       (Default: split)  
-  --makemites        Experimental function: Attempt to construct synthetic MITE sequences from TIRs by concatenating 
-                       5' and 3' TIRs. Available only in 'tsplit-TIR' mode 
-
-Alignment settings:
-  --method          Select alignment tool. Note: blastn may perform better on very short high-identity TRs,
-                      while nucmer is more robust to small indels.
-                      Options: {blastn,nucmer} 
-                      (Default: nucmer)
-  --minid           Minimum identity between terminal repeat pairs. As float. 
-                      (Default: 80.0)  
-  --minterm         Minimum length for a terminal repeat to be considered.  
-                      Equivalent to nucmer "--mincluster" 
-                      (Default: 10)  
-  -m, --maxdist     Terminal repeat candidates must be no more than this many bases from ends of an input element. 
-                      Note: Increase this value if you suspect that your element is nested within some flanking sequence. 
-                      (Default: 10)
-  --minseed         Minimum length of a maximal exact match to be included in final match cluster. 
-                      Equivalent to nucmer "--minmatch". 
-                      (Default: 5)
-  --diagfactor      Maximum diagonal difference factor for clustering of matches within nucmer, 
-                      i.e. diagonal difference / match separation 
-                      (default 0.20) 
-                      Note: Increase value for greater tolerance of indels between terminal repeats.
-```
+nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores.
+Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4)
 
 ## Issues
 

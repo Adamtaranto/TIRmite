@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "TIRmite: Annotation of cryptic DNA-transposon variants with Hidden Markov Models."
-version: 1.1.7
+version: 1.2.0
 date-released: 2025-03-22
 authors:
   - family-names: Taranto

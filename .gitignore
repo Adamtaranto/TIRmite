@@ -4,6 +4,7 @@ temp/
 test/
 pkg-mgt/
 devnotes/
+.ideas/
 
 # Mac stuff
 .DS_Store

@@ -39,12 +39,14 @@ jobs:
       # Run pytest on the specified directory
       - name: Test with pytest
         run: |
-          pytest --cov=src/tirmite --cov-branch --cov-report=xml
+          pytest
         shell: bash -l {0}
 
       # Upload coverage report to Codecov
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          slug: Adamtaranto/TIRmite
+      # Only upload coverage for the latest Python version
+      #- name: Upload coverage reports to Codecov
+      #  uses: codecov/codecov-action@v5
+      #  if: matrix.python-version == '3.13'
+      #  with:
+      #    token: ${{ secrets.CODECOV_TOKEN }}
+      #    slug: Adamtaranto/TIRmite

@@ -31,6 +31,10 @@ repository = "https://github.com/adamtaranto/TIRmite"
 [project.scripts]
 tirmite="tirmite.cmd_tirmite:main"
 
+# Optional dependencies for testing
+[project.optional-dependencies]
+dev = ["hatch", "isort", "ipykernel", "numpydoc-validation", "pre-commit", "pytest", "pytest-cov", "ruff"]
+
 [tool.hatch.build]
 source = "src"
 
@@ -49,10 +53,6 @@ fallback-version = "0.0.0"
 
 [tool.hatch.build.hooks.vcs]
 version-file = "src/tirmite/_version.py"
-
-# Optional dependencies for testing
-[project.optional-dependencies]
-dev = ["hatch", "isort", "ipykernel", "numpydoc-validation", "pre-commit", "pytest", "pytest-cov", "ruff"]
 
 [tool.pytest.ini_options]
 addopts = "-v --cov --cov-branch --cov-report=xml --cov-report=term"

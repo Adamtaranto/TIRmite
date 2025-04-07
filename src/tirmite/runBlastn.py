@@ -20,7 +20,7 @@ def decode(x):
 
 def _write_script(cmds, script):
     """Write commands into a bash script"""
-    f = open(script, "w+")
+    f = open(script, 'w+')
     for cmd in cmds:
         print(cmd, file=f)
     f.close()
@@ -29,19 +29,19 @@ def _write_script(cmds, script):
 def syscall(cmd, verbose=False):
     """Manage error handling when making syscalls"""
     if verbose:
-        print("Running command:", cmd, flush=True)
+        print('Running command:', cmd, flush=True)
     try:
         output = subprocess.check_output(cmd, shell=True, stderr=subprocess.STDOUT)
     except subprocess.CalledProcessError as error:
         print(
-            "The following command failed with exit code",
+            'The following command failed with exit code',
             error.returncode,
             file=sys.stderr,
         )
         print(cmd, file=sys.stderr)
-        print("\nThe output was:\n", file=sys.stderr)
+        print('\nThe output was:\n', file=sys.stderr)
         print(error.output.decode(), file=sys.stderr)
-        raise Error("Error running command:", cmd)
+        raise Error('Error running command:', cmd)
     if verbose:
         print(decode(output))
 
@@ -50,11 +50,11 @@ def makeBlast(seq=None, outfile=None, pid=60):
     cmd = (
         'blastn -word_size 4 -outfmt "6 qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid" -query '
         + quote(str(seq))
-        + " -subject "
+        + ' -subject '
         + quote(str(seq))
-        + " -out "
+        + ' -out '
         + quote(str(outfile))
-        + " -perc_identity "
+        + ' -perc_identity '
         + str(pid)
     )
     return [cmd]
@@ -62,12 +62,12 @@ def makeBlast(seq=None, outfile=None, pid=60):
 
 def run_blast(cmds, verbose=False):
     """Write and excute script"""
-    tmpdir = tempfile.mkdtemp(prefix="tmp.", dir=os.getcwd())
+    tmpdir = tempfile.mkdtemp(prefix='tmp.', dir=os.getcwd())
     original_dir = os.getcwd()
     os.chdir(tmpdir)
-    script = "run_jobs.sh"
+    script = 'run_jobs.sh'
     _write_script(cmds, script)
-    syscall("bash " + script, verbose=verbose)
+    syscall('bash ' + script, verbose=verbose)
     os.chdir(original_dir)
     shutil.rmtree(tmpdir)
 

@@ -9,15 +9,15 @@ import pandas as pd
 from tirmite.utils import cleanID
 
 
-def convertAlign(alnDir=None, alnFile=None, inFormat="fasta", tempDir=None):
+def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
     """
     Convert input alignments into Stockholm format.
     """
     # Construct out model path
     if tempDir:
-        alnOutDir = os.path.join(os.path.abspath(tempDir), "temp_aln")
+        alnOutDir = os.path.join(os.path.abspath(tempDir), 'temp_aln')
     else:
-        alnOutDir = os.path.join(os.getcwd(), "temp_aln")
+        alnOutDir = os.path.join(os.getcwd(), 'temp_aln')
     # Create if does not exist
     if not os.path.isdir(alnOutDir):
         os.makedirs(alnOutDir)
@@ -31,14 +31,14 @@ def convertAlign(alnDir=None, alnFile=None, inFormat="fasta", tempDir=None):
         # Get basename
         inBase = os.path.splitext(os.path.basename(infile))[0]
         # Make outpath
-        outAln = os.path.join(alnOutDir, inBase + ".stockholm")
+        outAln = os.path.join(alnOutDir, inBase + '.stockholm')
         # Open files
-        input_handle = open(infile, "r")
-        output_handle = open(outAln, "w")
+        input_handle = open(infile, 'r')
+        output_handle = open(outAln, 'w')
         # Read alignment
         alignments = AlignIO.parse(input_handle, inFormat)
         # Write as stockholm
-        AlignIO.write(alignments, output_handle, "stockholm")
+        AlignIO.write(alignments, output_handle, 'stockholm')
         # Close handles
         output_handle.close()
         input_handle.close()
@@ -50,55 +50,55 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
     Read nhmmer tab files to pandas dataframe.
     """
     hitRecords = list()
-    with open(infile, "r") as f:
+    with open(infile, 'r') as f:
         for line in f.readlines():
             li = line.strip()
-            if not li.startswith("#"):
+            if not li.startswith('#'):
                 li = li.split()
-                if li[11] == "+":
+                if li[11] == '+':
                     hitRecords.append(
                         {
-                            "target": li[0],
-                            "model": li[2],
-                            "hmmStart": li[4],
-                            "hmmEnd": li[5],
-                            "hitStart": li[6],
-                            "hitEnd": li[7],
-                            "strand": li[11],
-                            "evalue": li[12],
-                            "score": li[13],
-                            "bias": li[14],
+                            'target': li[0],
+                            'model': li[2],
+                            'hmmStart': li[4],
+                            'hmmEnd': li[5],
+                            'hitStart': li[6],
+                            'hitEnd': li[7],
+                            'strand': li[11],
+                            'evalue': li[12],
+                            'score': li[13],
+                            'bias': li[14],
                         }
                     )
-                elif li[11] == "-":
+                elif li[11] == '-':
                     hitRecords.append(
                         {
-                            "target": li[0],
-                            "model": li[2],
-                            "hmmStart": li[4],
-                            "hmmEnd": li[5],
-                            "hitStart": li[7],
-                            "hitEnd": li[6],
-                            "strand": li[11],
-                            "evalue": li[12],
-                            "score": li[13],
-                            "bias": li[14],
+                            'target': li[0],
+                            'model': li[2],
+                            'hmmStart': li[4],
+                            'hmmEnd': li[5],
+                            'hitStart': li[7],
+                            'hitEnd': li[6],
+                            'strand': li[11],
+                            'evalue': li[12],
+                            'score': li[13],
+                            'bias': li[14],
                         }
                     )
     # Convert list of dicts into dataframe
     df = pd.DataFrame(hitRecords)
     # Reorder columns
     cols = [
-        "model",
-        "target",
-        "hitStart",
-        "hitEnd",
-        "strand",
-        "evalue",
-        "score",
-        "bias",
-        "hmmStart",
-        "hmmEnd",
+        'model',
+        'target',
+        'hitStart',
+        'hitEnd',
+        'strand',
+        'evalue',
+        'score',
+        'bias',
+        'hmmStart',
+        'hmmEnd',
     ]
     df = df.loc[:, cols]
     if hitTable is not None:
@@ -106,7 +106,7 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
         df = pd.concat([df, hitTable], ignore_index=True)
     # Sort hits by HMM, Chromosome, location, and strand
     df = df.sort_values(
-        ["model", "target", "hitStart", "hitEnd", "strand"],
+        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
         ascending=[True, True, True, True, True],
     )
     # Reindex
@@ -122,39 +122,39 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     """
     # Format: Chrm, start, end, name, evalue, strand
     hitRecords = list()
-    with open(infile, "r") as f:
+    with open(infile, 'r') as f:
         for line in f.readlines():
             li = line.strip()
-            if not li.startswith("#"):
+            if not li.startswith('#'):
                 li = li.split()
                 hitRecords.append(
                     {
-                        "target": li[0],
-                        "model": li[3],
-                        "hmmStart": "NA",
-                        "hmmEnd": "NA",
-                        "hitStart": li[1],
-                        "hitEnd": li[2],
-                        "strand": li[5],
-                        "evalue": li[4],
-                        "score": "NA",
-                        "bias": "NA",
+                        'target': li[0],
+                        'model': li[3],
+                        'hmmStart': 'NA',
+                        'hmmEnd': 'NA',
+                        'hitStart': li[1],
+                        'hitEnd': li[2],
+                        'strand': li[5],
+                        'evalue': li[4],
+                        'score': 'NA',
+                        'bias': 'NA',
                     }
                 )
     # Convert list of dicts into dataframe
     df = pd.DataFrame(hitRecords)
     # Reorder columns
     cols = [
-        "model",
-        "target",
-        "hitStart",
-        "hitEnd",
-        "strand",
-        "evalue",
-        "score",
-        "bias",
-        "hmmStart",
-        "hmmEnd",
+        'model',
+        'target',
+        'hitStart',
+        'hitEnd',
+        'strand',
+        'evalue',
+        'score',
+        'bias',
+        'hmmStart',
+        'hmmEnd',
     ]
     df = df.loc[:, cols]
     if hitTable is not None:
@@ -162,7 +162,7 @@ def import_BED(infile=None, hitTable=None, prefix=None):
         df = pd.concat([df, hitTable], ignore_index=True)
     # Sort hits by HMM, Chromosome, location, and strand
     df = df.sort_values(
-        ["model", "target", "hitStart", "hitEnd", "strand"],
+        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
         ascending=[True, True, True, True, True],
     )
     # Reindex
@@ -174,15 +174,15 @@ def import_BED(infile=None, hitTable=None, prefix=None):
 
 def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
     modelLens = dict()
-    for hmm in glob.glob(os.path.join(hmmDB, "*.hmm")):
+    for hmm in glob.glob(os.path.join(hmmDB, '*.hmm')):
         hmmLen = None
         hmmName = None
-        with open(hmm, "r") as f:
+        with open(hmm, 'r') as f:
             for line in f.readlines():
                 li = line.strip()
-                if li.startswith("LENG"):
+                if li.startswith('LENG'):
                     hmmLen = int(li.split()[1])
-                if li.startswith("NAME"):
+                if li.startswith('NAME'):
                     hmmName = str(li.split()[1])
             if hmmLen and hmmName:
                 modelLens[hmmName] = hmmLen
@@ -190,9 +190,9 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
         minlen = modelLens[model] * mincov
         hitTable = hitTable.loc[
             ~(
-                (hitTable["model"] == model)
+                (hitTable['model'] == model)
                 & (
-                    (hitTable["hitEnd"].astype(int) - hitTable["hitStart"].astype(int))
+                    (hitTable['hitEnd'].astype(int) - hitTable['hitStart'].astype(int))
                     + 1
                     < minlen
                 )
@@ -205,7 +205,7 @@ def filterHitsEval(maxeval=None, hitTable=None):
     """
     Filter hitTable df to remove hits with e-value in excess of --maxeval.
     """
-    hitTable = hitTable.loc[((hitTable["evalue"].astype(float)) < float(maxeval))]
+    hitTable = hitTable.loc[((hitTable['evalue'].astype(float)) < float(maxeval))]
     return hitTable
 
 
@@ -221,11 +221,11 @@ def table2dict(hitTable):
     for hmm in hitTable.model.unique():
         hitsDict[hmm] = dict()
         hitIndex[hmm] = dict()
-        for chr in hitTable[hitTable["model"] == hmm].target.unique():
+        for chr in hitTable[hitTable['model'] == hmm].target.unique():
             hitsDict[hmm][chr] = list()
     # Set up named tuple
     hitTup = namedtuple(
-        "Elem", ["model", "target", "hitStart", "hitEnd", "strand", "idx", "evalue"]
+        'Elem', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue']
     )
     # Add each record to dicts
     for row in hitTable.iterrows():
@@ -241,7 +241,7 @@ def table2dict(hitTable):
         # Log hit for model on chromosome
         hitsDict[row[1].model][row[1].target].append(record)
         # Populate tracker
-        hitIndex[hmm][row[0]] = {"rec": record, "partner": None, "candidates": list()}
+        hitIndex[hmm][row[0]] = {'rec': record, 'partner': None, 'candidates': list()}
     # Return master rec object and pairing tracker
     return hitsDict, hitIndex
 
@@ -251,35 +251,35 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
     Populate hitIndex with pairing candidates
     """
     if not maxDist:
-        maxDist = float("inf")
+        maxDist = float('inf')
     for hmm in hitIndex.keys():
         for UID in hitIndex[hmm].keys():
-            ref = hitIndex[hmm][UID]["rec"]
-            if ref.strand == "+":
+            ref = hitIndex[hmm][UID]['rec']
+            if ref.strand == '+':
                 for localhit in hitsDict[ref.model][ref.target]:
                     if (
-                        localhit.strand == "-"
+                        localhit.strand == '-'
                         and localhit.hitStart >= ref.hitEnd
                         and localhit.hitStart - ref.hitEnd <= maxDist
                     ):
-                        hitIndex[hmm][UID]["candidates"].append(localhit)
+                        hitIndex[hmm][UID]['candidates'].append(localhit)
                 # Sort candidate hit records from low to high on hitStart vals
-                hitIndex[hmm][UID]["candidates"] = sorted(
-                    hitIndex[hmm][UID]["candidates"],
-                    key=attrgetter("hitStart", "hitEnd"),
+                hitIndex[hmm][UID]['candidates'] = sorted(
+                    hitIndex[hmm][UID]['candidates'],
+                    key=attrgetter('hitStart', 'hitEnd'),
                 )
-            if ref.strand == "-":
+            if ref.strand == '-':
                 for localhit in hitsDict[ref.model][ref.target]:
                     if (
-                        localhit.strand == "+"
+                        localhit.strand == '+'
                         and localhit.hitEnd <= ref.hitStart
                         and ref.hitStart - localhit.hitEnd <= maxDist
                     ):
-                        hitIndex[hmm][UID]["candidates"].append(localhit)
+                        hitIndex[hmm][UID]['candidates'].append(localhit)
                 # Sort candidate hit records from high to low on hitEnd values
-                hitIndex[hmm][UID]["candidates"] = sorted(
-                    hitIndex[hmm][UID]["candidates"],
-                    key=attrgetter("hitEnd", "hitStart"),
+                hitIndex[hmm][UID]['candidates'] = sorted(
+                    hitIndex[hmm][UID]['candidates'],
+                    key=attrgetter('hitEnd', 'hitStart'),
                     reverse=True,
                 )
     # hitIndex[model][idx].keys() == [rec,candidates,partner]
@@ -296,16 +296,16 @@ def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
     found = None
     mateFUP = None
     # Scan candidate partners of 'mate' looking for ref
-    for matePartner in index[model][mate]["candidates"]:
+    for matePartner in index[model][mate]['candidates']:
         # If unpaired candidate is ref
-        if not index[model][matePartner.idx]["partner"] and matePartner.idx == ref:
+        if not index[model][matePartner.idx]['partner'] and matePartner.idx == ref:
             found = set([matePartner.idx, mate])
-            index[model][ref]["partner"] = mate
-            index[model][mate]["partner"] = ref
+            index[model][ref]['partner'] = mate
+            index[model][mate]['partner'] = ref
             # return
             return found, index, mateFUP
         # If first unpaired candidate partner for mate is not ref
-        elif not index[model][matePartner.idx]["partner"]:
+        elif not index[model][matePartner.idx]['partner']:
             # Return none and unchanged index
             mateFUP = matePartner.idx
             return found, index, mateFUP
@@ -332,11 +332,11 @@ def getPairs(hitIndex=None, paired=None):
         # Ask each hit in genome
         for refID in hitIndex[model].keys():
             # If it has been asigned a partner
-            if not hitIndex[model][refID]["partner"]:
+            if not hitIndex[model][refID]['partner']:
                 # If not partnered, start checking candidate partners
-                for Can1 in hitIndex[model][refID]["candidates"]:
+                for Can1 in hitIndex[model][refID]['candidates']:
                     # For a candidate that is also unpartnered
-                    if not hitIndex[model][Can1.idx]["partner"]:
+                    if not hitIndex[model][Can1.idx]['partner']:
                         # Check if unpartnered candidate is a reciprocal
                         # match for our hit
                         found, hitIndex, mateFUP = isfirstUnpaired(
@@ -365,7 +365,7 @@ def countUnpaired(hitIndex):
     count = 0
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
-            if not hitIndex[model][hitID]["partner"]:
+            if not hitIndex[model][hitID]['partner']:
                 count += 1
     return count
 
@@ -377,7 +377,7 @@ def listunpaired(hitIndex):
     unpaired = list()
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
-            if not hitIndex[model][hitID]["partner"]:
+            if not hitIndex[model][hitID]['partner']:
                 unpaired.append(hitID)
     return unpaired
 
@@ -419,35 +419,35 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=No
     # Note: Padding not yet enabled for TIR extraction.
     hitcount = 0
     seqList = list()
-    for index, row in hitTable[hitTable["model"] == model].iterrows():
-        if float(row["evalue"]) <= maxeval:
+    for index, row in hitTable[hitTable['model'] == model].iterrows():
+        if float(row['evalue']) <= maxeval:
             hitcount += 1
             if padlen:
                 hitrecord = (
-                    genome[row["target"]][
-                        int(row["hitStart"]) - 1 - padlen : int(row["hitStart"]) - 1
+                    genome[row['target']][
+                        int(row['hitStart']) - 1 - padlen : int(row['hitStart']) - 1
                     ].lower()
-                    + genome[row["target"]][
-                        int(row["hitStart"]) - 1 : int(row["hitEnd"])
+                    + genome[row['target']][
+                        int(row['hitStart']) - 1 : int(row['hitEnd'])
                     ]
-                    + genome[row["target"]][
-                        int(row["hitEnd"]) : int(row["hitEnd"]) + padlen
+                    + genome[row['target']][
+                        int(row['hitEnd']) : int(row['hitEnd']) + padlen
                     ].lower()
                 )
             else:
-                hitrecord = genome[row["target"]][
-                    int(row["hitStart"]) - 1 : int(row["hitEnd"])
+                hitrecord = genome[row['target']][
+                    int(row['hitStart']) - 1 : int(row['hitEnd'])
                 ]
-            hitrecord.id = model + "_" + str(index)
-            if row["strand"] == "-":
-                hitrecord = hitrecord.reverse_complement(id=hitrecord.id + "_rc")
+            hitrecord.id = model + '_' + str(index)
+            if row['strand'] == '-':
+                hitrecord = hitrecord.reverse_complement(id=hitrecord.id + '_rc')
             hitrecord.name = hitrecord.id
-            hitrecord.description = "_".join(
+            hitrecord.description = '_'.join(
                 [
-                    "[" + str(row["target"]) + ":" + str(row["strand"]),
-                    str(row["hitStart"]),
-                    str(row["hitEnd"]) + " modelAlignment:" + row["hmmStart"],
-                    row["hmmEnd"] + " E-value:" + str(row["evalue"]) + "]",
+                    '[' + str(row['target']) + ':' + str(row['strand']),
+                    str(row['hitStart']),
+                    str(row['hitEnd']) + ' modelAlignment:' + row['hmmStart'],
+                    row['hmmEnd'] + ' E-value:' + str(row['evalue']) + ']',
                 ]
             )
             # Append record to list
@@ -467,16 +467,16 @@ def writeTIRs(
     """
     # Note: Padding not yet enabled for TIR extraction.
     if prefix:
-        prefix = cleanID(prefix) + "_"
+        prefix = cleanID(prefix) + '_'
     else:
-        prefix = ""
+        prefix = ''
     if outDir:
         outDir = os.path.abspath(outDir)
         if not os.path.isdir(outDir):
             os.makedirs(outDir)
     else:
         outDir = os.getcwd()
-    for model in hitTable["model"].unique():
+    for model in hitTable['model'].unique():
         # List of TIR seqrecords, and count of hits
         seqList, hitcount = extractTIRs(
             model=model,
@@ -486,13 +486,13 @@ def writeTIRs(
             padlen=padlen,
         )
         outfile = os.path.join(
-            outDir, prefix + model + "_hits_" + str(hitcount) + ".fasta"
+            outDir, prefix + model + '_hits_' + str(hitcount) + '.fasta'
         )
         # Write extracted hits to model outfile
-        with open(outfile, "w") as handle:
+        with open(outfile, 'w') as handle:
             for seq in seqList:
                 seq.id = prefix + str(seq.id)
-                SeqIO.write(seq, handle, "fasta")
+                SeqIO.write(seq, handle, 'fasta')
 
 
 # CS10_Chromosome_02_+_88294_88353_modelAlignment:1_60
@@ -502,7 +502,7 @@ def flipTIRs(x, y):
     """
     Sort hits into left and right TIRs.
     """
-    left2right = sorted([x, y], key=attrgetter("hitStart", "hitEnd"))
+    left2right = sorted([x, y], key=attrgetter('hitStart', 'hitEnd'))
     return (left2right[0], left2right[1])
 
 
@@ -514,19 +514,19 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
     """
     TIRelements = dict()
     gffTup = namedtuple(
-        "gffElem",
+        'gffElem',
         [
-            "model",
-            "chromosome",
-            "start",
-            "end",
-            "strand",
-            "type",
-            "id",
-            "leftHit",
-            "rightHit",
-            "seq",
-            "evalue",
+            'model',
+            'chromosome',
+            'start',
+            'end',
+            'strand',
+            'type',
+            'id',
+            'leftHit',
+            'rightHit',
+            'seq',
+            'evalue',
         ],
     )
     for model in paired.keys():
@@ -534,25 +534,25 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
         model_counter = 0
         for x, y in paired[model]:
             model_counter += 1
-            x = hitIndex[model][x]["rec"]
-            y = hitIndex[model][y]["rec"]
+            x = hitIndex[model][x]['rec']
+            y = hitIndex[model][y]['rec']
             leftHit, rightHit = flipTIRs(x, y)
-            eleID = model + "_Element_" + str(model_counter)
+            eleID = model + '_Element_' + str(model_counter)
             eleSeq = genome[leftHit.target][
                 int(leftHit.hitStart) - 1 : int(rightHit.hitEnd)
             ]
             eleSeq.id = eleID
             eleSeq.name = eleID
             eleSeq.description = (
-                "_".join(
+                '_'.join(
                     [
-                        "[" + leftHit.target + ":" + str(leftHit.hitStart),
+                        '[' + leftHit.target + ':' + str(leftHit.hitStart),
                         str(rightHit.hitEnd),
                     ]
                 )
-                + " len="
+                + ' len='
                 + str(rightHit.hitEnd - leftHit.hitStart)
-                + "]"
+                + ']'
             )
 
             TIRelement = gffTup(
@@ -561,12 +561,12 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                 leftHit.hitStart,
                 rightHit.hitEnd,
                 leftHit.strand,
-                "TIR_Element",
+                'TIR_Element',
                 eleID,
                 leftHit,
                 rightHit,
                 eleSeq,
-                "NA",
+                'NA',
             )
             TIRelements[model].append(TIRelement)
     # Return list of element info tuples
@@ -582,15 +582,15 @@ def writeElements(outDir, eleDict=None, prefix=None):
     Writes to fasta by model.
     """
     if prefix:
-        prefix = cleanID(prefix) + "_"
+        prefix = cleanID(prefix) + '_'
     else:
-        prefix = ""
+        prefix = ''
     for model in eleDict.keys():
-        outfile = os.path.join(outDir, prefix + model + "_elements.fasta")
-        with open(outfile, "w") as handle:
+        outfile = os.path.join(outDir, prefix + model + '_elements.fasta')
+        with open(outfile, 'w') as handle:
             for element in eleDict[model]:
                 element.seq.id = prefix + str(element.seq.id)
-                SeqIO.write(element.seq, handle, "fasta")
+                SeqIO.write(element.seq, handle, 'fasta')
 
 
 # Fix: Do not load fasta into genome!
@@ -603,19 +603,19 @@ def writePairedTIRs(
     # Note: Sequence padding not yet enabled for paired TIRs
     TIRpairs = dict()
     gffTup = namedtuple(
-        "gffElem",
+        'gffElem',
         [
-            "model",
-            "chromosome",
-            "start",
-            "end",
-            "strand",
-            "type",
-            "id",
-            "leftHit",
-            "rightHit",
-            "seq",
-            "evalue",
+            'model',
+            'chromosome',
+            'start',
+            'end',
+            'strand',
+            'type',
+            'id',
+            'leftHit',
+            'rightHit',
+            'seq',
+            'evalue',
         ],
     )
     for model in paired.keys():
@@ -623,10 +623,10 @@ def writePairedTIRs(
         model_counter = 0
         for x, y in paired[model]:
             model_counter += 1
-            x = hitIndex[model][x]["rec"]
-            y = hitIndex[model][y]["rec"]
+            x = hitIndex[model][x]['rec']
+            y = hitIndex[model][y]['rec']
             leftHit, rightHit = flipTIRs(x, y)
-            eleID = model + "_TIRpair_" + str(model_counter)
+            eleID = model + '_TIRpair_' + str(model_counter)
             # If padlen set, extract hit with x bases either side
             if padlen:
                 eleSeqLeft = (
@@ -659,27 +659,27 @@ def writePairedTIRs(
                     int(rightHit.hitStart) - 1 : int(rightHit.hitEnd)
                 ]
             eleSeqRight = eleSeqRight.reverse_complement()
-            eleSeqLeft.id = eleID + "_L"
-            eleSeqLeft.name = eleID + "_L"
+            eleSeqLeft.id = eleID + '_L'
+            eleSeqLeft.name = eleID + '_L'
             eleSeqLeft.description = (
-                "_".join(
+                '_'.join(
                     [
-                        "[" + leftHit.target + ":" + str(leftHit.hitStart),
+                        '[' + leftHit.target + ':' + str(leftHit.hitStart),
                         str(leftHit.hitEnd),
                     ]
                 )
-                + "]"
+                + ']'
             )
-            eleSeqRight.id = eleID + "_R"
-            eleSeqRight.name = eleID + "_R"
+            eleSeqRight.id = eleID + '_R'
+            eleSeqRight.name = eleID + '_R'
             eleSeqRight.description = (
-                "_".join(
+                '_'.join(
                     [
-                        "[" + leftHit.target + ":" + str(rightHit.hitEnd),
+                        '[' + leftHit.target + ':' + str(rightHit.hitEnd),
                         str(rightHit.hitStart),
                     ]
                 )
-                + "]"
+                + ']'
             )
             TIRleft = gffTup(
                 model,
@@ -687,12 +687,12 @@ def writePairedTIRs(
                 leftHit.hitStart,
                 leftHit.hitEnd,
                 leftHit.strand,
-                "TIR",
+                'TIR',
                 eleSeqLeft.id,
                 leftHit,
                 rightHit,
                 eleSeqLeft,
-                "NA",
+                'NA',
             )
             TIRright = gffTup(
                 model,
@@ -700,28 +700,28 @@ def writePairedTIRs(
                 rightHit.hitStart,
                 rightHit.hitEnd,
                 leftHit.strand,
-                "TIR",
+                'TIR',
                 eleSeqRight.id,
                 leftHit,
                 rightHit,
                 eleSeqRight,
-                "NA",
+                'NA',
             )
             TIRpairs[model].append(TIRleft)
             TIRpairs[model].append(TIRright)
     if prefix:
-        prefix = cleanID(prefix) + "_"
+        prefix = cleanID(prefix) + '_'
     else:
-        prefix = ""
+        prefix = ''
     for model in TIRpairs.keys():
         outfile = os.path.join(
             outDir,
-            prefix + model + "_paired_TIR_hits_" + str(model_counter * 2) + ".fasta",
+            prefix + model + '_paired_TIR_hits_' + str(model_counter * 2) + '.fasta',
         )
-        with open(outfile, "w") as handle:
+        with open(outfile, 'w') as handle:
             for element in TIRpairs[model]:
                 element.seq.id = prefix + str(element.seq.id)
-                SeqIO.write(element.seq, handle, "fasta")
+                SeqIO.write(element.seq, handle, 'fasta')
 
 
 def fetchUnpaired(hitIndex=None):
@@ -731,32 +731,32 @@ def fetchUnpaired(hitIndex=None):
     """
     orphans = list()
     gffTup = namedtuple(
-        "gffElem",
+        'gffElem',
         [
-            "model",
-            "chromosome",
-            "start",
-            "end",
-            "strand",
-            "type",
-            "id",
-            "leftHit",
-            "rightHit",
-            "seq",
-            "evalue",
+            'model',
+            'chromosome',
+            'start',
+            'end',
+            'strand',
+            'type',
+            'id',
+            'leftHit',
+            'rightHit',
+            'seq',
+            'evalue',
         ],
     )
     for model in hitIndex.keys():
         for recID in hitIndex[model].keys():
-            if not hitIndex[model][recID]["partner"]:
-                x = hitIndex[model][recID]["rec"]
+            if not hitIndex[model][recID]['partner']:
+                x = hitIndex[model][recID]['rec']
                 orphan = gffTup(
                     x.model,
                     x.target,
                     x.hitStart,
                     x.hitEnd,
                     x.strand,
-                    "orphan_TIR",
+                    'orphan_TIR',
                     x.idx,
                     None,
                     None,
@@ -780,12 +780,12 @@ def gffWrite(
     as GFF3. Optionally, write child TIRS and orphan TIRs to GFF3 also.
     """
     if prefix:
-        prefix = cleanID(prefix) + "_"
+        prefix = cleanID(prefix) + '_'
     else:
-        prefix = ""
+        prefix = ''
     # If path to output gff3 file not provided, set default location.
     if not outpath:
-        outpath = os.path.join(os.getcwd(), "tirmite_features.gff3")
+        outpath = os.path.join(os.getcwd(), 'tirmite_features.gff3')
     # Unpack element dict to list
     allfeatures = list()
     for model in featureList.keys():
@@ -796,132 +796,132 @@ def gffWrite(
         allfeatures = allfeatures + unpaired
     # Sort features
     sortedFeatures = sorted(
-        allfeatures, key=attrgetter("model", "chromosome", "start", "end")
+        allfeatures, key=attrgetter('model', 'chromosome', 'start', 'end')
     )
     # Open GFF handle
-    with open(outpath, "w") as file:
+    with open(outpath, 'w') as file:
         # Write headers
-        file.write("##gff-version 3" + "\n")
+        file.write('##gff-version 3' + '\n')
         file.write(
-            "\t".join(
+            '\t'.join(
                 [
-                    "#seqid",
-                    "source",
-                    "type",
-                    "start",
-                    "end",
-                    "score",
-                    "strand",
-                    "phase",
-                    "attributes",
+                    '#seqid',
+                    'source',
+                    'type',
+                    'start',
+                    'end',
+                    'score',
+                    'strand',
+                    'phase',
+                    'attributes',
                 ]
             )
-            + "\n"
+            + '\n'
         )
         # Format features for GFF3
         for x in sortedFeatures:
-            if x.type == "orphan_TIR" and writeTIRs in ["all", "unpaired"]:
+            if x.type == 'orphan_TIR' and writeTIRs in ['all', 'unpaired']:
                 file.write(
-                    "\t".join(
+                    '\t'.join(
                         [
                             str(x.chromosome),
-                            "tirmite",
+                            'tirmite',
                             x.type,
                             str(x.start),
                             str(x.end),
-                            ".",
+                            '.',
                             x.strand,
-                            ".",
-                            "ID="
+                            '.',
+                            'ID='
                             + prefix
                             + str(x.model)
-                            + "_"
+                            + '_'
                             + str(x.id)
-                            + ";model="
+                            + ';model='
                             + str(x.model)
-                            + ";evalue="
+                            + ';evalue='
                             + str(x.evalue)
-                            + ";",
+                            + ';',
                         ]
                     )
-                    + "\n"
+                    + '\n'
                 )
-            if x.type == "TIR_Element":
+            if x.type == 'TIR_Element':
                 # Write Element line
                 file.write(
-                    "\t".join(
+                    '\t'.join(
                         [
                             str(x.chromosome),
-                            "tirmite",
+                            'tirmite',
                             x.type,
                             str(x.start),
                             str(x.end),
-                            ".",
+                            '.',
                             x.strand,
-                            ".",
-                            "ID=" + prefix + str(x.id) + ";model=" + str(x.model) + ";",
+                            '.',
+                            'ID=' + prefix + str(x.id) + ';model=' + str(x.model) + ';',
                         ]
                     )
-                    + "\n"
+                    + '\n'
                 )
-                if writeTIRs in ["all", "paired"]:
+                if writeTIRs in ['all', 'paired']:
                     # Write left TIR line as child
                     l = x.leftHit
                     file.write(
-                        "\t".join(
+                        '\t'.join(
                             [
                                 str(l.target),
-                                "tirmite",
-                                "paired_TIR",
+                                'tirmite',
+                                'paired_TIR',
                                 str(l.hitStart),
                                 str(l.hitEnd),
-                                ".",
+                                '.',
                                 l.strand,
-                                ".",
-                                "ID="
+                                '.',
+                                'ID='
                                 + prefix
                                 + str(x.model)
-                                + "_"
+                                + '_'
                                 + str(l.idx)
-                                + ";model="
+                                + ';model='
                                 + str(x.model)
-                                + ";Parent="
+                                + ';Parent='
                                 + str(x.id)
-                                + ";evalue="
+                                + ';evalue='
                                 + str(l.evalue)
-                                + ";",
+                                + ';',
                             ]
                         )
-                        + "\n"
+                        + '\n'
                     )
                     # Write right TIR line as child on neg strand
                     r = x.rightHit
                     file.write(
-                        "\t".join(
+                        '\t'.join(
                             [
                                 str(r.target),
-                                "tirmite",
-                                "paired_TIR",
+                                'tirmite',
+                                'paired_TIR',
                                 str(r.hitStart),
                                 str(r.hitEnd),
-                                ".",
+                                '.',
                                 r.strand,
-                                ".",
-                                "ID="
+                                '.',
+                                'ID='
                                 + prefix
                                 + str(x.model)
-                                + "_"
+                                + '_'
                                 + str(r.idx)
-                                + ";model="
+                                + ';model='
                                 + str(x.model)
-                                + ";Parent="
+                                + ';Parent='
                                 + str(x.id)
-                                + ";evalue="
+                                + ';evalue='
                                 + str(r.evalue)
-                                + ";",
+                                + ';',
                             ]
                         )
-                        + "\n"
+                        + '\n'
                     )
 
 

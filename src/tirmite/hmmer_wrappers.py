@@ -12,13 +12,13 @@ def cleanID(s):
     Remove non alphanumeric characters from string.
     Replace whitespace with underscores.
     """
-    s = re.sub(r"[^\w\s]", "", s)
-    s = re.sub(r"\s+", "_", s)
+    s = re.sub(r'[^\w\s]', '', s)
+    s = re.sub(r'\s+', '_', s)
     return s
 
 
 def _hmmbuild_command(
-    exePath="hmmbuild", modelname=None, cores=None, inAlign=None, outdir=None
+    exePath='hmmbuild', modelname=None, cores=None, inAlign=None, outdir=None
 ):
     """
     Construct the hmmbuild command.
@@ -33,36 +33,36 @@ def _hmmbuild_command(
     else:
         outdir = os.getcwd()
     # Create hmm database dir
-    outdir = os.path.join(outdir, "hmmDB")
+    outdir = os.path.join(outdir, 'hmmDB')
     if not os.path.isdir(outdir):
         os.makedirs(outdir)
     # Base command
-    command = quote(exePath) + " --dna -n " + modelname
+    command = quote(exePath) + ' --dna -n ' + modelname
     # Optional set cores
     if cores:
-        command += " --cpu " + str(cores)
+        command += ' --cpu ' + str(cores)
     if outdir:
-        modelout = os.path.join(outdir, modelname + ".hmm")
+        modelout = os.path.join(outdir, modelname + '.hmm')
     else:
-        modelout = modelname + ".hmm"
+        modelout = modelname + '.hmm'
     # Append output file name and source alignment, return command string
-    command = " ".join(
+    command = ' '.join(
         [command, quote(os.path.abspath(modelout)), quote(os.path.abspath(inAlign))]
     )
     return command, os.path.abspath(modelout)
 
 
-def _hmmpress_command(exePath="hmmpress", hmmfile=None):
+def _hmmpress_command(exePath='hmmpress', hmmfile=None):
     """
     Construct the hmmbuild command.
     """
     # Base command
-    command = quote(exePath) + " -f " + quote(os.path.abspath(hmmfile))
+    command = quote(exePath) + ' -f ' + quote(os.path.abspath(hmmfile))
     return command
 
 
 def _nhmmer_command(
-    exePath="nhmmer",
+    exePath='nhmmer',
     modelPath=None,
     genome=None,
     evalue=None,
@@ -84,24 +84,24 @@ def _nhmmer_command(
     else:
         outdir = os.getcwd()
     # Make subdir for nhmmer tab results
-    outdir = os.path.join(outdir, "nhmmer_results")
+    outdir = os.path.join(outdir, 'nhmmer_results')
     if not os.path.isdir(outdir):
         os.makedirs(outdir)
     # Create resultfile name
-    outfile = os.path.join(os.path.abspath(outdir), model_base + ".tab")
-    command = quote(exePath) + " --tblout " + quote(outfile)
+    outfile = os.path.join(os.path.abspath(outdir), model_base + '.tab')
+    command = quote(exePath) + ' --tblout ' + quote(outfile)
     if cores:
-        command += " --cpu " + str(cores)
+        command += ' --cpu ' + str(cores)
     if evalue:
-        command += " -E " + str(evalue)
+        command += ' -E ' + str(evalue)
     if nobias:
-        command += " --nobias"
+        command += ' --nobias'
     if matrix:
-        command += " --mxfile " + quote(os.path.abspath(matrix))
+        command += ' --mxfile ' + quote(os.path.abspath(matrix))
     command += (
-        " --noali --notextw --dna --max "
+        ' --noali --notextw --dna --max '
         + quote(os.path.abspath(modelPath))
-        + " "
+        + ' '
         + quote(os.path.abspath(genome))
     )
     return command, outdir
@@ -115,12 +115,12 @@ def cmdScriptHMMER(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=No
     else:
         tempDir = os.getcwd()
     # Create hmm database dir
-    hmmDB = os.path.join(tempDir, "hmmDB")
+    hmmDB = os.path.join(tempDir, 'hmmDB')
     if not os.path.isdir(hmmDB):
         os.makedirs(hmmDB)
     # Copy all existing hmms to hmmDB
     if hmmDir:
-        for hmm in glob.glob(os.path.join(hmmDir, "*.hmm")):
+        for hmm in glob.glob(os.path.join(hmmDir, '*.hmm')):
             shutil.copy2(hmm, hmmDB)
     if hmmFile:
         shutil.copy2(hmmFile, hmmDB)
@@ -129,7 +129,7 @@ def cmdScriptHMMER(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=No
     # Process alignments
     if alnDir:
         build_cmds = list()
-        for alignment in glob.glob(os.path.join(alnDir, "*")):
+        for alignment in glob.glob(os.path.join(alnDir, '*')):
             modelName = os.path.splitext(os.path.basename(alignment))[0]
             hmmbuildCmd, modelPath = _hmmbuild_command(
                 exePath=args.hmmbuild,
@@ -141,7 +141,7 @@ def cmdScriptHMMER(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=No
             build_cmds.append(hmmbuildCmd)
         run_cmd(build_cmds, verbose=args.verbose, keeptemp=args.keeptemp)
     # Press and write nhmmer cmd for all models in hmmDB directory
-    for hmm in glob.glob(os.path.join(hmmDB, "*.hmm")):
+    for hmm in glob.glob(os.path.join(hmmDB, '*.hmm')):
         hmmPressCmd = _hmmpress_command(exePath=args.hmmpress, hmmfile=hmm)
         nhmmerCmd, resultDir = _nhmmer_command(
             exePath=args.nhmmer,

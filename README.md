@@ -1,6 +1,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://badge.fury.io/py/TIRmite.svg)](https://badge.fury.io/py/TIRmite)
 [![codecov](https://codecov.io/gh/Adamtaranto/TIRmite/graph/badge.svg?token=DFEEPKDFZ0)](https://codecov.io/gh/Adamtaranto/TIRmite)
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](http://bioconda.github.io/recipes/tirmite/README.html)
+[![Downloads](https://pepy.tech/badge/tirmite)](https://pepy.tech/project/tirmite)
 
 <p align="center">
 <img src="https://raw.githubusercontent.com/Adamtaranto/TIRmite/main/docs/tirmite_hexlogo.jpg" width="256" height="256" title="tirmite_hex" />
@@ -75,14 +77,6 @@ You can create a Conda environment with these dependencies using the YAML files 
 conda env create -f environment.yml
 
 conda activate tirmite
-```
-
-Note: If you are using a Mac with an ARM64 (Apple Silicon) processor, BLAST is not currently available from Bioconda for this architecture. You can instead create a virtual OSX64 env like this:
-
-```bash
-conda env create -f env_osx64.yml
-
-conda activate tirmite-osx64
 ```
 
 Installation options:  

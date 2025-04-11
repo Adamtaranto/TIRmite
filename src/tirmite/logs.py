@@ -1,42 +1,54 @@
+"""
+Logging configuration for the tirmite package.
+
+This module provides functionality to initialize and configure logging with rich
+formatting for better readability in terminal output. It uses the 'rich' library
+to create visually enhanced log messages.
+"""
+
 import logging
-import sys
+
+from rich.console import Console
+from rich.logging import RichHandler
 
 
-def init_logging(loglevel='DEBUG'):
+def init_logging(loglevel: str = 'DEBUG') -> None:
+    """
+    Initialize root logger with specified log level and rich formatting.
+
+    Configures the global logging system with rich formatting for all modules
+    that use the standard logging calls.
+
+    Parameters
+    ----------
+    loglevel : str, optional
+        The log level to use (e.g., "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"),
+        by default "DEBUG".
+
+    Returns
+    -------
+    None
+        This function configures the global logging system and doesn't return a value.
+
+    Raises
+    ------
+    ValueError
+        If the provided log level is invalid.
+    """
+    # Convert log level string to numeric value
     numeric_level = getattr(logging, loglevel.upper(), None)
-
     if not isinstance(numeric_level, int):
-        raise ValueError('Invalid log level: %s' % loglevel)
+        raise ValueError(f'Invalid log level: {loglevel}')
 
-    # fmt = "%(asctime)s | %(levelname)8s | %(module)s:%(lineno)s:%(funcName)20s() | %(message)s"
-    fmt = '%(asctime)s | %(levelname)s | %(message)s'
-    handler_sh = logging.StreamHandler(sys.stderr)
-    handler_sh.setFormatter(CustomFormatter(fmt))
-    logging.basicConfig(format=fmt, level=numeric_level, handlers=[handler_sh])
+    # Get the root logger
+    root_logger = logging.getLogger()
 
+    # Clear existing handlers if any are present
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
 
-class CustomFormatter(logging.Formatter):
-    """Logging colored formatter, adapted from https://alexandra-zaharia.github.io/posts/make-your-own-custom-color-formatter-with-python-logging"""
+    # Add rich handler that outputs to stderr for better visibility in scripts
+    root_logger.addHandler(RichHandler(console=Console(stderr=True)))
 
-    grey = '\x1b[38;21m'
-    blue = '\x1b[38;5;39m'
-    yellow = '\x1b[38;5;226m'
-    red = '\x1b[38;5;196m'
-    bold_red = '\x1b[31;1m'
-    reset = '\x1b[0m'
-
-    def __init__(self, fmt):
-        super().__init__()
-        self.fmt = fmt
-        self.FORMATS = {
-            logging.DEBUG: self.grey + self.fmt + self.reset,
-            logging.INFO: self.blue + self.fmt + self.reset,
-            logging.WARNING: self.yellow + self.fmt + self.reset,
-            logging.ERROR: self.red + self.fmt + self.reset,
-            logging.CRITICAL: self.bold_red + self.fmt + self.reset,
-        }
-
-    def format(self, record):
-        log_fmt = self.FORMATS.get(record.levelno)
-        formatter = logging.Formatter(log_fmt)
-        return formatter.format(record)
+    # Set the logger's level according to specified loglevel
+    root_logger.setLevel(numeric_level)

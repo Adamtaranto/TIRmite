@@ -10,9 +10,9 @@ from tirmite.hmmer_wrappers import process_hmmer_workflow
 from tirmite.logs import init_logging
 import tirmite.tirmitetools as tirmite
 from tirmite.utils import (
-    setup_directories,
     cleanup_temp_directory,
     indexGenome,
+    setup_directories,
 )
 
 

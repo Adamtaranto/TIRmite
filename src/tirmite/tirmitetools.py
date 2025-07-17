@@ -3,7 +3,7 @@ import glob
 from operator import attrgetter
 import os
 
-from Bio import AlignIO, SeqIO, Seq
+from Bio import AlignIO, Seq, SeqIO
 from Bio.SeqRecord import SeqRecord
 import pandas as pd
 

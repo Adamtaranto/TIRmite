@@ -1,13 +1,13 @@
 from collections import Counter
+from contextlib import contextmanager
 from datetime import datetime
 import os
+from pathlib import Path
 import re
+import shutil
 import sys
 import tempfile
-import shutil
-from pathlib import Path
-from contextlib import contextmanager
-from typing import Optional, Union, Tuple
+from typing import Optional, Tuple, Union
 
 from Bio import SeqIO
 from pyfaidx import Fasta

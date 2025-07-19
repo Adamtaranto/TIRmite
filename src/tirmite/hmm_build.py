@@ -550,7 +550,7 @@ def extract_flanked_sequences_from_chains(
             else:
                 # Chained hits - add flanks only to first and last segments
                 first_hit = chain[0]
-                last_hit = chain[-1]
+                chain[-1]
 
                 # Validate all subject_ids exist in genome
                 valid_chain = True

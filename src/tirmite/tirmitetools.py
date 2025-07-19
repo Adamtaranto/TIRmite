@@ -549,7 +549,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
         """Helper function to get hit record from either nested or flat hitIndex."""
         if is_nested:
             # Search through all models to find the hit
-            for model_name, model_hits in hitIndex.items():
+            for _model_name, model_hits in hitIndex.items():
                 if hit_id in model_hits:
                     return model_hits[hit_id]['rec']
             raise KeyError(f'Hit ID {hit_id} not found in any model')
@@ -673,7 +673,7 @@ def writePairedTIRs(
         """Helper function to get hit record from either nested or flat hitIndex."""
         if is_nested:
             # Search through all models to find the hit
-            for model_name, model_hits in hitIndex.items():
+            for _model_name, model_hits in hitIndex.items():
                 if hit_id in model_hits:
                     return model_hits[hit_id]['rec']
             raise KeyError(f'Hit ID {hit_id} not found in any model')
@@ -1385,7 +1385,7 @@ def getPairsSymmetric(hitIndex=None, model_name=None, config=None, paired=None):
 
     for refID in hitIndex[model_name].keys():
         if not hitIndex[model_name][refID]['partner']:
-            ref_hit = hitIndex[model_name][refID]['rec']
+            hitIndex[model_name][refID]['rec']
 
             # Check candidates for this hit
             for candidate in hitIndex[model_name][refID]['candidates']:

@@ -5,8 +5,9 @@ channels:
 dependencies:
   - python 3.12
   - "pymummer>=0.10.3"
-  - hmmer
   - blast
+  - hmmer
+  - mafft
   - pip
   - pip:
       - "biopython>=1.70"

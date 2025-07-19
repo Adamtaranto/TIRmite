@@ -14,23 +14,23 @@ import argparse
 import io
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple
-import pandas as pd
 import shutil
+from typing import List, Optional, Tuple
 
 from Bio import SeqIO
-from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+import pandas as pd
 
+from tirmite.hmmer_wrappers import build_hmmbuild_command
 from tirmite.logs import init_logging
-from tirmite.runBlastn import run_blastn, BlastError
+from tirmite.runBlastn import BlastError, run_blastn
 from tirmite.utils import (
-    temporary_directory,
+    cleanID,
     create_output_directory,
     indexGenome,
-    cleanID,
+    temporary_directory,
 )
-from tirmite.hmmer_wrappers import build_hmmbuild_command
 from tirmite.wrapping import run_command
 
 

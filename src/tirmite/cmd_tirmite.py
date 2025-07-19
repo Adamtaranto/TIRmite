@@ -2,9 +2,9 @@ import argparse
 import glob
 import logging
 import os
+from pathlib import Path
 import shutil
 import sys
-from pathlib import Path
 
 from tirmite._version import __version__
 from tirmite.hmmer_wrappers import process_hmmer_workflow

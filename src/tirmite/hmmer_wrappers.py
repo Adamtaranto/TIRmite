@@ -242,6 +242,8 @@ def process_hmmer_workflow(
     hmm_dir: Optional[Union[str, Path]] = None,
     hmm_file: Optional[Union[str, Path]] = None,
     alignment_dir: Optional[Union[str, Path]] = None,
+    left_model: Optional[Union[str, Path]] = None,  # Add this parameter
+    right_model: Optional[Union[str, Path]] = None,  # Add this parameter
     temp_dir: Optional[Union[str, Path]] = None,
     genome_path: Union[str, Path] = None,
     executable_paths: Optional[dict] = None,
@@ -259,6 +261,10 @@ def process_hmmer_workflow(
         Single HMM file to copy (mutually exclusive with hmm_dir).
     alignment_dir : str or Path, optional
         Directory containing alignment files to convert to HMMs.
+    left_model : str or Path, optional
+        Path to left HMM model file.
+    right_model : str or Path, optional
+        Path to right HMM model file.
     temp_dir : str or Path, optional
         Working directory for temporary files. Defaults to current directory.
     genome_path : str or Path
@@ -293,10 +299,10 @@ def process_hmmer_workflow(
     ...     search_params={'evalue': 1e-3, 'cores': 4}
     ... )
     """
-    # Validate inputs
-    if not any([hmm_dir, hmm_file, alignment_dir]):
+    # Validate inputs - now includes left_model and right_model
+    if not any([hmm_dir, hmm_file, alignment_dir, left_model, right_model]):
         raise ValueError(
-            'Must provide at least one of: hmm_dir, hmm_file, or alignment_dir'
+            'Must provide at least one of: hmm_dir, hmm_file, alignment_dir, left_model, or right_model'
         )
 
     if hmm_dir and hmm_file:
@@ -351,6 +357,25 @@ def process_hmmer_workflow(
         shutil.copy2(hmm_file_path, hmm_db_path)
         if verbose:
             logging.info(f'Copied HMM file: {hmm_file_path.name}')
+
+    # Copy left and right model files
+    if left_model:
+        left_model_path = Path(left_model)
+        if not left_model_path.exists():
+            raise FileNotFoundError(f'Left model file not found: {left_model_path}')
+
+        shutil.copy2(left_model_path, hmm_db_path)
+        if verbose:
+            logging.info(f'Copied left model file: {left_model_path.name}')
+
+    if right_model:
+        right_model_path = Path(right_model)
+        if not right_model_path.exists():
+            raise FileNotFoundError(f'Right model file not found: {right_model_path}')
+
+        shutil.copy2(right_model_path, hmm_db_path)
+        if verbose:
+            logging.info(f'Copied right model file: {right_model_path.name}')
 
     # Build HMMs from alignments
     if alignment_dir:

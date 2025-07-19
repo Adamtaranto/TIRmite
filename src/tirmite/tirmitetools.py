@@ -300,24 +300,37 @@ def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
     # Init result trackers
     found = None
     mateFUP = None
+
     # Scan candidate partners of 'mate' looking for ref
     for matePartner in index[model][mate]['candidates']:
-        # If unpaired candidate is ref
-        if not index[model][matePartner.idx]['partner'] and matePartner.idx == ref:
-            found = {matePartner.idx, mate}
+        # Get the model that this candidate belongs to
+        candidate_model = matePartner.model
+        candidate_idx = matePartner.idx
+
+        # Check if this candidate is unpaired and matches our ref
+        if (
+            candidate_model in index
+            and candidate_idx in index[candidate_model]
+            and not index[candidate_model][candidate_idx]['partner']
+            and candidate_idx == ref
+        ):
+            found = {candidate_idx, mate}
             index[model][ref]['partner'] = mate
-            index[model][mate]['partner'] = ref
-            # return
+            index[candidate_model][mate]['partner'] = ref
             return found, index, mateFUP
+
         # If first unpaired candidate partner for mate is not ref
-        elif not index[model][matePartner.idx]['partner']:
-            # Return none and unchanged index
-            mateFUP = matePartner.idx
+        elif (
+            candidate_model in index
+            and candidate_idx in index[candidate_model]
+            and not index[candidate_model][candidate_idx]['partner']
+        ):
+            mateFUP = candidate_idx
             return found, index, mateFUP
         else:
             continue
+
     # If mate candidates include no unpaired reps, return unchanged index
-    # and blank 'found' and 'mateFUP' variables.
     return found, index, mateFUP
 
 
@@ -526,12 +539,24 @@ def flipTIRs(x, y):
 
 def fetchElements(paired=None, hitIndex=None, genome=None):
     """
-    Extract complete sequence of paired elements,
-    assign names and child TIRs for use in seq and GFF reporting.
-
-    Args:
-        genome: pyfaidx.Fasta indexed genome object
+    Extract complete sequence of paired elements.
+    Now handles nested hitIndex structure.
     """
+    # Check if hitIndex is nested or flat
+    is_nested = isinstance(next(iter(hitIndex.values())), dict)
+
+    def get_hit_record(hit_id):
+        """Helper function to get hit record from either nested or flat hitIndex."""
+        if is_nested:
+            # Search through all models to find the hit
+            for model_name, model_hits in hitIndex.items():
+                if hit_id in model_hits:
+                    return model_hits[hit_id]['rec']
+            raise KeyError(f'Hit ID {hit_id} not found in any model')
+        else:
+            # Flat structure - direct access
+            return hitIndex[hit_id]['rec']
+
     TIRelements = {}
     gffTup = namedtuple(
         'gffElem',
@@ -549,13 +574,21 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
             'evalue',
         ],
     )
+
     for model in paired.keys():
         TIRelements[model] = []
         model_counter = 0
-        for x, y in paired[model]:
+
+        for pair in paired[model]:
             model_counter += 1
-            x = hitIndex[model][x]['rec']
-            y = hitIndex[model][y]['rec']
+            # Convert set to list for indexing
+            hit_ids = list(pair)
+            x_id, y_id = hit_ids[0], hit_ids[1]
+
+            # Get hit records using helper function
+            x = get_hit_record(x_id)
+            y = get_hit_record(y_id)
+
             leftHit, rightHit = flipTIRs(x, y)
             eleID = model + '_Element_' + str(model_counter)
 
@@ -594,7 +627,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                 'NA',
             )
             TIRelements[model].append(TIRelement)
-    # Return list of element info tuples
+
     return TIRelements
 
 
@@ -621,26 +654,47 @@ def writePairedTIRs(
 ):
     """
     Extract TIR sequence of paired hits, write to fasta.
+    Now handles nested hitIndex structure.
 
     Args:
         genome: pyfaidx.Fasta indexed genome object
+        hitIndex: Can be flat {hit_id: hit_data} or nested {model: {hit_id: hit_data}}
+        paired: Dict {model: [set(hit_id1, hit_id2), ...]}
     """
-    # Remove the gffTup creation - this function should only write FASTA
-    # Remove: TIRpairs = dict() and all gffTup creation
-
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
         prefix = ''
 
+    # Check if hitIndex is nested (new format) or flat (old format)
+    is_nested = isinstance(next(iter(hitIndex.values())), dict)
+
+    def get_hit_record(hit_id):
+        """Helper function to get hit record from either nested or flat hitIndex."""
+        if is_nested:
+            # Search through all models to find the hit
+            for model_name, model_hits in hitIndex.items():
+                if hit_id in model_hits:
+                    return model_hits[hit_id]['rec']
+            raise KeyError(f'Hit ID {hit_id} not found in any model')
+        else:
+            # Flat structure - direct access
+            return hitIndex[hit_id]['rec']
+
     for model in paired.keys():
         model_counter = 0
         seqList = []  # Just collect sequences for FASTA output
 
-        for x, y in paired[model]:
+        for pair in paired[model]:
             model_counter += 1
-            x = hitIndex[model][x]['rec']
-            y = hitIndex[model][y]['rec']
+            # Convert set to list for indexing
+            hit_ids = list(pair)
+            x_id, y_id = hit_ids[0], hit_ids[1]
+
+            # Get hit records using helper function
+            x = get_hit_record(x_id)
+            y = get_hit_record(y_id)
+
             leftHit, rightHit = flipTIRs(x, y)
             eleID = model + '_TIRpair_' + str(model_counter)
 
@@ -1131,3 +1185,262 @@ def _check_distance(ref_hit, candidate, direction, maxDist):
         # Right hit looking for left partner
         distance = ref_hit.hitStart - candidate.hitEnd
         return distance >= 0 and distance <= maxDist
+
+
+def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
+    """
+    Pairing procedure for asymmetric models (different left and right models).
+
+    Args:
+        hitIndex: Nested dict {model: {hit_id: hit_data}}
+        config: PairingConfig object with orientation and model settings
+        stableReps: Number of stable iterations before stopping
+
+    Returns:
+        hitIndex, paired, unpaired (same format as original)
+    """
+    # Init stable repeat counter
+    reps = 0
+
+    # Initialize paired dict with both model names
+    paired = {config.left_model: [], config.right_model: []}
+
+    # Run initial pairing
+    hitIndex, paired = getPairsAsymmetric(
+        hitIndex=hitIndex, config=config, paired=paired
+    )
+
+    # Count remaining unpaired hits
+    countUP = countUnpairedAsymmetric(hitIndex)
+
+    # Iterate pairing procedure until either no unpaired remain
+    # OR max number of iterations without new pairing is reached
+    while countUP > 0 and reps < stableReps:
+        # Re-run pairing procedure
+        hitIndex, paired = getPairsAsymmetric(
+            hitIndex=hitIndex, config=config, paired=paired
+        )
+
+        # Store previous unpaired hit count
+        lastCountUP = countUP
+        # Update unpaired hit count
+        countUP = countUnpairedAsymmetric(hitIndex)
+
+        # If no change in unpaired hit count, iterate stable rep counter
+        if lastCountUP == countUP:
+            reps += 1
+
+    # Get IDs of remaining unpaired hits
+    unpaired = listunpairedAsymmetric(hitIndex)
+
+    return hitIndex, paired, unpaired
+
+
+def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
+    """
+    Asymmetric pairing procedure that pairs hits from different models.
+    """
+    if not paired:
+        paired = {config.left_model: [], config.right_model: []}
+
+    # Get hits from left model looking for right model partners
+    if config.left_model in hitIndex:
+        for leftID in hitIndex[config.left_model].keys():
+            if not hitIndex[config.left_model][leftID]['partner']:
+                left_hit = hitIndex[config.left_model][leftID]['rec']
+
+                # Only process hits with correct strand orientation
+                if left_hit.strand == config.left_strand:
+                    # Look through candidates (which should be from right model)
+                    for candidate in hitIndex[config.left_model][leftID]['candidates']:
+                        # Check if candidate is unpaired and from right model
+                        if (
+                            candidate.model == config.right_model
+                            and candidate.idx in hitIndex[config.right_model]
+                            and not hitIndex[config.right_model][candidate.idx][
+                                'partner'
+                            ]
+                        ):
+                            # Check if this left hit is also the best candidate for the right hit
+                            found = checkAsymmetricReciprocity(
+                                left_model=config.left_model,
+                                left_id=leftID,
+                                right_model=config.right_model,
+                                right_id=candidate.idx,
+                                hitIndex=hitIndex,
+                                config=config,
+                            )
+
+                            if found:
+                                # Mark as paired
+                                hitIndex[config.left_model][leftID]['partner'] = (
+                                    candidate.idx
+                                )
+                                hitIndex[config.right_model][candidate.idx][
+                                    'partner'
+                                ] = leftID
+
+                                # Add to paired list (store under left model)
+                                paired[config.left_model].append(
+                                    {leftID, candidate.idx}
+                                )
+                                break
+
+    return hitIndex, paired
+
+
+def checkAsymmetricReciprocity(
+    left_model, left_id, right_model, right_id, hitIndex, config
+):
+    """
+    Check if left and right hits are each other's best candidates.
+    """
+    # Check if left hit is the best candidate for the right hit
+    right_candidates = hitIndex[right_model][right_id]['candidates']
+
+    for candidate in right_candidates:
+        if (
+            candidate.model == left_model
+            and candidate.idx in hitIndex[left_model]
+            and not hitIndex[left_model][candidate.idx]['partner']
+        ):
+            if candidate.idx == left_id:
+                return True  # Reciprocal match found
+            else:
+                return False  # A better candidate exists
+
+    return False  # No valid candidates
+
+
+def countUnpairedAsymmetric(hitIndex):
+    """Count unpaired hits across asymmetric models."""
+    count = 0
+    for model in hitIndex.keys():
+        for hitID in hitIndex[model].keys():
+            if not hitIndex[model][hitID]['partner']:
+                count += 1
+    return count
+
+
+def listunpairedAsymmetric(hitIndex):
+    """List all unpaired hit IDs for asymmetric models."""
+    unpaired = []
+    for model in hitIndex.keys():
+        for hitID in hitIndex[model].keys():
+            if not hitIndex[model][hitID]['partner']:
+                unpaired.append(hitID)
+    return unpaired
+
+
+def iterateGetPairsCustom(hitIndex, config, stableReps=0):
+    """
+    Enhanced pairing procedure that supports custom orientations for symmetric models.
+    """
+    import logging
+
+    logging.debug('=== ENTERING iterateGetPairsCustom ===')
+
+    model_name = config.left_model
+
+    if model_name not in hitIndex:
+        logging.error(f'Model {model_name} not found in hitIndex')
+        return hitIndex, {model_name: []}, []
+
+    # Initialize pairing structures
+    paired = {model_name: []}
+    reps = 0
+
+    # Run initial pairing
+    hitIndex, paired = getPairsSymmetric(
+        hitIndex=hitIndex, model_name=model_name, config=config, paired=paired
+    )
+
+    # Count remaining unpaired hits
+    countUP = countUnpairedSymmetric(hitIndex, model_name)
+
+    # Iterate pairing procedure
+    while countUP > 0 and reps < stableReps:
+        hitIndex, paired = getPairsSymmetric(
+            hitIndex=hitIndex, model_name=model_name, config=config, paired=paired
+        )
+
+        lastCountUP = countUP
+        countUP = countUnpairedSymmetric(hitIndex, model_name)
+
+        if lastCountUP == countUP:
+            reps += 1
+
+    # Get unpaired list
+    unpaired = listunpairedSymmetric(hitIndex, model_name)
+
+    return hitIndex, paired, unpaired
+
+
+def getPairsSymmetric(hitIndex=None, model_name=None, config=None, paired=None):
+    """
+    Symmetric pairing procedure that works with nested hitIndex structure.
+    """
+    if model_name not in hitIndex:
+        return hitIndex, paired
+
+    for refID in hitIndex[model_name].keys():
+        if not hitIndex[model_name][refID]['partner']:
+            ref_hit = hitIndex[model_name][refID]['rec']
+
+            # Check candidates for this hit
+            for candidate in hitIndex[model_name][refID]['candidates']:
+                # Candidate should be from the same model for symmetric pairing
+                if (
+                    candidate.model == model_name
+                    and candidate.idx in hitIndex[model_name]
+                    and not hitIndex[model_name][candidate.idx]['partner']
+                ):
+                    # Check reciprocity
+                    if checkSymmetricReciprocity(
+                        model_name, refID, candidate.idx, hitIndex
+                    ):
+                        # Mark as paired
+                        hitIndex[model_name][refID]['partner'] = candidate.idx
+                        hitIndex[model_name][candidate.idx]['partner'] = refID
+
+                        # Add to paired list
+                        paired[model_name].append({refID, candidate.idx})
+                        break
+
+    return hitIndex, paired
+
+
+def checkSymmetricReciprocity(model_name, ref_id, candidate_id, hitIndex):
+    """Check if two hits are each other's best unpaired candidates."""
+    # Check if ref_id is the best unpaired candidate for candidate_id
+    for mate_candidate in hitIndex[model_name][candidate_id]['candidates']:
+        if (
+            mate_candidate.idx in hitIndex[model_name]
+            and not hitIndex[model_name][mate_candidate.idx]['partner']
+        ):
+            return mate_candidate.idx == ref_id
+    return False
+
+
+def countUnpairedSymmetric(hitIndex, model_name):
+    """Count unpaired hits for a specific model."""
+    if model_name not in hitIndex:
+        return 0
+
+    count = 0
+    for hitID in hitIndex[model_name].keys():
+        if not hitIndex[model_name][hitID]['partner']:
+            count += 1
+    return count
+
+
+def listunpairedSymmetric(hitIndex, model_name):
+    """List unpaired hit IDs for a specific model."""
+    if model_name not in hitIndex:
+        return []
+
+    unpaired = []
+    for hitID in hitIndex[model_name].keys():
+        if not hitIndex[model_name][hitID]['partner']:
+            unpaired.append(hitID)
+    return unpaired

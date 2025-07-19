@@ -46,6 +46,9 @@ def temporary_directory(
     ...     pass
     # Directory is automatically cleaned up
     """
+    temp_dir = None
+    temp_path = None
+
     try:
         # Create temporary directory using secure methods
         temp_dir = tempfile.mkdtemp(
@@ -55,16 +58,12 @@ def temporary_directory(
         yield temp_path
 
     except Exception as e:
-        # Ensure cleanup happens even if there's an error during creation
-        if 'temp_dir' in locals() and Path(temp_dir).exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
-        raise RuntimeError(
-            f'Failed to create or manage temporary directory: {e}'
-        ) from e
+        # Re-raise the original exception, cleanup happens in finally block
+        raise e
 
     finally:
         # Clean up if requested and directory exists
-        if cleanup and 'temp_dir' in locals() and Path(temp_dir).exists():
+        if cleanup and temp_dir is not None and Path(temp_dir).exists():
             try:
                 shutil.rmtree(temp_dir)
             except OSError as e:

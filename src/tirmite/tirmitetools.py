@@ -540,7 +540,7 @@ def flipTIRs(x, y):
 def fetchElements(paired=None, hitIndex=None, genome=None):
     """
     Extract complete sequence of paired elements.
-    Now handles nested hitIndex structure.
+    Now handles nested hitIndex structure and asymmetric pairing correctly.
     """
     # Check if hitIndex is nested or flat
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
@@ -575,58 +575,62 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
         ],
     )
 
+    # Only process models that actually have pairs
     for model in paired.keys():
-        TIRelements[model] = []
-        model_counter = 0
+        if len(paired[model]) > 0:  # Only create entries for models with actual pairs
+            TIRelements[model] = []
+            model_counter = 0
 
-        for pair in paired[model]:
-            model_counter += 1
-            # Convert set to list for indexing
-            hit_ids = list(pair)
-            x_id, y_id = hit_ids[0], hit_ids[1]
+            for pair in paired[model]:
+                model_counter += 1
+                # Convert set to list for indexing
+                hit_ids = list(pair)
+                x_id, y_id = hit_ids[0], hit_ids[1]
 
-            # Get hit records using helper function
-            x = get_hit_record(x_id)
-            y = get_hit_record(y_id)
+                # Get hit records using helper function
+                x = get_hit_record(x_id)
+                y = get_hit_record(y_id)
 
-            leftHit, rightHit = flipTIRs(x, y)
-            eleID = model + '_Element_' + str(model_counter)
+                leftHit, rightHit = flipTIRs(x, y)
 
-            # Extract element sequence using pyfaidx (0-based indexing)
-            chrom = genome[leftHit.target]
-            start = int(leftHit.hitStart) - 1  # Convert to 0-based
-            end = int(rightHit.hitEnd)  # End is exclusive in slicing
+                # Fix: Use a simpler element ID that doesn't duplicate model name
+                eleID = f'Element_{model_counter}'  # Simplified ID
 
-            ele_seq_str = str(chrom[start:end])
-            eleSeq = SeqRecord(Seq.Seq(ele_seq_str))
-            eleSeq.id = eleID
-            eleSeq.name = eleID
-            eleSeq.description = (
-                '_'.join(
-                    [
-                        '[' + leftHit.target + ':' + str(leftHit.hitStart),
-                        str(rightHit.hitEnd),
-                    ]
+                # Extract element sequence using pyfaidx (0-based indexing)
+                chrom = genome[leftHit.target]
+                start = int(leftHit.hitStart) - 1  # Convert to 0-based
+                end = int(rightHit.hitEnd)  # End is exclusive in slicing
+
+                ele_seq_str = str(chrom[start:end])
+                eleSeq = SeqRecord(Seq.Seq(ele_seq_str))
+                eleSeq.id = eleID
+                eleSeq.name = eleID
+                eleSeq.description = (
+                    '_'.join(
+                        [
+                            '[' + leftHit.target + ':' + str(leftHit.hitStart),
+                            str(rightHit.hitEnd),
+                        ]
+                    )
+                    + ' len='
+                    + str(rightHit.hitEnd - leftHit.hitStart)
+                    + ']'
                 )
-                + ' len='
-                + str(rightHit.hitEnd - leftHit.hitStart)
-                + ']'
-            )
 
-            TIRelement = gffTup(
-                model,
-                leftHit.target,
-                leftHit.hitStart,
-                rightHit.hitEnd,
-                leftHit.strand,
-                'TIR_Element',
-                eleID,
-                leftHit,
-                rightHit,
-                eleSeq,
-                'NA',
-            )
-            TIRelements[model].append(TIRelement)
+                TIRelement = gffTup(
+                    model,  # This is the pairing model (left model for asymmetric)
+                    leftHit.target,
+                    leftHit.hitStart,
+                    rightHit.hitEnd,
+                    leftHit.strand,
+                    'Element',
+                    eleID,
+                    leftHit,
+                    rightHit,
+                    eleSeq,
+                    'NA',
+                )
+                TIRelements[model].append(TIRelement)
 
     return TIRelements
 
@@ -634,27 +638,28 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
 def writeElements(outDir, eleDict=None, prefix=None):
     """
     Takes dict of extracted sequences keyed by model.
-    Writes to fasta by model.
+    Writes to fasta by model only if model has elements.
     """
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
         prefix = ''
+
     for model in eleDict.keys():
-        outfile = os.path.join(outDir, prefix + model + '_elements.fasta')
-        with open(outfile, 'w') as handle:
-            for element in eleDict[model]:
-                element.seq.id = prefix + str(element.seq.id)
-                SeqIO.write(element.seq, handle, 'fasta')
+        if len(eleDict[model]) > 0:  # Only write files for models with actual elements
+            outfile = os.path.join(outDir, prefix + model + '_elements.fasta')
+            with open(outfile, 'w') as handle:
+                for element in eleDict[model]:
+                    element.seq.id = prefix + str(element.seq.id)
+                    SeqIO.write(element.seq, handle, 'fasta')
 
 
-# Fix: Do not load fasta into genome!
 def writePairedTIRs(
     outDir=None, paired=None, hitIndex=None, genome=None, prefix=None, padlen=None
 ):
     """
     Extract TIR sequence of paired hits, write to fasta.
-    Now handles nested hitIndex structure.
+    Now handles nested hitIndex structure and only writes files for models with actual pairs.
 
     Args:
         genome: pyfaidx.Fasta indexed genome object
@@ -681,105 +686,116 @@ def writePairedTIRs(
             # Flat structure - direct access
             return hitIndex[hit_id]['rec']
 
+    # Only process models that actually have pairs
     for model in paired.keys():
-        model_counter = 0
-        seqList = []  # Just collect sequences for FASTA output
+        if len(paired[model]) > 0:  # Only write files for models with actual pairs
+            model_counter = 0
+            seqList = []  # Just collect sequences for FASTA output
 
-        for pair in paired[model]:
-            model_counter += 1
-            # Convert set to list for indexing
-            hit_ids = list(pair)
-            x_id, y_id = hit_ids[0], hit_ids[1]
+            for pair in paired[model]:
+                model_counter += 1
+                # Convert set to list for indexing
+                hit_ids = list(pair)
+                x_id, y_id = hit_ids[0], hit_ids[1]
 
-            # Get hit records using helper function
-            x = get_hit_record(x_id)
-            y = get_hit_record(y_id)
+                # Get hit records using helper function
+                x = get_hit_record(x_id)
+                y = get_hit_record(y_id)
 
-            leftHit, rightHit = flipTIRs(x, y)
-            eleID = model + '_TIRpair_' + str(model_counter)
+                leftHit, rightHit = flipTIRs(x, y)
+                eleID = f'{model}_{model_counter}'
 
-            # Extract left TIR sequence using pyfaidx
-            chrom = genome[leftHit.target]
-            left_start = int(leftHit.hitStart) - 1  # Convert to 0-based
-            left_end = int(leftHit.hitEnd)
+                # Extract left TIR sequence using pyfaidx
+                chrom = genome[leftHit.target]
+                left_start = int(leftHit.hitStart) - 1  # Convert to 0-based
+                left_end = int(leftHit.hitEnd)
 
-            # Extract right TIR sequence using pyfaidx
-            right_start = int(rightHit.hitStart) - 1  # Convert to 0-based
-            right_end = int(rightHit.hitEnd)
+                # Extract right TIR sequence using pyfaidx
+                right_start = int(rightHit.hitStart) - 1  # Convert to 0-based
+                right_end = int(rightHit.hitEnd)
 
-            if padlen:
-                # Extract with padding for left TIR
-                left_pad_start = max(0, left_start - padlen)
-                left_pad_end = min(len(chrom), left_end + padlen)
+                if padlen:
+                    # Extract with padding for left TIR
+                    left_pad_start = max(0, left_start - padlen)
+                    left_pad_end = min(len(chrom), left_end + padlen)
 
-                left_seq_parts = []
-                if left_start > left_pad_start:
-                    left_seq_parts.append(str(chrom[left_pad_start:left_start]).lower())
-                left_seq_parts.append(str(chrom[left_start:left_end]))
-                if left_end < left_pad_end:
-                    left_seq_parts.append(str(chrom[left_end:left_pad_end]).lower())
+                    left_seq_parts = []
+                    if left_start > left_pad_start:
+                        left_seq_parts.append(
+                            str(chrom[left_pad_start:left_start]).lower()
+                        )
+                    left_seq_parts.append(str(chrom[left_start:left_end]))
+                    if left_end < left_pad_end:
+                        left_seq_parts.append(str(chrom[left_end:left_pad_end]).lower())
 
-                left_seq_str = ''.join(left_seq_parts)
+                    left_seq_str = ''.join(left_seq_parts)
 
-                # Extract with padding for right TIR
-                right_pad_start = max(0, right_start - padlen)
-                right_pad_end = min(len(chrom), right_end + padlen)
+                    # Extract with padding for right TIR
+                    right_pad_start = max(0, right_start - padlen)
+                    right_pad_end = min(len(chrom), right_end + padlen)
 
-                right_seq_parts = []
-                if right_start > right_pad_start:
-                    right_seq_parts.append(
-                        str(chrom[right_pad_start:right_start]).lower()
+                    right_seq_parts = []
+                    if right_start > right_pad_start:
+                        right_seq_parts.append(
+                            str(chrom[right_pad_start:right_start]).lower()
+                        )
+                    right_seq_parts.append(str(chrom[right_start:right_end]))
+                    if right_end < right_pad_end:
+                        right_seq_parts.append(
+                            str(chrom[right_end:right_pad_end]).lower()
+                        )
+
+                    right_seq_str = ''.join(right_seq_parts)
+                else:
+                    left_seq_str = str(chrom[left_start:left_end])
+                    right_seq_str = str(chrom[right_start:right_end])
+
+                # Create SeqRecords for FASTA output only
+                eleSeqLeft = SeqRecord(Seq.Seq(left_seq_str))
+                eleSeqRight = SeqRecord(Seq.Seq(right_seq_str))
+                eleSeqRight = eleSeqRight.reverse_complement()
+
+                eleSeqLeft.id = eleID + '_L'
+                eleSeqLeft.name = eleID + '_L'
+                eleSeqLeft.description = (
+                    '_'.join(
+                        [
+                            '[' + leftHit.target + ':' + str(leftHit.hitStart),
+                            str(leftHit.hitEnd),
+                        ]
                     )
-                right_seq_parts.append(str(chrom[right_start:right_end]))
-                if right_end < right_pad_end:
-                    right_seq_parts.append(str(chrom[right_end:right_pad_end]).lower())
-
-                right_seq_str = ''.join(right_seq_parts)
-            else:
-                left_seq_str = str(chrom[left_start:left_end])
-                right_seq_str = str(chrom[right_start:right_end])
-
-            # Create SeqRecords for FASTA output only
-            eleSeqLeft = SeqRecord(Seq.Seq(left_seq_str))
-            eleSeqRight = SeqRecord(Seq.Seq(right_seq_str))
-            eleSeqRight = eleSeqRight.reverse_complement()
-
-            eleSeqLeft.id = eleID + '_L'
-            eleSeqLeft.name = eleID + '_L'
-            eleSeqLeft.description = (
-                '_'.join(
-                    [
-                        '[' + leftHit.target + ':' + str(leftHit.hitStart),
-                        str(leftHit.hitEnd),
-                    ]
+                    + ']'
                 )
-                + ']'
-            )
-            eleSeqRight.id = eleID + '_R'
-            eleSeqRight.name = eleID + '_R'
-            eleSeqRight.description = (
-                '_'.join(
-                    [
-                        '[' + leftHit.target + ':' + str(rightHit.hitEnd),
-                        str(rightHit.hitStart),
-                    ]
+                eleSeqRight.id = eleID + '_R'
+                eleSeqRight.name = eleID + '_R'
+                eleSeqRight.description = (
+                    '_'.join(
+                        [
+                            '[' + leftHit.target + ':' + str(rightHit.hitEnd),
+                            str(rightHit.hitStart),
+                        ]
+                    )
+                    + ']'
                 )
-                + ']'
-            )
 
-            # Add to sequence list for FASTA output
-            seqList.append(eleSeqLeft)
-            seqList.append(eleSeqRight)
+                # Add to sequence list for FASTA output
+                seqList.append(eleSeqLeft)
+                seqList.append(eleSeqRight)
 
-        # Write FASTA file for this model
-        outfile = os.path.join(
-            outDir,
-            prefix + model + '_paired_TIR_hits_' + str(len(seqList)) + '.fasta',
-        )
-        with open(outfile, 'w') as handle:
-            for seq in seqList:
-                seq.id = prefix + str(seq.id)
-                SeqIO.write(seq, handle, 'fasta')
+            # Write FASTA file for this model only if we have sequences
+            if seqList:
+                outfile = os.path.join(
+                    outDir,
+                    prefix
+                    + model
+                    + '_paired_term_hits_'
+                    + str(len(seqList))
+                    + '.fasta',
+                )
+                with open(outfile, 'w') as handle:
+                    for seq in seqList:
+                        seq.id = prefix + str(seq.id)
+                        SeqIO.write(seq, handle, 'fasta')
 
 
 def fetchUnpaired(hitIndex=None):
@@ -814,7 +830,7 @@ def fetchUnpaired(hitIndex=None):
                     x.hitStart,
                     x.hitEnd,
                     x.strand,
-                    'orphan_TIR',
+                    'orphan_term',
                     x.idx,
                     None,
                     None,
@@ -880,118 +896,80 @@ def gffWrite(
         )
         # Format features for GFF3
         for feature in sorted_features:
-            if feature.type == 'orphan_TIR' and writeTIRs in ['all', 'unpaired']:
+            if feature.type == 'orphan_term' and writeTIRs in ['all', 'unpaired']:
                 file.write(
-                    '\t'.join(
-                        [
-                            str(feature.chromosome),
-                            'tirmite',
-                            feature.type,
-                            str(feature.start),
-                            str(feature.end),
-                            '.',
-                            feature.strand,
-                            '.',
-                            'ID='
-                            + prefix
-                            + str(feature.model)
-                            + '_'
-                            + str(feature.id)
-                            + ';model='
-                            + str(feature.model)
-                            + ';evalue='
-                            + str(feature.evalue)
-                            + ';',
-                        ]
-                    )
-                    + '\n'
+                    f'{feature.chromosome}\t'
+                    f'tirmite\t'
+                    f'{feature.type}\t'
+                    f'{feature.start}\t'
+                    f'{feature.end}\t'
+                    f'.\t'
+                    f'{feature.strand}\t'
+                    f'.\t'
+                    f'ID={prefix}{feature.model}_{feature.id};'
+                    f'model={feature.model};'
+                    f'evalue={feature.evalue};\n'
                 )
-            if feature.type == 'TIR_Element':
+            if feature.type == 'Element':
                 # Write Element line
+                # Fix: Create proper element ID with prefix
+                element_id = f'{prefix}{feature.model}_{feature.id}'
                 file.write(
-                    '\t'.join(
-                        [
-                            str(feature.chromosome),
-                            'tirmite',
-                            feature.type,
-                            str(feature.start),
-                            str(feature.end),
-                            '.',
-                            feature.strand,
-                            '.',
-                            'ID='
-                            + prefix
-                            + str(feature.id)
-                            + ';model='
-                            + str(feature.model)
-                            + ';',
-                        ]
-                    )
-                    + '\n'
+                    f'{feature.chromosome}\t'
+                    f'tirmite\t'
+                    f'{feature.type}\t'
+                    f'{feature.start}\t'
+                    f'{feature.end}\t'
+                    f'.\t'
+                    f'{feature.strand}\t'
+                    f'.\t'
+                    f'ID={prefix}{element_id};model={feature.model};\n'
                 )
                 if writeTIRs in ['all', 'paired']:
                     # Write left TIR line as child
                     left_hit = feature.leftHit
+                    # Fix: Use the actual hit's model name, not the element's model
+                    left_model = left_hit.model
                     file.write(
-                        '\t'.join(
-                            [
-                                str(left_hit.target),
-                                'tirmite',
-                                'paired_TIR',
-                                str(left_hit.hitStart),
-                                str(left_hit.hitEnd),
-                                '.',
-                                left_hit.strand,
-                                '.',
-                                'ID='
-                                + prefix
-                                + str(feature.model)
-                                + '_'
-                                + str(left_hit.idx)
-                                + ';model='
-                                + str(feature.model)
-                                + ';Parent='
-                                + str(feature.id)
-                                + ';evalue='
-                                + str(left_hit.evalue)
-                                + ';',
-                            ]
+                        (
+                            f'{left_hit.target}\t'
+                            f'tirmite\t'
+                            f'paired_term\t'
+                            f'{left_hit.hitStart}\t'
+                            f'{left_hit.hitEnd}\t'
+                            f'.\t'
+                            f'{left_hit.strand}\t'
+                            f'.\t'
+                            f'ID={prefix}{left_model}_{left_hit.idx};'
+                            f'model={left_model};'
+                            f'Parent={element_id};'
+                            f'evalue={left_hit.evalue};\n'
                         )
-                        + '\n'
                     )
-                    # Write right TIR line as child on neg strand
+                    # Write right TIR line as child
                     right_hit = feature.rightHit
+                    # Fix: Use the actual hit's model name, not the element's model
+                    right_model = right_hit.model
                     file.write(
-                        '\t'.join(
-                            [
-                                str(right_hit.target),
-                                'tirmite',
-                                'paired_TIR',
-                                str(right_hit.hitStart),
-                                str(right_hit.hitEnd),
-                                '.',
-                                right_hit.strand,
-                                '.',
-                                'ID='
-                                + prefix
-                                + str(feature.model)
-                                + '_'
-                                + str(right_hit.idx)
-                                + ';model='
-                                + str(feature.model)
-                                + ';Parent='
-                                + str(feature.id)
-                                + ';evalue='
-                                + str(right_hit.evalue)
-                                + ';',
-                            ]
+                        (
+                            f'{right_hit.target}\t'
+                            f'tirmite\t'
+                            f'paired_term\t'
+                            f'{right_hit.hitStart}\t'
+                            f'{right_hit.hitEnd}\t'
+                            f'.\t'
+                            f'{right_hit.strand}\t'
+                            f'.\t'
+                            f'ID={prefix}{right_model}_{right_hit.idx};'
+                            f'model={right_model};'
+                            f'Parent={element_id};'
+                            f'evalue={right_hit.evalue};\n'
                         )
-                        + '\n'
                     )
 
 
 # gffTup fields: 'model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'score','bias', 'evalue', 'leftHit' , 'rightHit', 'eleSeq'
-# Types: "TIR_Element", "orphan_TIR"
+# Types: "Element", "orphan_term"
 
 
 """

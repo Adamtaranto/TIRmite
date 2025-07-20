@@ -20,8 +20,8 @@ from tirmite.utils import (
 def mainArgs():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
-        description='Map TIR-pHMM models to genomic sequences for annotation \
-        of MITES and complete DNA-Transposons.',
+        description='Map HMM models of transposon termini to genomic sequences for annotation \
+        of variable non-autonomous and complete transposons.',
         prog='tirmite',
     )
     parser.add_argument(
@@ -52,7 +52,7 @@ def mainArgs():
         '--hmmFile',
         type=str,
         default=None,
-        help='Path to single TIR-pHMM file. Incompatible with "--hmmDir".',
+        help='Path to single HMM file. Incompatible with "--hmmDir".',
     )
     parser.add_argument(
         '--alnDir',
@@ -90,13 +90,13 @@ def mainArgs():
         '--prefix',
         type=str,
         default=None,
-        help='Add prefix to all TIRs and Paired elements detected in this run. Useful when running same TIR-pHMM against many genomes.(Default = None)',
+        help='Add prefix to all hits and paired elements detected in this run. (Default = None)',
     )
     parser.add_argument(
         '--nopairing',
         action='store_true',
         default=False,
-        help='If set, only report TIR-pHMM hits. Do not attempt pairing.',
+        help='If set, only report HMM hits. Do not attempt pairing.',
     )
     parser.add_argument(
         '--gffOut',
@@ -108,16 +108,16 @@ def mainArgs():
         '--report',
         default='all',
         choices=[None, 'all', 'paired', 'unpaired'],
-        help='Options for reporting TIRs in GFF annotation file.',
+        help='Options for reporting model hits in GFF annotation file.',
     )
     parser.add_argument(
         '--padlen',
         type=int,
         default=None,
-        help='Extract x bases either side of TIR when writing TIRs to fasta.',
+        help='Extract x bases either side of model hit when writing hits to fasta.',
     )
     parser.add_argument(
-        '--keeptemp',
+        '--keep_temp',
         action='store_true',
         default=False,
         help='If set do not delete temp file directory.',
@@ -146,7 +146,7 @@ def mainArgs():
         '--maxdist',
         type=int,
         default=None,
-        help='Maximum distance allowed between TIR candidates to consider valid pairing.',
+        help='Maximum distance allowed between termini candidates to consider valid pairing.',
     )
     parser.add_argument(
         '--nobias',
@@ -385,7 +385,7 @@ def main():
             # Die if no input file
             if not glob.glob(os.path.abspath(args.pairbed)):
                 logging.error('BED file %s not found. Quitting.' % args.pairbed)
-                cleanup_temp_directory(tempDir, args.keeptemp)
+                cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
             logging.info(
@@ -417,7 +417,7 @@ def main():
 
                 if not available_models:
                     logging.error('No models found in BED file')
-                    cleanup_temp_directory(tempDir, args.keeptemp)
+                    cleanup_temp_directory(tempDir, args.keep_temp)
                     sys.exit(1)
 
                 # Use first available model or user-specified model
@@ -438,7 +438,7 @@ def main():
                 logging.error(
                     'BED file incompatible with pairing configuration. Quitting.'
                 )
-                cleanup_temp_directory(tempDir, args.keeptemp)
+                cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
             # Apply hit e-value filters
@@ -464,7 +464,7 @@ def main():
                     padlen=args.padlen,
                 )
                 logging.info('Pairing is off. Reporting hits only.')
-                cleanup_temp_directory(tempDir, args.keeptemp)
+                cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(0)
 
         # Else run nhmmer and load TIR hits.
@@ -487,7 +487,7 @@ def main():
                     != 'hmm'
                 ):
                     logging.error('--hmmFile has non-hmm extension. Exiting.')
-                    cleanup_temp_directory(tempDir, args.keeptemp)
+                    cleanup_temp_directory(tempDir, args.keep_temp)
                     sys.exit(1)
 
             # Use new HMMER workflow
@@ -520,13 +520,13 @@ def main():
 
             except Exception as e:
                 logging.error(f'HMMER workflow failed: {e}')
-                cleanup_temp_directory(tempDir, args.keeptemp)
+                cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
             # Die if no hits found
             if not glob.glob(os.path.join(os.path.abspath(resultDir), '*.tab')):
                 logging.error('No hits found in %s . Quitting.' % resultDir)
-                cleanup_temp_directory(tempDir, args.keeptemp)
+                cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
             # Import hits from nhmmer result files
@@ -630,7 +630,7 @@ def main():
                     available_models = list(hitsDict.keys())
                     logging.error(f'Required model {model} not found in search results')
                     logging.error(f'Available models: {", ".join(available_models)}')
-                    cleanup_temp_directory(tempDir, args.keeptemp)
+                    cleanup_temp_directory(tempDir, args.keep_temp)
                     sys.exit(1)
 
             # If pairing is off, just report the hits
@@ -643,7 +643,7 @@ def main():
                     padlen=args.padlen,
                 )
                 logging.info('Pairing is off. Reporting hits only.')
-                cleanup_temp_directory(tempDir, args.keeptemp)
+                cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(0)
 
         # First, let's examine the hit data more closely by adding debug prints
@@ -818,7 +818,7 @@ def main():
 
     finally:
         # Always clean up temporary directory
-        cleanup_temp_directory(tempDir, args.keeptemp)
+        cleanup_temp_directory(tempDir, args.keep_temp)
 
 
 if __name__ == '__main__':

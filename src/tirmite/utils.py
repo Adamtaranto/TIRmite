@@ -200,17 +200,39 @@ def setup_directories(args) -> Tuple[Path, Path]:
         args.outdir if hasattr(args, 'outdir') else None
     )
 
-    # Create temporary directory
-    # Use a more secure location by default, but allow override
+    # Create temporary directory with proper parent directory handling
     base_temp_dir = None
     if hasattr(args, 'tempdir') and args.tempdir:
-        base_temp_dir = args.tempdir
+        base_temp_dir = Path(args.tempdir)
 
-    temp_dir = Path(
-        tempfile.mkdtemp(
-            prefix='tirmite_', dir=str(base_temp_dir) if base_temp_dir else None
+        # Create the parent directory structure if it doesn't exist
+        try:
+            base_temp_dir.mkdir(parents=True, exist_ok=True)
+
+            # Test if directory is writable
+            test_file = base_temp_dir / '.tirmite_write_test'
+            try:
+                test_file.touch()
+                test_file.unlink()
+            except OSError:
+                raise OSError(
+                    f'Temporary base directory is not writable: {base_temp_dir}'
+                ) from None
+
+        except OSError as e:
+            raise OSError(
+                f'Failed to create temporary base directory {base_temp_dir}: {e}'
+            ) from e
+
+    # Create the actual temporary directory
+    try:
+        temp_dir = Path(
+            tempfile.mkdtemp(
+                prefix='tirmite_', dir=str(base_temp_dir) if base_temp_dir else None
+            )
         )
-    )
+    except OSError as e:
+        raise OSError(f'Failed to create temporary directory: {e}') from e
 
     return output_dir, temp_dir
 

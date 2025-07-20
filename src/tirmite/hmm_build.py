@@ -1062,7 +1062,7 @@ def build_hmm_from_alignment_pyhmmer(
             if not sequences:
                 raise HMMBuildError(
                     f'No sequences found in alignment file: {alignment_file}'
-                )
+                ) from None  # Add 'from None' since this is a new logical error, not chained from seq_error
 
             # Create MSA from sequences
             msa = DigitalMSA(alphabet, sequences)

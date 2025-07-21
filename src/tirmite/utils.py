@@ -1,6 +1,7 @@
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime
+import logging
 import os
 from pathlib import Path
 import re
@@ -363,22 +364,54 @@ def checkUniqueID(records):
         pass
 
 
-def indexGenome(genome_path):
+def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
     """
-    Create or load pyfaidx index for genome file.
-    Returns Fasta object for efficient sequence access.
+    Index genome using pyfaidx and extract sequence descriptions.
+
+    Returns:
+        Tuple of (genome_index, descriptions_dict)
+    """
+    genome_path = Path(genomePath)
+
+    if not genome_path.exists():
+        raise FileNotFoundError(f'Genome file not found: {genome_path}')
+
+    # Index with pyfaidx
+    genome = Fasta(str(genome_path))
+
+    # Extract descriptions
+    descriptions = extract_genome_descriptions(genome_path)
+
+    logging.info(f'Indexed genome with {len(genome.keys())} sequences')
+    logging.debug(f'Extracted descriptions for {len(descriptions)} sequences')
+
+    return genome, descriptions
+
+
+def extract_genome_descriptions(genome_path: Union[str, Path]) -> dict:
+    """
+    Extract sequence descriptions from genome FASTA file.
 
     Args:
         genome_path: Path to genome FASTA file
 
     Returns:
-        pyfaidx.Fasta: Indexed genome object
+        Dict mapping sequence ID to description
     """
-    # pyfaidx automatically creates .fai index if it doesn't exist
-    # and uses existing index if present
+    descriptions = {}
+
     try:
-        genome_index = Fasta(genome_path)
-        return genome_index
+        with open(genome_path, 'r') as f:
+            for line in f:
+                if line.startswith('>'):
+                    # Parse header: >ID description...
+                    header = line[1:].strip()
+                    parts = header.split(None, 1)  # Split on first whitespace
+                    seq_id = parts[0]
+                    description = parts[1] if len(parts) > 1 else ''
+                    descriptions[seq_id] = description
+
     except Exception as e:
-        print(f'Error indexing genome file {genome_path}: {e}')
-        sys.exit(1)
+        logging.warning(f'Could not extract genome descriptions: {e}')
+
+    return descriptions

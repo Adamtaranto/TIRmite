@@ -212,6 +212,24 @@ def mainArgs():
         default=None,
         help='Base directory for temporary files. Uses system temp if not specified.',
     )
+    parser.add_argument(
+        '--nhmmerFile',
+        type=str,
+        default=None,
+        help='Path to precomputed nhmmer output file. Requires --hmmFile for model length calculation.',
+    )
+    parser.add_argument(
+        '--leftNhmmer',
+        type=str,
+        default=None,
+        help='Path to precomputed nhmmer output for left model. Use with --rightNhmmer and --leftModel/--rightModel for asymmetric elements.',
+    )
+    parser.add_argument(
+        '--rightNhmmer',
+        type=str,
+        default=None,
+        help='Path to precomputed nhmmer output for right model. Use with --leftNhmmer and --leftModel/--rightModel for asymmetric elements.',
+    )
     args = parser.parse_args()
     return args
 
@@ -378,7 +396,7 @@ def main():
     try:
         # Index reference genome using pyfaidx for efficient access
         logging.info('Indexing genome from: %s ' % args.genome)
-        genome = indexGenome(args.genome)
+        genome, genome_descriptions = indexGenome(args.genome)
 
         # Import custom TIR hits from BEDfile.
         if args.pairbed:
@@ -735,35 +753,36 @@ def main():
                 genome=genome,
                 prefix=args.prefix,
                 padlen=args.padlen,
+                genome_descriptions=genome_descriptions,  # Add this
             )
         except Exception as e:
             logging.error(f'Error in writeTIRs: {e} (type: {type(e)})')
             raise
 
-        # Write paired TIR hits to fasta. Pairs named as element ID + L/R tag.
+        # Write paired TIR hits to fasta
         if args.report in ['all', 'paired']:
             logging.info('Writing successfully paired termini to fasta.')
             try:
-                # Pass the nested hitIndex directly - writePairedTIRs can handle it
                 tirmite.writePairedTIRs(
                     outDir=outDir,
                     paired=paired,
-                    hitIndex=hitIndex,  # Use nested version directly
+                    hitIndex=hitIndex,
                     genome=genome,
                     prefix=args.prefix,
                     padlen=args.padlen,
+                    genome_descriptions=genome_descriptions,  # Add this
                 )
             except Exception as e:
                 logging.error(f'Error in writePairedTIRs: {e} (type: {type(e)})')
                 raise
 
-        # Extract paired hit regions (candidate TEs / MITEs)
+        # Extract paired hit regions
         try:
-            # Pass the nested hitIndex directly - fetchElements can handle it
             pairedEles = tirmite.fetchElements(
                 paired=paired,
                 hitIndex=hitIndex,
-                genome=genome,  # Use nested version directly
+                genome=genome,
+                genome_descriptions=genome_descriptions,  # Add this
             )
         except Exception as e:
             logging.error(f'Error in fetchElements: {e} (type: {type(e)})')

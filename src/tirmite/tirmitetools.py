@@ -430,20 +430,29 @@ def iterateGetPairs(hitIndex, stableReps=0):
 
 
 # Fix: Do not load fasta into genome!
-def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=None):
+def extractTIRs(
+    model=None,
+    hitTable=None,
+    maxeval=0.001,
+    genome=None,
+    padlen=None,
+    genome_descriptions=None,
+):
     """
     For significant hits in model, compose seqrecords.
 
     Args:
         genome: pyfaidx.Fasta indexed genome object
+        genome_descriptions: Dict mapping sequence ID to description
     """
     hitcount = 0
     seqList = []
+
     for index, row in hitTable[hitTable['model'] == model].iterrows():
         if float(row['evalue']) <= maxeval:
             hitcount += 1
 
-            # Extract sequence using pyfaidx (0-based indexing like BioPython)
+            # Extract sequence using pyfaidx (0-based indexing)
             chrom = genome[row['target']]
             start = int(row['hitStart']) - 1  # Convert to 0-based
             end = int(row['hitEnd'])  # End is exclusive in slicing
@@ -473,7 +482,9 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=No
                 hitrecord = hitrecord.reverse_complement(id=hitrecord.id + '_rc')
 
             hitrecord.name = hitrecord.id
-            hitrecord.description = '_'.join(
+
+            # Build description with genome description
+            coord_info = '_'.join(
                 [
                     '[' + str(row['target']) + ':' + str(row['strand']),
                     str(row['hitStart']),
@@ -481,22 +492,32 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=No
                     row['hmmEnd'] + ' E-value:' + str(row['evalue']) + ']',
                 ]
             )
-            # Append record to list
+
+            # Add genome description if available
+            if genome_descriptions and row['target'] in genome_descriptions:
+                genome_desc = genome_descriptions[row['target']]
+                hitrecord.description = f'{coord_info} {genome_desc}'
+            else:
+                hitrecord.description = coord_info
+
             seqList.append(hitrecord)
-        else:
-            continue
-    # Return seqrecord list and total hit count for model
+
     return seqList, hitcount
 
 
 # Fix: Do not load fasta into genome!
 def writeTIRs(
-    outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None, padlen=None
+    outDir=None,
+    hitTable=None,
+    maxeval=0.001,
+    genome=None,
+    prefix=None,
+    padlen=None,
+    genome_descriptions=None,
 ):
     """
     Write all hits per Model to a multifasta in the outdir
     """
-    # Note: Padding not yet enabled for TIR extraction.
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -507,6 +528,7 @@ def writeTIRs(
             os.makedirs(outDir)
     else:
         outDir = os.getcwd()
+
     for model in hitTable['model'].unique():
         # List of TIR seqrecords, and count of hits
         seqList, hitcount = extractTIRs(
@@ -515,6 +537,7 @@ def writeTIRs(
             maxeval=maxeval,
             genome=genome,
             padlen=padlen,
+            genome_descriptions=genome_descriptions,  # Pass descriptions
         )
         outfile = os.path.join(
             outDir, prefix + model + '_hits_' + str(hitcount) + '.fasta'
@@ -537,7 +560,7 @@ def flipTIRs(x, y):
     return (left2right[0], left2right[1])
 
 
-def fetchElements(paired=None, hitIndex=None, genome=None):
+def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=None):
     """
     Extract complete sequence of paired elements.
     Now handles nested hitIndex structure and asymmetric pairing correctly.
@@ -577,7 +600,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
 
     # Only process models that actually have pairs
     for model in paired.keys():
-        if len(paired[model]) > 0:  # Only create entries for models with actual pairs
+        if len(paired[model]) > 0:
             TIRelements[model] = []
             model_counter = 0
 
@@ -605,7 +628,9 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                 eleSeq = SeqRecord(Seq.Seq(ele_seq_str))
                 eleSeq.id = eleID
                 eleSeq.name = eleID
-                eleSeq.description = (
+
+                # Build description with genome description
+                coord_info = (
                     '_'.join(
                         [
                             '[' + leftHit.target + ':' + str(leftHit.hitStart),
@@ -616,6 +641,13 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
                     + str(rightHit.hitEnd - leftHit.hitStart)
                     + ']'
                 )
+
+                # Add genome description if available
+                if genome_descriptions and leftHit.target in genome_descriptions:
+                    genome_desc = genome_descriptions[leftHit.target]
+                    eleSeq.description = f'{coord_info} {genome_desc}'
+                else:
+                    eleSeq.description = coord_info
 
                 TIRelement = gffTup(
                     model,  # This is the pairing model (left model for asymmetric)
@@ -655,16 +687,16 @@ def writeElements(outDir, eleDict=None, prefix=None):
 
 
 def writePairedTIRs(
-    outDir=None, paired=None, hitIndex=None, genome=None, prefix=None, padlen=None
+    outDir=None,
+    paired=None,
+    hitIndex=None,
+    genome=None,
+    prefix=None,
+    padlen=None,
+    genome_descriptions=None,
 ):
     """
     Extract TIR sequence of paired hits, write to fasta.
-    Now handles nested hitIndex structure and only writes files for models with actual pairs.
-
-    Args:
-        genome: pyfaidx.Fasta indexed genome object
-        hitIndex: Can be flat {hit_id: hit_data} or nested {model: {hit_id: hit_data}}
-        paired: Dict {model: [set(hit_id1, hit_id2), ...]}
     """
     if prefix:
         prefix = cleanID(prefix) + '_'
@@ -757,7 +789,9 @@ def writePairedTIRs(
 
                 eleSeqLeft.id = eleID + '_L'
                 eleSeqLeft.name = eleID + '_L'
-                eleSeqLeft.description = (
+
+                # Build left description with genome description
+                left_coord = (
                     '_'.join(
                         [
                             '[' + leftHit.target + ':' + str(leftHit.hitStart),
@@ -766,9 +800,18 @@ def writePairedTIRs(
                     )
                     + ']'
                 )
+
+                if genome_descriptions and leftHit.target in genome_descriptions:
+                    genome_desc = genome_descriptions[leftHit.target]
+                    eleSeqLeft.description = f'{left_coord} {genome_desc}'
+                else:
+                    eleSeqLeft.description = left_coord
+
                 eleSeqRight.id = eleID + '_R'
                 eleSeqRight.name = eleID + '_R'
-                eleSeqRight.description = (
+
+                # Build right description with genome description
+                right_coord = (
                     '_'.join(
                         [
                             '[' + leftHit.target + ':' + str(rightHit.hitEnd),
@@ -777,6 +820,12 @@ def writePairedTIRs(
                     )
                     + ']'
                 )
+
+                if genome_descriptions and leftHit.target in genome_descriptions:
+                    genome_desc = genome_descriptions[leftHit.target]
+                    eleSeqRight.description = f'{right_coord} {genome_desc}'
+                else:
+                    eleSeqRight.description = right_coord
 
                 # Add to sequence list for FASTA output
                 seqList.append(eleSeqLeft)

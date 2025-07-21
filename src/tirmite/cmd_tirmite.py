@@ -117,7 +117,7 @@ def mainArgs():
         help='Extract x bases either side of model hit when writing hits to fasta.',
     )
     parser.add_argument(
-        '--keep_temp',
+        '--keep-temp',
         action='store_true',
         default=False,
         help='If set do not delete temp file directory.',
@@ -726,7 +726,7 @@ def main():
             raise
 
         # Write TIR hits to fasta for each pHMM
-        logging.info('Writing all valid TIR hits to fasta.')
+        logging.info('Writing all valid terminus hits to fasta.')
         try:
             tirmite.writeTIRs(
                 outDir=outDir,
@@ -742,7 +742,7 @@ def main():
 
         # Write paired TIR hits to fasta. Pairs named as element ID + L/R tag.
         if args.report in ['all', 'paired']:
-            logging.info('Writing successfully paired TIRs to fasta.')
+            logging.info('Writing successfully paired termini to fasta.')
             try:
                 # Pass the nested hitIndex directly - writePairedTIRs can handle it
                 tirmite.writePairedTIRs(
@@ -778,7 +778,7 @@ def main():
             logging.info(f'Model {model}: {len(elements)} elements')
 
         # Write paired-TIR features to fasta
-        logging.info('Writing TIR-elements to fasta.')
+        logging.info('Writing paired-termini elements to fasta.')
         tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
 
         # Write paired features to gff3, optionally also report paired/unpaired TIRs
@@ -786,7 +786,7 @@ def main():
             # Get unpaired TIRs
             if args.report in ['all', 'unpaired']:
                 unpairedTIRs = tirmite.fetchUnpaired(hitIndex=hitIndex)
-                logging.info(f'Found {len(unpairedTIRs)} unpaired TIRs')
+                logging.info(f'Found {len(unpairedTIRs)} unpaired termini')
             else:
                 unpairedTIRs = None
 

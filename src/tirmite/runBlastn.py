@@ -35,6 +35,7 @@ def run_blastn(
     outfmt: str = '6 qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid',
     additional_args: Optional[List[str]] = None,
     verbose: bool = False,
+    num_threads: int = 1,
 ) -> subprocess.CompletedProcess:
     """
     Run blastn with specified parameters using subprocess best practices.
@@ -48,6 +49,7 @@ def run_blastn(
         outfmt: Output format string (default: tabular with specific fields)
         additional_args: Additional command line arguments
         verbose: Print command and output if True
+        num_threads: Number of CPU threads to use (default: 1)
 
     Returns:
         subprocess.CompletedProcess: Result of the blastn command
@@ -88,6 +90,8 @@ def run_blastn(
         str(output_path),
         '-perc_identity',
         str(perc_identity),
+        '-num_threads',
+        str(num_threads),
     ]
 
     # Add any additional arguments
@@ -95,7 +99,9 @@ def run_blastn(
         cmd.extend(additional_args)
 
     if verbose:
-        logging.info(f'Running BLAST command: {" ".join(cmd)}')
+        logging.info(
+            f'Running BLAST command with {num_threads} threads: {" ".join(cmd)}'
+        )
 
     try:
         # Use subprocess.run with proper error handling
@@ -138,6 +144,7 @@ def run_self_blast(
     output_file: Union[str, Path],
     perc_identity: float = 60.0,
     verbose: bool = False,
+    num_threads: int = 1,  # Add threading support
 ) -> subprocess.CompletedProcess:
     """
     Run blastn with sequence file as both query and subject (self-alignment).
@@ -150,6 +157,7 @@ def run_self_blast(
         output_file: Path to output file
         perc_identity: Minimum percent identity (default: 60.0)
         verbose: Print command and output if True
+        num_threads: Number of CPU threads to use (default: 1)
 
     Returns:
         subprocess.CompletedProcess: Result of the blastn command
@@ -160,6 +168,7 @@ def run_self_blast(
         output=output_file,
         perc_identity=perc_identity,
         verbose=verbose,
+        num_threads=num_threads,
     )
 
 

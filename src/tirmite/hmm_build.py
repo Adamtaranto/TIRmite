@@ -160,6 +160,7 @@ def compare_seeds(
     temp_dir: Path,
     min_length: int = 10,
     min_identity: float = 50.0,
+    num_threads: int = 1,  # Add threading support
 ) -> List[Tuple[BlastHit, object]]:
     """
     Compare left and right seeds using BLAST to identify similarity regions.
@@ -170,6 +171,7 @@ def compare_seeds(
         temp_dir: Temporary directory for BLAST output
         min_length: Minimum hit length threshold (default: 10)
         min_identity: Minimum sequence identity threshold as percentage (default: 50.0)
+        num_threads: Number of CPU threads to use for BLAST (default: 1)
 
     Returns:
         List of tuples containing (BlastHit, alignment) for hits passing thresholds
@@ -189,6 +191,7 @@ def compare_seeds(
             word_size=4,
             perc_identity=30.0,  # Lower threshold for initial search
             verbose=True,
+            num_threads=num_threads,
         )
 
         all_hits = parse_blast_output(blast_output)
@@ -317,16 +320,7 @@ def create_blast_database(genome_file: Path, db_dir: Path) -> Path:
     db_name = db_dir / f'{genome_file.stem}_db'
 
     cmd = [
-        'makeblastdb',
-        '-in',
-        str(genome_file),
-        '-dbtype',
-        'nucl',
-        '-out',
-        str(db_name),
-        '-title',
-        f'{genome_file.stem} database',
-        '-parse_seqids',  # Parse sequence identifiers for better handling
+        f'makeblastdb -in {genome_file} -dbtype nucl -out {db_name} -title "{genome_file.stem} database"'
     ]
 
     logging.info(f'Creating BLAST database for {genome_file.name}')
@@ -344,31 +338,30 @@ def create_blast_database(genome_file: Path, db_dir: Path) -> Path:
 
 
 def blast_seed_against_genome(
-    seed_file: Path, blast_db: Path, output_file: Path, identity_threshold: float = 60.0
+    seed_file: Path,
+    blast_db: Path,
+    output_file: Path,
+    identity_threshold: float = 60.0,
+    num_threads: int = 1,
 ) -> List[BlastHit]:
-    """BLAST seed sequence against genome database using blastn."""
+    """BLAST seed sequence against genome database using blastn with threading support."""
 
     cmd = [
         'blastn',
-        '-query',
-        str(seed_file),
-        '-db',
-        str(blast_db),
-        '-out',
-        str(output_file),
-        '-outfmt',
-        '6 qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid',
-        '-word_size',
-        '4',
-        '-perc_identity',
-        str(identity_threshold),
-        '-max_target_seqs',
-        '10000',  # Allow many hits for comprehensive search
-        '-evalue',
-        '1e-5',  # Reasonable e-value threshold
+        f'-query {seed_file}',
+        f'-db {blast_db}',
+        f'-out {output_file}',
+        '-outfmt 6 qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid',
+        '-word_size 4',
+        f'-perc_identity {identity_threshold}',
+        '-max_target_seqs 20000',
+        '-evalue 1e-5',
+        f'-num_threads {num_threads}',
     ]
 
-    logging.info(f'Running BLAST search with identity threshold {identity_threshold}%')
+    logging.info(
+        f'Running BLAST search with identity threshold {identity_threshold}% using {num_threads} threads'
+    )
 
     try:
         result = run_command(cmd, verbose=True)
@@ -1168,6 +1161,15 @@ def process_seed_sequences(
 
     all_hits = []
 
+    # Calculate threads per BLAST job
+    blast_threads = (
+        max(1, threads // len(genome_files)) if len(genome_files) > 1 else threads
+    )
+    if blast_threads != threads:
+        logging.info(
+            f'Using {blast_threads} threads per BLAST job ({len(genome_files)} genomes)'
+        )
+
     # BLAST against each genome
     for genome_file in genome_files:
         logging.info(f'Searching {model_name} against {genome_file.name}')
@@ -1180,7 +1182,7 @@ def process_seed_sequences(
         # Run BLAST search
         blast_output = temp_dir / f'{model_name}_{genome_file.stem}_blast.tab'
         hits = blast_seed_against_genome(
-            seed_file, blast_db, blast_output, min_identity
+            seed_file, blast_db, blast_output, min_identity, num_threads=blast_threads
         )
         all_hits.extend(hits)
 
@@ -1309,7 +1311,7 @@ def process_asymmetric_seeds(
     max_gap: int = 500,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
-    threads: int = 1,  # Add threads parameter
+    threads: int = 1,
 ) -> Tuple[Path, Path, Path, Path]:
     """
     Process asymmetric left and right seeds together to avoid filtering conflicts.
@@ -1321,6 +1323,17 @@ def process_asymmetric_seeds(
 
     all_left_hits = []
     all_right_hits = []
+
+    # Calculate threads per BLAST job (2 BLAST jobs per genome: left and right)
+    blast_threads = (
+        max(1, threads // (len(genome_files) * 2))
+        if len(genome_files) > 1
+        else max(1, threads // 2)
+    )
+    if blast_threads != threads:
+        logging.info(
+            f'Using {blast_threads} threads per BLAST job ({len(genome_files)} genomes × 2 seeds)'
+        )
 
     # BLAST both seeds against all genomes first
     for genome_file in genome_files:
@@ -1334,14 +1347,14 @@ def process_asymmetric_seeds(
         # BLAST left seed
         left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
         left_hits = blast_seed_against_genome(
-            left_seed, blast_db, left_output, min_identity
+            left_seed, blast_db, left_output, min_identity, num_threads=blast_threads
         )
         all_left_hits.extend(left_hits)
 
         # BLAST right seed
         right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
         right_hits = blast_seed_against_genome(
-            right_seed, blast_db, right_output, min_identity
+            right_seed, blast_db, right_output, min_identity, num_threads=blast_threads
         )
         all_right_hits.extend(right_hits)
 
@@ -1748,7 +1761,7 @@ def main():
         '--threads',
         type=int,
         default=1,
-        help='Number of CPU threads to use for MAFFT alignment (default: 1)',
+        help='Number of CPU threads to use for MAFFT and blastn alignment (default: 1)',
     )
 
     args = parser.parse_args()
@@ -1842,6 +1855,7 @@ def main():
                     temp_dir,
                     min_length=10,  # Minimum 10bp hits
                     min_identity=50.0,  # Minimum 50% identity
+                    num_threads=args.threads,
                 )
 
                 if seed_comparisons:
@@ -1926,7 +1940,7 @@ def main():
                     args.max_gap,
                     args.save_blast_hits,
                     args.flank_size,
-                    threads=args.threads,  # Pass threads parameter
+                    threads=args.threads,
                 )
 
                 logging.info('Asymmetric processing completed:')
@@ -1948,7 +1962,7 @@ def main():
                     args.max_gap,
                     args.save_blast_hits,
                     args.flank_size,
-                    threads=args.threads,  # Pass threads parameter
+                    threads=args.threads,
                 )
                 logging.info(f'Single seed processing completed: {left_hmm}')
 

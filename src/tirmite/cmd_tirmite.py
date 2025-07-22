@@ -131,10 +131,10 @@ def mainArgs():
     )
     # HMMER options
     parser.add_argument(
-        '--cores',
+        '--threads',
         type=int,
         default=1,
-        help='Set number of cores available to hmmer software.',
+        help='Set number of threads available to hmmer software.',
     )
     parser.add_argument(
         '--maxeval',
@@ -518,7 +518,7 @@ def main():
 
                 search_params = {
                     'evalue': args.maxeval,
-                    'cores': args.cores,
+                    'cores': args.threads,
                     'nobias': args.nobias,
                     'matrix': args.matrix,
                 }

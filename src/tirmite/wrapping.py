@@ -112,7 +112,7 @@ def run_command(
 
 def run_commands_sequential(
     cmds: List[Union[str, List[str]]],
-    verbose: bool = False,
+    verbose: bool = True,
     timeout: Optional[int] = None,
     cwd: Optional[Union[str, Path]] = None,
     stop_on_error: bool = True,
@@ -137,8 +137,7 @@ def run_commands_sequential(
 
     for i, cmd in enumerate(cmds):
         try:
-            if verbose:
-                logging.info(f'Executing command {i + 1}/{len(cmds)}')
+            logging.info(f'Executing command {i + 1}/{len(cmds)}')
 
             result = run_command(
                 cmd=cmd,

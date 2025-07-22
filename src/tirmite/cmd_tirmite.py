@@ -122,13 +122,6 @@ def mainArgs():
         default=False,
         help='If set do not delete temp file directory.',
     )
-    parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        default=False,
-        help='Set syscall reporting to verbose.',
-    )
     # HMMER options
     parser.add_argument(
         '--threads',
@@ -367,6 +360,10 @@ def main():
     # Get cmd line args
     args = mainArgs()
 
+    # TODO: Remove use of verbose option
+    # Manually add args.verbose and set to True
+    args.verbose = True
+
     # Set up logging
     init_logging(loglevel=args.loglevel)
 
@@ -542,16 +539,17 @@ def main():
                 sys.exit(1)
 
             # Die if no hits found
-            if not glob.glob(os.path.join(os.path.abspath(resultDir), '*.tab')):
+            if not glob.glob(os.path.join(os.path.abspath(resultDir), '*.out')):
                 logging.error('No hits found in %s . Quitting.' % resultDir)
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
+            # TODO: Modify this code to allow import of hits from external nhmmer results.
             # Import hits from nhmmer result files
             hitTable = None
             modelCount = 0
             for resultfile in glob.glob(
-                os.path.join(os.path.abspath(resultDir), '*.tab')
+                os.path.join(os.path.abspath(resultDir), '*.out')
             ):
                 logging.info('Loading nhmmer hits from: %s ' % resultfile)
                 hitTable = tirmite.import_nhmmer(
@@ -663,9 +661,6 @@ def main():
                 logging.info('Pairing is off. Reporting hits only.')
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(0)
-
-        # First, let's examine the hit data more closely by adding debug prints
-        # Add these to cmd_tirmite.py around line 601 (after the filtering):
 
         logging.debug('=== HIT TABLE DEBUG ===')
         logging.debug(f'Hit table columns: {list(hitTable.columns)}')

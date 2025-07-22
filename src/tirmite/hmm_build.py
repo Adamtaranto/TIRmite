@@ -12,8 +12,8 @@ This module builds HMM models from seed sequences by:
 
 import argparse
 import io
-import os
 import logging
+import os
 from pathlib import Path
 import shutil
 from typing import List, Optional, Tuple
@@ -21,10 +21,9 @@ from typing import List, Optional, Tuple
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-from pyhmmer.easel import Alphabet, SequenceFile, MSAFile, DigitalMSA
-from pyhmmer.plan7 import Builder, Background
 import pandas as pd
-
+from pyhmmer.easel import Alphabet, DigitalMSA, MSAFile, SequenceFile
+from pyhmmer.plan7 import Background, Builder
 
 from tirmite.hmmer_wrappers import build_hmmbuild_command
 from tirmite.logs import init_logging
@@ -175,8 +174,8 @@ def compare_seeds(
     Returns:
         List of tuples containing (BlastHit, alignment) for hits passing thresholds
     """
-    from Bio.Align import PairwiseAligner
     from Bio import SeqIO
+    from Bio.Align import PairwiseAligner
 
     logging.info('Comparing left and right seed sequences...')
 

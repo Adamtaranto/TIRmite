@@ -328,7 +328,6 @@ def create_blast_database(genome_file: Path, db_dir: Path) -> Path:
         str(db_name),
         '-title',
         f'{genome_file.stem} database',
-        '-parse_seqids',  # Parse sequence identifiers for better handling
     ]
 
     logging.info(f'Creating BLAST database for {genome_file.name}')
@@ -1190,7 +1189,7 @@ def process_seed_sequences(
         # Run BLAST search
         blast_output = temp_dir / f'{model_name}_{genome_file.stem}_blast.tab'
         hits = blast_seed_against_genome(
-            seed_file, blast_db, blast_output, min_identity
+            seed_file, blast_db, blast_output, min_identity, num_threads=threads
         )
         all_hits.extend(hits)
 
@@ -1347,14 +1346,14 @@ def process_asymmetric_seeds(
         # BLAST left seed
         left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
         left_hits = blast_seed_against_genome(
-            left_seed, blast_db, left_output, min_identity
+            left_seed, blast_db, left_output, min_identity, num_threads=threads
         )
         all_left_hits.extend(left_hits)
 
         # BLAST right seed
         right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
         right_hits = blast_seed_against_genome(
-            right_seed, blast_db, right_output, min_identity
+            right_seed, blast_db, right_output, min_identity, num_threads=threads
         )
         all_right_hits.extend(right_hits)
 
@@ -1745,8 +1744,8 @@ def main():
     parser.add_argument(
         '--max-gap',
         type=int,
-        default=500,
-        help='Maximum gap size for chaining fragmented hits (default: 500)',
+        default=10,
+        help='Maximum gap size for chaining fragmented hits (default: 10)',
     )
     parser.add_argument(
         '--flank-size',
@@ -1857,6 +1856,7 @@ def main():
                     temp_dir,
                     min_length=10,  # Minimum 10bp hits
                     min_identity=50.0,  # Minimum 50% identity
+                    num_threads=args.threads,
                 )
 
                 if seed_comparisons:

@@ -12,8 +12,8 @@ This module builds HMM models from seed sequences by:
 
 import argparse
 import io
-import logging
 import os
+import logging
 from pathlib import Path
 import shutil
 from typing import List, Optional, Tuple
@@ -21,9 +21,10 @@ from typing import List, Optional, Tuple
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
+from pyhmmer.easel import Alphabet, SequenceFile, MSAFile, DigitalMSA
+from pyhmmer.plan7 import Builder, Background
 import pandas as pd
-from pyhmmer.easel import Alphabet, DigitalMSA, MSAFile, SequenceFile
-from pyhmmer.plan7 import Background, Builder
+
 
 from tirmite.hmmer_wrappers import build_hmmbuild_command
 from tirmite.logs import init_logging
@@ -159,7 +160,7 @@ def compare_seeds(
     temp_dir: Path,
     min_length: int = 10,
     min_identity: float = 50.0,
-    num_threads: int = 1,  # Add threading support
+    num_threads: int = 1,  # Add threading parameter
 ) -> List[Tuple[BlastHit, object]]:
     """
     Compare left and right seeds using BLAST to identify similarity regions.
@@ -170,13 +171,12 @@ def compare_seeds(
         temp_dir: Temporary directory for BLAST output
         min_length: Minimum hit length threshold (default: 10)
         min_identity: Minimum sequence identity threshold as percentage (default: 50.0)
-        num_threads: Number of CPU threads to use for BLAST (default: 1)
 
     Returns:
         List of tuples containing (BlastHit, alignment) for hits passing thresholds
     """
-    from Bio import SeqIO
     from Bio.Align import PairwiseAligner
+    from Bio import SeqIO
 
     logging.info('Comparing left and right seed sequences...')
 
@@ -190,7 +190,7 @@ def compare_seeds(
             word_size=4,
             perc_identity=30.0,  # Lower threshold for initial search
             verbose=True,
-            num_threads=num_threads,
+            num_threads=num_threads,  # Pass threading parameter
         )
 
         all_hits = parse_blast_output(blast_output)
@@ -319,7 +319,16 @@ def create_blast_database(genome_file: Path, db_dir: Path) -> Path:
     db_name = db_dir / f'{genome_file.stem}_db'
 
     cmd = [
-        f'makeblastdb -in {genome_file} -dbtype nucl -out {db_name} -title "{genome_file.stem} database"'
+        'makeblastdb',
+        '-in',
+        str(genome_file),
+        '-dbtype',
+        'nucl',
+        '-out',
+        str(db_name),
+        '-title',
+        f'{genome_file.stem} database',
+        '-parse_seqids',  # Parse sequence identifiers for better handling
     ]
 
     logging.info(f'Creating BLAST database for {genome_file.name}')
@@ -341,21 +350,30 @@ def blast_seed_against_genome(
     blast_db: Path,
     output_file: Path,
     identity_threshold: float = 60.0,
-    num_threads: int = 1,
+    num_threads: int = 1,  # Add threading parameter
 ) -> List[BlastHit]:
     """BLAST seed sequence against genome database using blastn with threading support."""
 
     cmd = [
         'blastn',
-        f'-query {seed_file}',
-        f'-db {blast_db}',
-        f'-out {output_file}',
-        '-outfmt 6 qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid',
-        '-word_size 4',
-        f'-perc_identity {identity_threshold}',
-        '-max_target_seqs 20000',
-        '-evalue 1e-5',
-        f'-num_threads {num_threads}',
+        '-query',
+        str(seed_file),
+        '-db',
+        str(blast_db),
+        '-out',
+        str(output_file),
+        '-outfmt',
+        '6 qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid',
+        '-word_size',
+        '4',
+        '-perc_identity',
+        str(identity_threshold),
+        '-max_target_seqs',
+        '10000',
+        '-evalue',
+        '1e-5',
+        '-num_threads',
+        str(num_threads),  # Add threading support
     ]
 
     logging.info(
@@ -1054,7 +1072,7 @@ def build_hmm_from_alignment_pyhmmer(
             if not sequences:
                 raise HMMBuildError(
                     f'No sequences found in alignment file: {alignment_file}'
-                ) from None  # Add 'from None' since this is a new logical error, not chained from seq_error
+                )
 
             # Create MSA from sequences
             msa = DigitalMSA(alphabet, sequences)
@@ -1160,15 +1178,6 @@ def process_seed_sequences(
 
     all_hits = []
 
-    # Calculate threads per BLAST job
-    blast_threads = (
-        max(1, threads // len(genome_files)) if len(genome_files) > 1 else threads
-    )
-    if blast_threads != threads:
-        logging.info(
-            f'Using {blast_threads} threads per BLAST job ({len(genome_files)} genomes)'
-        )
-
     # BLAST against each genome
     for genome_file in genome_files:
         logging.info(f'Searching {model_name} against {genome_file.name}')
@@ -1181,7 +1190,7 @@ def process_seed_sequences(
         # Run BLAST search
         blast_output = temp_dir / f'{model_name}_{genome_file.stem}_blast.tab'
         hits = blast_seed_against_genome(
-            seed_file, blast_db, blast_output, min_identity, num_threads=blast_threads
+            seed_file, blast_db, blast_output, min_identity
         )
         all_hits.extend(hits)
 
@@ -1211,7 +1220,7 @@ def process_seed_sequences(
     # Extract sequences with proper error handling
     try:
         # Use first genome for extraction (assuming all genomes are provided)
-        genome_index = indexGenome(genome_files[0])
+        genome_index, _ = indexGenome(genome_files[0])  # Fix: unpack the tuple
         sequences = extract_sequences_from_chains(hit_chains, genome_index, model_name)
     except Exception as e:
         raise HMMBuildError(f'Failed to extract sequences from genome: {e}') from e
@@ -1253,7 +1262,10 @@ def process_seed_sequences(
         # Extract flanked sequences
         try:
             flanked_sequences = extract_flanked_sequences_from_chains(
-                hit_chains, genome_index, model_name, flank_size
+                hit_chains,
+                genome_index,
+                model_name,
+                flank_size,  # Use existing genome_index
             )
 
             # Add seed sequences to flanked sequences as well
@@ -1310,7 +1322,7 @@ def process_asymmetric_seeds(
     max_gap: int = 500,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
-    threads: int = 1,
+    threads: int = 1,  # Add threads parameter
 ) -> Tuple[Path, Path, Path, Path]:
     """
     Process asymmetric left and right seeds together to avoid filtering conflicts.
@@ -1322,17 +1334,6 @@ def process_asymmetric_seeds(
 
     all_left_hits = []
     all_right_hits = []
-
-    # Calculate threads per BLAST job (2 BLAST jobs per genome: left and right)
-    blast_threads = (
-        max(1, threads // (len(genome_files) * 2))
-        if len(genome_files) > 1
-        else max(1, threads // 2)
-    )
-    if blast_threads != threads:
-        logging.info(
-            f'Using {blast_threads} threads per BLAST job ({len(genome_files)} genomes × 2 seeds)'
-        )
 
     # BLAST both seeds against all genomes first
     for genome_file in genome_files:
@@ -1346,14 +1347,14 @@ def process_asymmetric_seeds(
         # BLAST left seed
         left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
         left_hits = blast_seed_against_genome(
-            left_seed, blast_db, left_output, min_identity, num_threads=blast_threads
+            left_seed, blast_db, left_output, min_identity
         )
         all_left_hits.extend(left_hits)
 
         # BLAST right seed
         right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
         right_hits = blast_seed_against_genome(
-            right_seed, blast_db, right_output, min_identity, num_threads=blast_threads
+            right_seed, blast_db, right_output, min_identity
         )
         all_right_hits.extend(right_hits)
 
@@ -1401,7 +1402,7 @@ def process_asymmetric_seeds(
 
     # Extract sequences from left hits
     try:
-        genome_index = indexGenome(genome_files[0])
+        genome_index, _ = indexGenome(genome_files[0])  # Fix: unpack the tuple
         left_sequences = extract_sequences_from_chains(
             left_chains, genome_index, f'{model_name}_left'
         )
@@ -1444,7 +1445,9 @@ def process_asymmetric_seeds(
     # Extract sequences from right hits
     try:
         right_sequences = extract_sequences_from_chains(
-            right_chains, genome_index, f'{model_name}_right'
+            right_chains,
+            genome_index,
+            f'{model_name}_right',  # genome_index already defined above
         )
     except Exception as e:
         raise HMMBuildError(
@@ -1760,7 +1763,7 @@ def main():
         '--threads',
         type=int,
         default=1,
-        help='Number of CPU threads to use for MAFFT and blastn alignment (default: 1)',
+        help='Number of CPU threads to use for MAFFT alignment (default: 1)',
     )
 
     args = parser.parse_args()
@@ -1854,7 +1857,6 @@ def main():
                     temp_dir,
                     min_length=10,  # Minimum 10bp hits
                     min_identity=50.0,  # Minimum 50% identity
-                    num_threads=args.threads,
                 )
 
                 if seed_comparisons:
@@ -1939,7 +1941,7 @@ def main():
                     args.max_gap,
                     args.save_blast_hits,
                     args.flank_size,
-                    threads=args.threads,
+                    threads=args.threads,  # Pass threads parameter
                 )
 
                 logging.info('Asymmetric processing completed:')
@@ -1961,7 +1963,7 @@ def main():
                     args.max_gap,
                     args.save_blast_hits,
                     args.flank_size,
-                    threads=args.threads,
+                    threads=args.threads,  # Pass threads parameter
                 )
                 logging.info(f'Single seed processing completed: {left_hmm}')
 

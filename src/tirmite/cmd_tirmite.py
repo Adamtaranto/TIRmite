@@ -409,7 +409,7 @@ def main():
 
             # Import hits from BED file
             hitTable = None
-            logging.info('Loading custom TIR hits from: %s' % str(args.pairbed))
+            logging.info('Loading custom termini hits from: %s' % str(args.pairbed))
             hitTable = tirmite.import_BED(
                 infile=args.pairbed, hitTable=hitTable, prefix=args.prefix
             )
@@ -786,7 +786,7 @@ def main():
         # Debug logging
         total_elements = sum(len(elements) for elements in pairedEles.values())
         logging.info(
-            f'Created {total_elements} TIR elements from {sum(len(pairs) for pairs in paired.values())} pairs'
+            f'Created {total_elements} paired elements from {sum(len(pairs) for pairs in paired.values())} pairs'
         )
         for model, elements in pairedEles.items():
             logging.info(f'Model {model}: {len(elements)} elements')

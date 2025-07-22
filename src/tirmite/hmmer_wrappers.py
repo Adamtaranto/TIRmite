@@ -205,7 +205,7 @@ def build_nhmmer_command(
     results_dir.mkdir(parents=True, exist_ok=True)
 
     # Construct output file path
-    output_file = results_dir / f'{model_base}.tab'
+    output_file = results_dir / f'{model_base}.out'
 
     # Build base command
     command = [

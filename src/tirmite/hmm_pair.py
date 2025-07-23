@@ -114,7 +114,7 @@ def calculate_hit_coverage(hitTable, model_lengths):
     hitTable = hitTable.copy()
     coverage_values = []
 
-    for idx, row in hitTable.iterrows():
+    for _idx, row in hitTable.iterrows():
         model = row['model']
         hit_length = abs(int(row['hitEnd']) - int(row['hitStart'])) + 1
 

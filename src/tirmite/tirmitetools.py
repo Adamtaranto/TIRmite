@@ -1,8 +1,8 @@
 from collections import namedtuple
 import glob
+import logging
 from operator import attrgetter
 import os
-import logging
 
 from Bio import AlignIO, Seq, SeqIO
 from Bio.SeqRecord import SeqRecord

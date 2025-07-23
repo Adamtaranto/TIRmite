@@ -2,6 +2,7 @@ from collections import namedtuple
 import glob
 from operator import attrgetter
 import os
+import logging
 
 from Bio import AlignIO, Seq, SeqIO
 from Bio.SeqRecord import SeqRecord
@@ -1079,25 +1080,67 @@ class PairingConfig:
 
 def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
     """
-    Generalized version of parseHits that supports custom orientations
-    and asymmetric model pairing.
+    Generalized version that properly handles custom model orientations.
     """
+
+    logging.debug('=== ENTERING parseHitsGeneral ===')
+    logging.debug(
+        f'Config: orientation={config.orientation}, left_strand={config.left_strand}, right_strand={config.right_strand}'
+    )
+    logging.debug(f'Is asymmetric: {config.is_asymmetric}')
+
     if not maxDist:
         maxDist = float('inf')
+        logging.debug('Using infinite maxDist')
+    else:
+        logging.debug(f'Using maxDist: {maxDist}')
 
-    # Get model pairs to process
     model_pairs = config.get_model_pairs()
+    logging.debug(f'Model pairs to process: {model_pairs}')
 
     for left_model, right_model in model_pairs:
-        # For symmetric pairing (same model), process all hits once
+        logging.debug(f'Processing pair: {left_model} -> {right_model}')
+
         if left_model == right_model:
+            # Symmetric pairing - enhanced logic for custom orientations
+            logging.debug(f'=== SYMMETRIC PAIRING for {left_model} ===')
+
             if left_model in hitIndex:
+                logging.debug(
+                    f'Found {len(hitIndex[left_model])} hits for model {left_model}'
+                )
+
                 for UID in hitIndex[left_model].keys():
                     ref = hitIndex[left_model][UID]['rec']
+                    logging.debug(
+                        f'Processing hit {UID}: {ref.strand}:{ref.hitStart}-{ref.hitEnd}'
+                    )
 
-                    # Find candidates based on the hit's current strand and config
+                    # For symmetric pairing, a hit can act as either left or right terminus
+                    # depending on its strand and the config orientation
+
                     if ref.strand == config.left_strand:
-                        # This hit is a potential left terminus, look for right partners
+                        # This hit matches the left terminus strand requirement
+                        # It should look for right terminus partners
+
+                        # Determine search direction based on orientation and strand
+                        if config.left_strand == '+' and config.right_strand == '+':
+                            # F,F on positive strand: left looks downstream (higher coords)
+                            search_direction = 'left_to_right'
+                        elif config.left_strand == '+' and config.right_strand == '-':
+                            # F,R: left(+) looks for right(-), still downstream
+                            search_direction = 'left_to_right'
+                        elif config.left_strand == '-' and config.right_strand == '+':
+                            # R,F: left(-) looks for right(+), upstream in genomic coords
+                            search_direction = 'right_to_left'
+                        elif config.left_strand == '-' and config.right_strand == '-':
+                            # R,R on negative strand: left(-) looks upstream (lower coords)
+                            search_direction = 'right_to_left'
+
+                        logging.debug(
+                            f'Hit {UID} acting as LEFT terminus, searching {search_direction} for RIGHT partners on {config.right_strand} strand'
+                        )
+
                         _find_candidates(
                             ref,
                             right_model,
@@ -1105,10 +1148,31 @@ def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
                             hitsDict,
                             hitIndex,
                             maxDist,
-                            'left_to_right',
+                            search_direction,
                         )
+
                     elif ref.strand == config.right_strand:
-                        # This hit is a potential right terminus, look for left partners
+                        # This hit matches the right terminus strand requirement
+                        # It should look for left terminus partners
+
+                        # Determine search direction (opposite of left terminus search)
+                        if config.left_strand == '+' and config.right_strand == '+':
+                            # F,F: right(+) looks upstream for left(+)
+                            search_direction = 'right_to_left'
+                        elif config.left_strand == '+' and config.right_strand == '-':
+                            # F,R: right(-) looks upstream for left(+)
+                            search_direction = 'right_to_left'
+                        elif config.left_strand == '-' and config.right_strand == '+':
+                            # R,F: right(+) looks downstream for left(-)
+                            search_direction = 'left_to_right'
+                        elif config.left_strand == '-' and config.right_strand == '-':
+                            # R,R: right(-) looks downstream for left(-)
+                            search_direction = 'left_to_right'
+
+                        logging.debug(
+                            f'Hit {UID} acting as RIGHT terminus, searching {search_direction} for LEFT partners on {config.left_strand} strand'
+                        )
+
                         _find_candidates(
                             ref,
                             left_model,
@@ -1116,41 +1180,212 @@ def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
                             hitsDict,
                             hitIndex,
                             maxDist,
-                            'right_to_left',
+                            search_direction,
+                        )
+                    else:
+                        logging.debug(
+                            f'Hit {UID} on strand {ref.strand} does not match required orientations ({config.left_strand}, {config.right_strand})'
                         )
         else:
-            # Asymmetric pairing with different models
-            # Process hits for the left model (seeking right model partners)
-            if left_model in hitIndex:
-                for UID in hitIndex[left_model].keys():
-                    ref = hitIndex[left_model][UID]['rec']
-                    if ref.strand == config.left_strand:
-                        _find_candidates(
-                            ref,
-                            right_model,
-                            config.right_strand,
-                            hitsDict,
-                            hitIndex,
-                            maxDist,
-                            'left_to_right',
-                        )
+            # FIXED: Asymmetric pairing with strand combination handling
+            logging.debug(f'=== ASYMMETRIC PAIRING: {left_model} + {right_model} ===')
 
-            # Process hits for the right model (seeking left model partners)
-            if right_model in hitIndex:
-                for UID in hitIndex[right_model].keys():
-                    ref = hitIndex[right_model][UID]['rec']
-                    if ref.strand == config.right_strand:
-                        _find_candidates(
-                            ref,
-                            left_model,
-                            config.left_strand,
-                            hitsDict,
-                            hitIndex,
-                            maxDist,
-                            'right_to_left',
-                        )
+            # Get all valid strand combinations for this orientation
+            strand_combinations = []
 
+            if config.orientation == ['F', 'R']:
+                # F,R can appear as: (+,-) on pos strand OR (-,+) on neg strand
+                strand_combinations = [('+', '-'), ('-', '+')]
+            elif config.orientation == ['R', 'F']:
+                # R,F can appear as: (-,+) on pos strand OR (+,-) on neg strand
+                strand_combinations = [('-', '+'), ('+', '-')]
+            elif config.orientation == ['F', 'F']:
+                # F,F can appear as: (+,+) on pos strand OR (-,-) on neg strand
+                strand_combinations = [('+', '+'), ('-', '-')]
+            elif config.orientation == ['R', 'R']:
+                # R,R can appear as: (-,-) on pos strand OR (+,+) on neg strand
+                strand_combinations = [('-', '-'), ('+', '+')]
+
+            logging.debug(f'Processing strand combinations: {strand_combinations}')
+
+            for left_strand, right_strand in strand_combinations:
+                logging.debug(
+                    f'Processing strand combination: left={left_strand}, right={right_strand}'
+                )
+
+                # Process hits for the left model with this strand combination
+                if left_model in hitIndex:
+                    for UID in hitIndex[left_model].keys():
+                        ref = hitIndex[left_model][UID]['rec']
+
+                        if ref.strand == left_strand:
+                            # Determine search direction based on strand
+                            if left_strand == '+':
+                                search_direction = 'left_to_right'  # Search downstream
+                            else:
+                                search_direction = (
+                                    'right_to_left'  # Search upstream (neg strand)
+                                )
+
+                            logging.debug(
+                                f'Left model hit {UID} ({left_strand}) searching {search_direction} for right model on {right_strand}'
+                            )
+
+                            _find_candidates(
+                                ref,
+                                right_model,
+                                right_strand,
+                                hitsDict,
+                                hitIndex,
+                                maxDist,
+                                search_direction,
+                            )
+
+                # Process hits for the right model with this strand combination
+                if right_model in hitIndex:
+                    for UID in hitIndex[right_model].keys():
+                        ref = hitIndex[right_model][UID]['rec']
+
+                        if ref.strand == right_strand:
+                            # Determine search direction (opposite of left)
+                            if right_strand == '+':
+                                search_direction = 'right_to_left'  # Search upstream
+                            else:
+                                search_direction = (
+                                    'left_to_right'  # Search downstream (neg strand)
+                                )
+
+                            logging.debug(
+                                f'Right model hit {UID} ({right_strand}) searching {search_direction} for left model on {left_strand}'
+                            )
+
+                            _find_candidates(
+                                ref,
+                                left_model,
+                                left_strand,
+                                hitsDict,
+                                hitIndex,
+                                maxDist,
+                                search_direction,
+                            )
+
+    logging.debug('=== COMPLETED parseHitsGeneral ===')
     return hitIndex
+
+
+def _check_distance(ref_hit, candidate, direction, maxDist):
+    """
+    Check if candidate is within valid distance of reference hit.
+
+    For negative strand hits, coordinates are flipped in nhmmer output:
+    - hitStart > hitEnd (genomic coordinates)
+    - 5' end is at hitEnd, 3' end is at hitStart
+
+    The direction parameter indicates the biological relationship:
+    - 'left_to_right': Left terminus looking for right terminus downstream
+    - 'right_to_left': Right terminus looking for left terminus upstream
+    """
+
+    def get_terminus_position(hit):
+        """Get the relevant terminus position based on strand and biological direction."""
+        if hit.strand == '+':
+            # Positive strand: hitStart < hitEnd
+            # For left terminus: use 3' end (hitEnd)
+            # For right terminus: use 5' end (hitStart)
+            return {
+                'start': hit.hitStart,
+                'end': hit.hitEnd,
+                '5_prime': hit.hitStart,
+                '3_prime': hit.hitEnd,
+            }
+        else:
+            # Negative strand: hitStart > hitEnd (coordinates flipped)
+            # For left terminus: use 3' end (hitStart)
+            # For right terminus: use 5' end (hitEnd)
+            return {
+                'start': hit.hitEnd,
+                'end': hit.hitStart,
+                '5_prime': hit.hitEnd,
+                '3_prime': hit.hitStart,
+            }
+
+    # Get terminus positions for both hits
+    ref_pos = get_terminus_position(ref_hit)
+    cand_pos = get_terminus_position(candidate)
+
+    # Debug logging
+    logging.debug('=== DISTANCE CHECK DEBUG ===')
+    logging.debug(f'Direction: {direction}')
+    logging.debug(
+        f'Ref hit: {ref_hit.model} strand={ref_hit.strand} coords=({ref_hit.hitStart}, {ref_hit.hitEnd})'
+    )
+    logging.debug(
+        f'Candidate: {candidate.model} strand={candidate.strand} coords=({candidate.hitStart}, {candidate.hitEnd})'
+    )
+    logging.debug(f'Ref positions: {ref_pos}')
+    logging.debug(f'Candidate positions: {cand_pos}')
+
+    # Calculate distance based on biological relationship
+    if direction == 'left_to_right':
+        # Left terminus looking for right terminus downstream
+        # Distance from left terminus 3' end to right terminus 5' end
+        if ref_hit.strand == '+' and candidate.strand == '+':
+            # F,F orientation on + strand: left_end -> right_start
+            distance = cand_pos['5_prime'] - ref_pos['3_prime']
+        elif ref_hit.strand == '+' and candidate.strand == '-':
+            # F,R orientation: left_end -> right_start (right is on - strand)
+            distance = cand_pos['5_prime'] - ref_pos['3_prime']
+        elif ref_hit.strand == '-' and candidate.strand == '+':
+            # R,F orientation: left_end -> right_start (left is on - strand)
+            distance = cand_pos['5_prime'] - ref_pos['3_prime']
+        elif ref_hit.strand == '-' and candidate.strand == '-':
+            # R,R orientation on - strand: left_end -> right_start
+            distance = cand_pos['5_prime'] - ref_pos['3_prime']
+        else:
+            logging.error(
+                f'Unexpected strand combination: {ref_hit.strand}, {candidate.strand}'
+            )
+            return False
+
+    else:  # 'right_to_left'
+        # Right terminus looking for left terminus upstream
+        # Distance from right terminus 5' end to left terminus 3' end (should be negative, so we flip)
+        if ref_hit.strand == '+' and candidate.strand == '+':
+            # F,F orientation: right_start -> left_end (upstream)
+            distance = ref_pos['5_prime'] - cand_pos['3_prime']
+        elif ref_hit.strand == '-' and candidate.strand == '+':
+            # R,F orientation: right_start -> left_end
+            distance = ref_pos['5_prime'] - cand_pos['3_prime']
+        elif ref_hit.strand == '+' and candidate.strand == '-':
+            # F,R orientation: right_start -> left_end
+            distance = ref_pos['5_prime'] - cand_pos['3_prime']
+        elif ref_hit.strand == '-' and candidate.strand == '-':
+            # R,R orientation: right_start -> left_end
+            distance = ref_pos['5_prime'] - cand_pos['3_prime']
+        else:
+            logging.error(
+                f'Unexpected strand combination: {ref_hit.strand}, {candidate.strand}'
+            )
+            return False
+
+    logging.debug(f'Calculated distance: {distance}')
+
+    # Check for negative distances (invalid pairing)
+    if distance < 0:
+        logging.warning(
+            f'Negative distance ({distance}) between {ref_hit.model} and {candidate.model} '
+            f'on {ref_hit.target}. Ref: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}, '
+            f'Candidate: {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+        )
+        return False
+
+    # Check if within max distance
+    valid = distance >= 0 and distance <= maxDist
+    logging.debug(
+        f'Valid distance check: {valid} (distance: {distance}, maxDist: {maxDist})'
+    )
+
+    return valid
 
 
 def _find_candidates(
@@ -1158,79 +1393,100 @@ def _find_candidates(
 ):
     """
     Helper function to find candidate partners for a reference hit
-
-    Args:
-        ref_hit: Reference hit record
-        target_model: Model name to search for partners
-        target_strand: Required strand orientation for partners
-        direction: 'left_to_right' or 'right_to_left' for distance calculations
     """
+    import logging
+
+    logging.debug('=== _find_candidates DEBUG ===')
+    logging.debug(
+        f'Ref hit: {ref_hit.model} {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}'
+    )
+    logging.debug(
+        f'Looking for target_model: {target_model}, target_strand: {target_strand}'
+    )
+    logging.debug(f'Direction: {direction}, maxDist: {maxDist}')
+
     if target_model not in hitsDict or ref_hit.target not in hitsDict[target_model]:
+        logging.debug(
+            f'No hits found for target_model {target_model} on {ref_hit.target}'
+        )
         return
 
     # Store candidates under the reference hit's model and UID
     model_key = ref_hit.model
     uid_key = ref_hit.idx
 
+    candidates_found = 0
+
     for candidate in hitsDict[target_model][ref_hit.target]:
         if candidate.strand == target_strand:
+            logging.debug(
+                f'Checking candidate: {candidate.model} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+            )
+
             # Calculate distance based on direction and orientation
             valid_distance = _check_distance(ref_hit, candidate, direction, maxDist)
 
             if valid_distance:
                 hitIndex[model_key][uid_key]['candidates'].append(candidate)
+                candidates_found += 1
+                logging.debug(
+                    f'Added valid candidate: {candidate.model}_{candidate.idx}'
+                )
 
-    # Sort candidates by appropriate distance metric
-    if direction == 'left_to_right':
-        # Sort by start position (closest downstream first)
+    logging.debug(
+        f'Found {candidates_found} valid candidates for {ref_hit.model}_{ref_hit.idx}'
+    )
+
+    # Sort candidates by distance using the same logic as _check_distance
+    # This ensures closest valid partners are prioritized
+    def get_distance_for_sorting(ref, cand, direction):
+        """Calculate distance for sorting - matches _check_distance logic"""
+
+        def get_terminus_position(hit):
+            if hit.strand == '+':
+                return {'5_prime': hit.hitStart, '3_prime': hit.hitEnd}
+            else:
+                return {'5_prime': hit.hitEnd, '3_prime': hit.hitStart}
+
+        ref_pos = get_terminus_position(ref)
+        cand_pos = get_terminus_position(cand)
+
+        if direction == 'left_to_right':
+            # Distance from left terminus 3' end to right terminus 5' end
+            return cand_pos['5_prime'] - ref_pos['3_prime']
+        else:
+            # Distance from right terminus 5' end to left terminus 3' end
+            return ref_pos['5_prime'] - cand_pos['3_prime']
+
+    if hitIndex[model_key][uid_key]['candidates']:
+        # Sort by calculated distance (closest first)
         hitIndex[model_key][uid_key]['candidates'] = sorted(
             hitIndex[model_key][uid_key]['candidates'],
-            key=attrgetter('hitStart', 'hitEnd'),
-        )
-    else:
-        # Sort by end position (closest upstream first)
-        hitIndex[model_key][uid_key]['candidates'] = sorted(
-            hitIndex[model_key][uid_key]['candidates'],
-            key=attrgetter('hitEnd', 'hitStart'),
-            reverse=True,
+            key=lambda x: get_distance_for_sorting(ref_hit, x, direction),
         )
 
-
-def _check_distance(ref_hit, candidate, direction, maxDist):
-    """
-    Check if candidate is within valid distance of reference hit.
-
-    Direction determines which end-to-end distance to calculate:
-    - left_to_right: ref_end to candidate_start
-    - right_to_left: candidate_end to ref_start
-    """
-    if direction == 'left_to_right':
-        # Left hit looking for right partner
-        distance = candidate.hitStart - ref_hit.hitEnd
-        return distance >= 0 and distance <= maxDist
-    else:
-        # Right hit looking for left partner
-        distance = ref_hit.hitStart - candidate.hitEnd
-        return distance >= 0 and distance <= maxDist
+        logging.debug(
+            f'Sorted {len(hitIndex[model_key][uid_key]["candidates"])} candidates by distance'
+        )
 
 
 def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
     """
     Pairing procedure for asymmetric models (different left and right models).
-
-    Args:
-        hitIndex: Nested dict {model: {hit_id: hit_data}}
-        config: PairingConfig object with orientation and model settings
-        stableReps: Number of stable iterations before stopping
-
-    Returns:
-        hitIndex, paired, unpaired (same format as original)
+    Enhanced to account for custom orientations.
     """
+    import logging
+
+    logging.debug('=== ENTERING iterateGetPairsAsymmetric ===')
+    logging.debug(
+        f'Config: {config.left_model} ({config.left_strand}) + {config.right_model} ({config.right_strand})'
+    )
+
     # Init stable repeat counter
     reps = 0
 
-    # Initialize paired dict with both model names
-    paired = {config.left_model: [], config.right_model: []}
+    # Initialize paired dict with left model name (convention for asymmetric)
+    paired = {config.left_model: []}
 
     # Run initial pairing
     hitIndex, paired = getPairsAsymmetric(
@@ -1238,7 +1494,9 @@ def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
     )
 
     # Count remaining unpaired hits
-    countUP = countUnpairedAsymmetric(hitIndex)
+    countUP = countUnpairedAsymmetric(hitIndex, config)
+
+    logging.debug(f'Initial unpaired count: {countUP}')
 
     # Iterate pairing procedure until either no unpaired remain
     # OR max number of iterations without new pairing is reached
@@ -1251,14 +1509,23 @@ def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
         # Store previous unpaired hit count
         lastCountUP = countUP
         # Update unpaired hit count
-        countUP = countUnpairedAsymmetric(hitIndex)
+        countUP = countUnpairedAsymmetric(hitIndex, config)
+
+        logging.debug(
+            f'Iteration {reps + 1}: unpaired count {lastCountUP} -> {countUP}'
+        )
 
         # If no change in unpaired hit count, iterate stable rep counter
         if lastCountUP == countUP:
             reps += 1
 
     # Get IDs of remaining unpaired hits
-    unpaired = listunpairedAsymmetric(hitIndex)
+    unpaired = listunpairedAsymmetric(hitIndex, config)
+
+    total_pairs = sum(len(pairs) for pairs in paired.values())
+    logging.debug(
+        f'Asymmetric pairing completed: {total_pairs} pairs, {len(unpaired)} unpaired'
+    )
 
     return hitIndex, paired, unpaired
 
@@ -1266,9 +1533,14 @@ def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
 def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
     """
     Asymmetric pairing procedure that pairs hits from different models.
+    Enhanced to handle multiple strand combinations.
     """
+    import logging
+
     if not paired:
-        paired = {config.left_model: [], config.right_model: []}
+        paired = {config.left_model: []}
+
+    pairs_found = 0
 
     # Get hits from left model looking for right model partners
     if config.left_model in hitIndex:
@@ -1276,43 +1548,53 @@ def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
             if not hitIndex[config.left_model][leftID]['partner']:
                 left_hit = hitIndex[config.left_model][leftID]['rec']
 
-                # Only process hits with correct strand orientation
-                if left_hit.strand == config.left_strand:
-                    # Look through candidates (which should be from right model)
-                    for candidate in hitIndex[config.left_model][leftID]['candidates']:
-                        # Check if candidate is unpaired and from right model
-                        if (
-                            candidate.model == config.right_model
-                            and candidate.idx in hitIndex[config.right_model]
-                            and not hitIndex[config.right_model][candidate.idx][
-                                'partner'
-                            ]
-                        ):
-                            # Check if this left hit is also the best candidate for the right hit
-                            found = checkAsymmetricReciprocity(
-                                left_model=config.left_model,
-                                left_id=leftID,
-                                right_model=config.right_model,
-                                right_id=candidate.idx,
-                                hitIndex=hitIndex,
-                                config=config,
+                # REMOVED: Strand restriction check
+                # The parseHitsGeneral already populated candidates with valid combinations
+                logging.debug(
+                    f'Processing left hit {leftID}: {left_hit.strand}:{left_hit.hitStart}-{left_hit.hitEnd}'
+                )
+
+                # Look through candidates (which should be from right model)
+                for candidate in hitIndex[config.left_model][leftID]['candidates']:
+                    logging.debug(
+                        f'Checking candidate: {candidate.model}_{candidate.idx} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+                    )
+
+                    # Check if candidate is from right model and unpaired
+                    if (
+                        candidate.model == config.right_model
+                        and candidate.idx in hitIndex[config.right_model]
+                        and not hitIndex[config.right_model][candidate.idx]['partner']
+                    ):
+                        # Check if this left hit is also the best candidate for the right hit
+                        found = checkAsymmetricReciprocity(
+                            left_model=config.left_model,
+                            left_id=leftID,
+                            right_model=config.right_model,
+                            right_id=candidate.idx,
+                            hitIndex=hitIndex,
+                            config=config,
+                        )
+
+                        if found:
+                            # Mark as paired
+                            hitIndex[config.left_model][leftID]['partner'] = (
+                                candidate.idx
+                            )
+                            hitIndex[config.right_model][candidate.idx]['partner'] = (
+                                leftID
                             )
 
-                            if found:
-                                # Mark as paired
-                                hitIndex[config.left_model][leftID]['partner'] = (
-                                    candidate.idx
-                                )
-                                hitIndex[config.right_model][candidate.idx][
-                                    'partner'
-                                ] = leftID
+                            # Add to paired list (store under left model)
+                            paired[config.left_model].append({leftID, candidate.idx})
+                            pairs_found += 1
 
-                                # Add to paired list (store under left model)
-                                paired[config.left_model].append(
-                                    {leftID, candidate.idx}
-                                )
-                                break
+                            logging.debug(
+                                f'Paired: {config.left_model}_{leftID} + {config.right_model}_{candidate.idx}'
+                            )
+                            break
 
+    logging.debug(f'Found {pairs_found} new asymmetric pairs')
     return hitIndex, paired
 
 
@@ -1321,42 +1603,35 @@ def checkAsymmetricReciprocity(
 ):
     """
     Check if left and right hits are each other's best candidates.
+    Strand compatibility already ensured by parseHitsGeneral.
     """
+    import logging
+
     # Check if left hit is the best candidate for the right hit
     right_candidates = hitIndex[right_model][right_id]['candidates']
 
     for candidate in right_candidates:
         if (
             candidate.model == left_model
+            # REMOVED: strand compatibility check - already filtered
             and candidate.idx in hitIndex[left_model]
             and not hitIndex[left_model][candidate.idx]['partner']
         ):
             if candidate.idx == left_id:
+                logging.debug(
+                    f'Reciprocal match: {left_model}_{left_id} <-> {right_model}_{right_id}'
+                )
                 return True  # Reciprocal match found
             else:
+                logging.debug(
+                    f'Better candidate exists for {right_model}_{right_id}: {candidate.idx}'
+                )
                 return False  # A better candidate exists
 
+    logging.debug(
+        f'No reciprocal match for {left_model}_{left_id} -> {right_model}_{right_id}'
+    )
     return False  # No valid candidates
-
-
-def countUnpairedAsymmetric(hitIndex):
-    """Count unpaired hits across asymmetric models."""
-    count = 0
-    for model in hitIndex.keys():
-        for hitID in hitIndex[model].keys():
-            if not hitIndex[model][hitID]['partner']:
-                count += 1
-    return count
-
-
-def listunpairedAsymmetric(hitIndex):
-    """List all unpaired hit IDs for asymmetric models."""
-    unpaired = []
-    for model in hitIndex.keys():
-        for hitID in hitIndex[model].keys():
-            if not hitIndex[model][hitID]['partner']:
-                unpaired.append(hitID)
-    return unpaired
 
 
 def iterateGetPairsCustom(hitIndex, config, stableReps=0):
@@ -1366,6 +1641,9 @@ def iterateGetPairsCustom(hitIndex, config, stableReps=0):
     import logging
 
     logging.debug('=== ENTERING iterateGetPairsCustom ===')
+    logging.debug(
+        f'Config: {config.left_model} orientation {config.left_strand},{config.right_strand}'
+    )
 
     model_name = config.left_model
 
@@ -1383,7 +1661,9 @@ def iterateGetPairsCustom(hitIndex, config, stableReps=0):
     )
 
     # Count remaining unpaired hits
-    countUP = countUnpairedSymmetric(hitIndex, model_name)
+    countUP = countUnpairedSymmetric(hitIndex, model_name, config)
+
+    logging.debug(f'Initial unpaired count: {countUP}')
 
     # Iterate pairing procedure
     while countUP > 0 and reps < stableReps:
@@ -1392,13 +1672,22 @@ def iterateGetPairsCustom(hitIndex, config, stableReps=0):
         )
 
         lastCountUP = countUP
-        countUP = countUnpairedSymmetric(hitIndex, model_name)
+        countUP = countUnpairedSymmetric(hitIndex, model_name, config)
+
+        logging.debug(
+            f'Iteration {reps + 1}: unpaired count {lastCountUP} -> {countUP}'
+        )
 
         if lastCountUP == countUP:
             reps += 1
 
     # Get unpaired list
-    unpaired = listunpairedSymmetric(hitIndex, model_name)
+    unpaired = listunpairedSymmetric(hitIndex, model_name, config)
+
+    total_pairs = len(paired[model_name])
+    logging.debug(
+        f'Symmetric pairing completed: {total_pairs} pairs, {len(unpaired)} unpaired'
+    )
 
     return hitIndex, paired, unpaired
 
@@ -1406,68 +1695,170 @@ def iterateGetPairsCustom(hitIndex, config, stableReps=0):
 def getPairsSymmetric(hitIndex=None, model_name=None, config=None, paired=None):
     """
     Symmetric pairing procedure that works with nested hitIndex structure.
+    Enhanced to respect orientation constraints.
     """
+    import logging
+
     if model_name not in hitIndex:
         return hitIndex, paired
 
+    pairs_found = 0
+
     for refID in hitIndex[model_name].keys():
         if not hitIndex[model_name][refID]['partner']:
-            hitIndex[model_name][refID]['rec']
+            ref_hit = hitIndex[model_name][refID]['rec']
+
+            # Check if this hit can act as a left or right terminus based on strand
+            can_be_left = ref_hit.strand == config.left_strand
+            can_be_right = ref_hit.strand == config.right_strand
+
+            if not (can_be_left or can_be_right):
+                logging.debug(
+                    f"Hit {refID} on strand {ref_hit.strand} doesn't match orientation {config.left_strand},{config.right_strand}"
+                )
+                continue
+
+            logging.debug(
+                f'Processing hit {refID}: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd} (can_be_left: {can_be_left}, can_be_right: {can_be_right})'
+            )
 
             # Check candidates for this hit
             for candidate in hitIndex[model_name][refID]['candidates']:
+                logging.debug(
+                    f'Checking candidate: {candidate.model}_{candidate.idx} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+                )
+
                 # Candidate should be from the same model for symmetric pairing
                 if (
                     candidate.model == model_name
                     and candidate.idx in hitIndex[model_name]
                     and not hitIndex[model_name][candidate.idx]['partner']
                 ):
-                    # Check reciprocity
-                    if checkSymmetricReciprocity(
-                        model_name, refID, candidate.idx, hitIndex
-                    ):
-                        # Mark as paired
-                        hitIndex[model_name][refID]['partner'] = candidate.idx
-                        hitIndex[model_name][candidate.idx]['partner'] = refID
+                    # Check strand compatibility for symmetric pairing
+                    candidate_can_be_left = candidate.strand == config.left_strand
+                    candidate_can_be_right = candidate.strand == config.right_strand
 
-                        # Add to paired list
-                        paired[model_name].append({refID, candidate.idx})
-                        break
+                    # For symmetric pairing, we need complementary roles
+                    compatible = False
+                    if can_be_left and candidate_can_be_right:
+                        compatible = True
+                        logging.debug(
+                            f'Compatible: {refID} (left) + {candidate.idx} (right)'
+                        )
+                    elif can_be_right and candidate_can_be_left:
+                        compatible = True
+                        logging.debug(
+                            f'Compatible: {refID} (right) + {candidate.idx} (left)'
+                        )
 
+                    if compatible:
+                        # Check reciprocity
+                        if checkSymmetricReciprocity(
+                            model_name, refID, candidate.idx, hitIndex, config
+                        ):
+                            # Mark as paired
+                            hitIndex[model_name][refID]['partner'] = candidate.idx
+                            hitIndex[model_name][candidate.idx]['partner'] = refID
+
+                            # Add to paired list
+                            paired[model_name].append({refID, candidate.idx})
+                            pairs_found += 1
+
+                            logging.debug(
+                                f'Paired: {model_name}_{refID} + {model_name}_{candidate.idx}'
+                            )
+                            break
+
+    logging.debug(f'Found {pairs_found} new symmetric pairs')
     return hitIndex, paired
 
 
-def checkSymmetricReciprocity(model_name, ref_id, candidate_id, hitIndex):
-    """Check if two hits are each other's best unpaired candidates."""
+def checkSymmetricReciprocity(model_name, ref_id, candidate_id, hitIndex, config):
+    """Check if two hits are each other's best unpaired candidates with orientation constraints."""
+    import logging
+
     # Check if ref_id is the best unpaired candidate for candidate_id
     for mate_candidate in hitIndex[model_name][candidate_id]['candidates']:
         if (
             mate_candidate.idx in hitIndex[model_name]
             and not hitIndex[model_name][mate_candidate.idx]['partner']
         ):
-            return mate_candidate.idx == ref_id
+            # Check strand compatibility
+            mate_hit = hitIndex[model_name][mate_candidate.idx]['rec']
+            candidate_hit = hitIndex[model_name][candidate_id]['rec']
+
+            # Determine if they can form a valid pair
+            mate_can_be_left = mate_hit.strand == config.left_strand
+            mate_can_be_right = mate_hit.strand == config.right_strand
+            candidate_can_be_left = candidate_hit.strand == config.left_strand
+            candidate_can_be_right = candidate_hit.strand == config.right_strand
+
+            # Check if this candidate pair is strand-compatible
+            strand_compatible = (mate_can_be_left and candidate_can_be_right) or (
+                mate_can_be_right and candidate_can_be_left
+            )
+
+            if strand_compatible:
+                reciprocal = mate_candidate.idx == ref_id
+                logging.debug(
+                    f'Reciprocal check: {candidate_id} -> {mate_candidate.idx} == {ref_id}? {reciprocal}'
+                )
+                return reciprocal
+
+    logging.debug(f'No reciprocal match found for {ref_id} -> {candidate_id}')
     return False
 
 
-def countUnpairedSymmetric(hitIndex, model_name):
-    """Count unpaired hits for a specific model."""
+# Update helper functions to include config parameter
+def countUnpairedAsymmetric(hitIndex, config):
+    """Count unpaired hits across asymmetric models without orientation constraints."""
+    count = 0
+    for model in [config.left_model, config.right_model]:
+        if model in hitIndex:
+            for hitID in hitIndex[model].keys():
+                if not hitIndex[model][hitID]['partner']:
+                    count += 1  # Count all unpaired hits regardless of strand
+    return count
+
+
+def listunpairedAsymmetric(hitIndex, config):
+    """List all unpaired hit IDs for asymmetric models without orientation constraints."""
+    unpaired = []
+    for model in [config.left_model, config.right_model]:
+        if model in hitIndex:
+            for hitID in hitIndex[model].keys():
+                if not hitIndex[model][hitID]['partner']:
+                    unpaired.append(
+                        hitID
+                    )  # Include all unpaired hits regardless of strand
+    return unpaired
+
+
+def countUnpairedSymmetric(hitIndex, model_name, config):
+    """Count unpaired hits for a specific model with orientation constraints."""
     if model_name not in hitIndex:
         return 0
 
     count = 0
     for hitID in hitIndex[model_name].keys():
         if not hitIndex[model_name][hitID]['partner']:
-            count += 1
+            hit = hitIndex[model_name][hitID]['rec']
+            # Only count hits that can participate in pairing
+            if hit.strand in [config.left_strand, config.right_strand]:
+                count += 1
     return count
 
 
-def listunpairedSymmetric(hitIndex, model_name):
-    """List unpaired hit IDs for a specific model."""
+def listunpairedSymmetric(hitIndex, model_name, config):
+    """List unpaired hit IDs for a specific model with orientation constraints."""
     if model_name not in hitIndex:
         return []
 
     unpaired = []
     for hitID in hitIndex[model_name].keys():
         if not hitIndex[model_name][hitID]['partner']:
-            unpaired.append(hitID)
+            hit = hitIndex[model_name][hitID]['rec']
+            # Only include hits that can participate in pairing
+            if hit.strand in [config.left_strand, config.right_strand]:
+                unpaired.append(hitID)
     return unpaired

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tirmite"
-description = "Map TIR-pHMM models to genomic sequences for annotation of MITES and complete DNA-Transposons."
+description = "Map profile HMMs of transposon termini to genomic sequences for annotation of cryptic variants."
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
@@ -21,9 +21,7 @@ dependencies = [
     "pandas>=0.23.4",
     "pyfaidx",
     "pyhmmer",
-    "pymummer>=0.10.3",
     "rich",
-    "tsplit",
 ]
 
 dynamic = ["version"]
@@ -49,6 +47,7 @@ repository = "https://github.com/adamtaranto/TIRmite"
 [project.scripts]
 tirmite = "tirmite.cmd_tirmite:main"
 tirmite-seed = "tirmite.hmm_build:main"
+tirmite-pair = "tirmite.hmm_pair:main"
 
 [tool.hatch.build]
 source = "src"
@@ -97,7 +96,7 @@ quote-style = "single"
 
 [tool.isort]
 profile = "black"
-known_third_party = ["Bio", "pandas", "pymummer", "tsplit"]
+known_third_party = ["Bio", "pandas", "pyhmmer"]
 known_first_party = ["tirmite"]
 default_section = "THIRDPARTY"
 force_sort_within_sections = true

@@ -1,4 +1,4 @@
-from tirmite.utils.utils import cleanID, getTimestring
+from tirmite.utils.utils import cleanID
 
 
 def test_cleanID():

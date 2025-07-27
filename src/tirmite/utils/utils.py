@@ -1,6 +1,5 @@
 from collections import Counter
 from contextlib import contextmanager
-from datetime import datetime
 import logging
 import os
 from pathlib import Path
@@ -284,26 +283,6 @@ def dochecks(args):
     )
 
     return setup_directories(args)
-
-
-def getTimestring():
-    """
-    Return int only string of current datetime with milliseconds.
-
-    Note: This function is deprecated for security reasons.
-    Use tempfile module for temporary file/directory naming instead.
-    """
-    import warnings
-
-    warnings.warn(
-        'getTimestring() for temp naming is deprecated. Use tempfile module instead.',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    (dt, micro) = datetime.utcnow().strftime('%Y%m%d%H%M%S.%f').split('.')
-    dt = '%s%03d' % (dt, int(micro) / 1000)
-    return dt
 
 
 def isfile(path):

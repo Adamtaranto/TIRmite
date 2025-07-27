@@ -7,10 +7,10 @@ import shutil
 import sys
 
 from tirmite._version import __version__
-from tirmite.hmmer_wrappers import process_hmmer_workflow
-from tirmite.logs import init_logging
+from tirmite.runners.hmmer_wrappers import process_hmmer_workflow
+from tirmite.utils.logs import init_logging
 import tirmite.tirmitetools as tirmite
-from tirmite.utils import (
+from tirmite.utils.utils import (
     cleanup_temp_directory,
     indexGenome,
     setup_directories,
@@ -355,10 +355,222 @@ def extract_model_name_from_path(model_path):
     return Path(model_path).stem
 
 
-def main():
+def add_legacy_parser(subparsers):
+    """Add legacy subcommand parser."""
+    parser = subparsers.add_parser(
+        'legacy',
+        help='Original TIRmite workflow (HMM search + pairing)',
+        description='Map HMM models of transposon termini to genomic sequences',
+    )
+
+    parser.add_argument(
+        '--version',
+        action='version',
+        version='%(prog)s {version}'.format(version=__version__),
+    )
+    parser.add_argument(
+        '--loglevel',
+        default='INFO',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        help="Set logging level. Default: 'DEBUG'",
+    )
+    # Input
+    parser.add_argument(
+        '--genome',
+        type=str,
+        required=True,
+        help='Path to target genome that will be queried with HMMs.',
+    )
+    parser.add_argument(
+        '--hmmDir',
+        type=str,
+        default=None,
+        help='Directory containing pre-prepared TIR-pHMMs.',
+    )
+    parser.add_argument(
+        '--hmmFile',
+        type=str,
+        default=None,
+        help='Path to single HMM file. Incompatible with "--hmmDir".',
+    )
+    parser.add_argument(
+        '--alnDir',
+        type=str,
+        default=None,
+        help='Path to directory containing only TIR alignments in FASTA format to be converted to HMM.',
+    )
+    parser.add_argument(
+        '--alnFile',
+        type=str,
+        default=None,
+        help='Provide a single TIR alignment in FASTA format to be converted to HMM. Incompatible with "--alnDir".',
+    )
+    parser.add_argument(
+        '--pairbed',
+        type=str,
+        default=None,
+        help='If set TIRmite will preform pairing on TIRs from custom bedfile only.',
+    )
+
+    parser.add_argument(
+        '--stableReps',
+        type=int,
+        default=0,
+        help='Number of times to iterate pairing procedure when no additional pairs are found AND remaining unpaired hits > 0.',
+    )
+    # Output and housekeeping
+    parser.add_argument(
+        '--outdir',
+        type=str,
+        default=None,
+        help='All output files will be written to this directory.',
+    )
+    parser.add_argument(
+        '--prefix',
+        type=str,
+        default=None,
+        help='Add prefix to all hits and paired elements detected in this run. (Default = None)',
+    )
+    parser.add_argument(
+        '--nopairing',
+        action='store_true',
+        default=False,
+        help='If set, only report HMM hits. Do not attempt pairing.',
+    )
+    parser.add_argument(
+        '--gffOut',
+        action='store_true',
+        default=False,
+        help='If set report features as prefix.gff3. File saved to outdir. Default: False',
+    )
+    parser.add_argument(
+        '--report',
+        default='all',
+        choices=[None, 'all', 'paired', 'unpaired'],
+        help='Options for reporting model hits in GFF annotation file.',
+    )
+    parser.add_argument(
+        '--padlen',
+        type=int,
+        default=None,
+        help='Extract x bases either side of model hit when writing hits to fasta.',
+    )
+    parser.add_argument(
+        '--keep-temp',
+        action='store_true',
+        default=False,
+        help='If set do not delete temp file directory.',
+    )
+    # HMMER options
+    parser.add_argument(
+        '--threads',
+        type=int,
+        default=1,
+        help='Set number of threads available to hmmer software.',
+    )
+    parser.add_argument(
+        '--maxeval',
+        type=float,
+        default=0.001,
+        help='Maximum e-value allowed for valid hit. Default = 0.001',
+    )
+    parser.add_argument(
+        '--maxdist',
+        type=int,
+        default=None,
+        help='Maximum distance allowed between termini candidates to consider valid pairing.',
+    )
+    parser.add_argument(
+        '--nobias',
+        action='store_true',
+        default=False,
+        help='Turn OFF bias correction of scores in nhmmer.',
+    )
+    parser.add_argument(
+        '--matrix',
+        type=str,
+        default=None,
+        help='Use custom DNA substitution matrix with nhmmer.',
+    )
+    parser.add_argument(
+        '--mincov',
+        type=float,
+        default=0.5,
+        help='Minimum valid hit length as prop of model length. Defaults to 0.5',
+    )
+    # Non-standard HMMER paths
+    parser.add_argument(
+        '--hmmpress',
+        type=str,
+        default='hmmpress',
+        help='Set location of hmmpress if not in PATH.',
+    )
+    parser.add_argument(
+        '--nhmmer',
+        type=str,
+        default='nhmmer',
+        help='Set location of nhmmer if not in PATH.',
+    )
+    parser.add_argument(
+        '--hmmbuild',
+        type=str,
+        default='hmmbuild',
+        help='Set location of hmmbuild if not in PATH.',
+    )
+    parser.add_argument(
+        '--orientation',
+        type=str,
+        default='F,R',
+        help='Orientation pattern for pairing hits. F=Forward, R=Reverse. Options: F,R (TIR), F,F (LTR), R,R, R,F',
+    )
+
+    parser.add_argument(
+        '--leftModel',
+        type=str,
+        default=None,
+        help='HMM model for left terminus. Use with --rightModel for asymmetric elements.',
+    )
+
+    parser.add_argument(
+        '--rightModel',
+        type=str,
+        default=None,
+        help='HMM model for right terminus. Use with --leftModel for asymmetric elements.',
+    )
+    # Add new temp directory option
+    parser.add_argument(
+        '--tempdir',
+        type=str,
+        default=None,
+        help='Base directory for temporary files. Uses system temp if not specified.',
+    )
+    parser.add_argument(
+        '--nhmmerFile',
+        type=str,
+        default=None,
+        help='Path to precomputed nhmmer output file. Requires --hmmFile for model length calculation.',
+    )
+    parser.add_argument(
+        '--leftNhmmer',
+        type=str,
+        default=None,
+        help='Path to precomputed nhmmer output for left model. Use with --rightNhmmer and --leftModel/--rightModel for asymmetric elements.',
+    )
+    parser.add_argument(
+        '--rightNhmmer',
+        type=str,
+        default=None,
+        help='Path to precomputed nhmmer output for right model. Use with --leftNhmmer and --leftModel/--rightModel for asymmetric elements.',
+    )
+
+    return parser
+
+
+def main(args=None):
     """Do the work."""
     # Get cmd line args
-    args = mainArgs()
+    if args is None:
+        args = mainArgs()
 
     # TODO: Remove use of verbose option
     # Manually add args.verbose and set to True

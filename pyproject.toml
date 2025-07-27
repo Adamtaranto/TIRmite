@@ -45,9 +45,7 @@ documentation = "https://github.com/adamtaranto/TIRmite"
 repository = "https://github.com/adamtaranto/TIRmite"
 
 [project.scripts]
-tirmite = "tirmite.cmd_tirmite:main"
-tirmite-seed = "tirmite.hmm_build:main"
-tirmite-pair = "tirmite.hmm_pair:main"
+tirmite = "tirmite.cli.cli:main"
 
 [tool.hatch.build]
 source = "src"

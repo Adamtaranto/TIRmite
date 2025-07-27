@@ -25,16 +25,16 @@ import pandas as pd
 from pyhmmer.easel import Alphabet, DigitalMSA, MSAFile, SequenceFile
 from pyhmmer.plan7 import Background, Builder
 
-from tirmite.hmmer_wrappers import build_hmmbuild_command
-from tirmite.logs import init_logging
-from tirmite.runBlastn import BlastError, run_blastn
-from tirmite.utils import (
+from tirmite.runners.hmmer_wrappers import build_hmmbuild_command
+from tirmite.utils.logs import init_logging
+from tirmite.runners.runBlastn import BlastError, run_blastn
+from tirmite.utils.utils import (
     cleanID,
     create_output_directory,
     indexGenome,
     temporary_directory,
 )
-from tirmite.wrapping import run_command
+from tirmite.runners.wrapping import run_command
 
 
 class HMMBuildError(Exception):
@@ -1677,11 +1677,55 @@ def hits_overlap(hit1: BlastHit, hit2: BlastHit, min_overlap: int = 50) -> bool:
     return overlap_length >= min_overlap
 
 
-def main():
-    """Main function for HMM building workflow."""
-    parser = argparse.ArgumentParser(
+def validate_coverage(value):
+    """Custom type validator for coverage."""
+    try:
+        fval = float(value)
+        if not (0.0 <= fval <= 1.0):
+            raise argparse.ArgumentTypeError(
+                f'min-coverage must be between 0.0 and 1.0, got {fval}'
+            )
+        return fval
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"min-coverage must be a number, got '{value}'"
+        ) from None
+
+
+def validate_identity(value):
+    """Custom type validator for identity."""
+    try:
+        fval = float(value)
+        if not (0.0 <= fval <= 100.0):
+            raise argparse.ArgumentTypeError(
+                f'min-identity must be between 0.0 and 100.0, got {fval}'
+            )
+        return fval
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"min-identity must be a number, got '{value}'"
+        ) from None
+
+
+def validate_threads(value):
+    """Custom type validator for threads."""
+    try:
+        ival = int(value)
+        if ival < 1:
+            raise argparse.ArgumentTypeError(f'threads must be >= 1, got {ival}')
+        return ival
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"threads must be an integer, got '{value}'"
+        ) from None
+
+
+def add_seed_parser(subparsers):
+    """Add seed subcommand parser."""
+    parser = subparsers.add_parser(
+        'seed',
+        help='Build HMM models from seed sequences',
         description='Build HMM models from seed sequences for TIRmite',
-        prog='tirmite-build',
     )
 
     # Input arguments
@@ -1725,13 +1769,13 @@ def main():
     )
     parser.add_argument(
         '--min-coverage',
-        type=float,
+        type=validate_coverage,
         default=0.7,
         help='Minimum query coverage threshold as fraction 0.0-1.0 (default: 0.7)',
     )
     parser.add_argument(
         '--min-identity',
-        type=float,
+        type=validate_identity,
         default=70.0,
         help='Minimum sequence identity threshold as percentage (default: 70.0)',
     )
@@ -1759,24 +1803,16 @@ def main():
     )
     parser.add_argument(
         '--threads',
-        type=int,
+        type=validate_threads,
         default=1,
         help='Number of CPU threads to use for MAFFT alignment (default: 1)',
     )
 
-    args = parser.parse_args()
+    return parser
 
-    # Check thresholds are in range
-    if not (0.0 <= args.min_coverage <= 1.0):
-        parser.error('--min-coverage must be between 0.0 and 1.0')
 
-    if not (0.0 <= args.min_identity <= 100.0):
-        parser.error('--min-identity must be between 0.0 and 100.0')
-
-    # Validate threads argument
-
-    if args.threads < 1:
-        parser.error('--threads must be >= 1')
+def main(args=None):
+    """Main function for HMM building workflow."""
 
     # Check available CPU threads
     max_threads = os.cpu_count() or 1

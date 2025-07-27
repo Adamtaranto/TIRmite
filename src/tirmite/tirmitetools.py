@@ -8,7 +8,7 @@ from Bio import AlignIO, Seq, SeqIO
 from Bio.SeqRecord import SeqRecord
 import pandas as pd
 
-from tirmite.utils import cleanID
+from tirmite.utils.utils import cleanID
 
 
 def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):

@@ -4,7 +4,7 @@ import re
 import shutil
 from typing import List, Optional, Tuple, Union
 
-from tirmite.wrapping import run_commands_sequential
+from tirmite.runners.wrapping import run_commands_sequential
 
 
 def cleanID(sequence_id: str) -> str:

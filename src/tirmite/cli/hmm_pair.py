@@ -16,9 +16,9 @@ from pathlib import Path
 import sys
 
 from tirmite._version import __version__
-from tirmite.logs import init_logging
+from tirmite.utils.logs import init_logging
 import tirmite.tirmitetools as tirmite
-from tirmite.utils import (
+from tirmite.utils.utils import (
     cleanup_temp_directory,
     indexGenome,
     setup_directories,
@@ -162,11 +162,12 @@ def extract_model_name_from_path(model_path):
     return Path(model_path).stem
 
 
-def parse_args():
-    """Parse command line arguments for tirmite-pair."""
-    parser = argparse.ArgumentParser(
-        description='Pair precomputed nhmmer hits for transposon terminal repeat detection.',
-        prog='tirmite-pair',
+def add_pair_parser(subparsers):
+    """Add pair subcommand parser."""
+    parser = subparsers.add_parser(
+        'pair',
+        help='Pair precomputed nhmmer hits',
+        description='Pair precomputed nhmmer hits for transposon detection',
     )
 
     parser.add_argument(
@@ -335,7 +336,7 @@ def parse_args():
         help='Preserve temporary directory.',
     )
 
-    return parser.parse_args()
+    return parser
 
 
 def validate_arguments(args):
@@ -380,11 +381,15 @@ def validate_arguments(args):
             raise FileNotFoundError(f'Required file not found: {file_path}')
 
 
-def main():
+def main(args=None):
     """Main entry point for tirmite-pair."""
     try:
-        # Parse arguments
-        args = parse_args()
+        # Validate arguments
+        try:
+            validate_arguments(args)
+        except (ValueError, FileNotFoundError) as e:
+            logging.error(f'Argument validation failed: {e}')
+            sys.exit(1)
 
         # Set up directories first (we need output dir for default logfile location)
         try:
@@ -410,13 +415,6 @@ def main():
         logging.info(f'TIRmite-pair version {__version__}')
         logging.info(f'Output directory: {outDir}')
         logging.debug(f'Temporary directory: {tempDir}')
-
-        # Validate arguments
-        try:
-            validate_arguments(args)
-        except (ValueError, FileNotFoundError) as e:
-            logging.error(f'Argument validation failed: {e}')
-            sys.exit(1)
 
         # Index genome
         logging.info(f'Indexing genome: {args.genome}')

@@ -9,15 +9,14 @@ This module takes precomputed nhmmer results and runs the pairing workflow:
 4. Output paired elements, individual hits, and GFF annotations
 """
 
-import argparse
 import logging
 import os
 from pathlib import Path
 import sys
 
 from tirmite._version import __version__
-from tirmite.utils.logs import init_logging
 import tirmite.tirmitetools as tirmite
+from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
     indexGenome,

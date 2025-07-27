@@ -26,15 +26,15 @@ from pyhmmer.easel import Alphabet, DigitalMSA, MSAFile, SequenceFile
 from pyhmmer.plan7 import Background, Builder
 
 from tirmite.runners.hmmer_wrappers import build_hmmbuild_command
-from tirmite.utils.logs import init_logging
 from tirmite.runners.runBlastn import BlastError, run_blastn
+from tirmite.runners.wrapping import run_command
+from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanID,
     create_output_directory,
     indexGenome,
     temporary_directory,
 )
-from tirmite.runners.wrapping import run_command
 
 
 class HMMBuildError(Exception):

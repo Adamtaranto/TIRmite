@@ -8,8 +8,8 @@ import sys
 
 from tirmite._version import __version__
 from tirmite.runners.hmmer_wrappers import process_hmmer_workflow
-from tirmite.utils.logs import init_logging
 import tirmite.tirmitetools as tirmite
+from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
     indexGenome,

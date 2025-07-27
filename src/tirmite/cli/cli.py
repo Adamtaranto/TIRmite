@@ -5,6 +5,7 @@ TIRmite command-line interface with subcommands.
 
 import argparse
 import sys
+
 from tirmite._version import __version__
 
 
@@ -35,9 +36,9 @@ Examples:
     )
 
     # Import and add subcommands
-    from tirmite.cli.legacy import add_legacy_parser
     from tirmite.cli.hmm_build import add_seed_parser
     from tirmite.cli.hmm_pair import add_pair_parser
+    from tirmite.cli.legacy import add_legacy_parser
 
     add_legacy_parser(subparsers)
     add_seed_parser(subparsers)

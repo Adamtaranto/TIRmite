@@ -236,8 +236,7 @@ def missing_tool(tool_name):
 
 
 def validate_pairbed_compatibility(hitTable, config, args):
-    """
-    Validate that BED file contents are compatible with pairing configuration.
+    """Validate that BED file contents are compatible with pairing configuration.
 
     Args:
         hitTable: DataFrame of hits from BED file
@@ -246,6 +245,7 @@ def validate_pairbed_compatibility(hitTable, config, args):
 
     Returns:
         bool: True if compatible, False otherwise
+
     """
     logging.info('Validating BED file compatibility with pairing configuration...')
 

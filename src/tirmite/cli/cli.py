@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""
-TIRmite command-line interface with subcommands.
-"""
+"""TIRmite command-line interface with subcommands."""
 
 import argparse
 import sys

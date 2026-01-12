@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-TIRmite-pair: Pair precomputed nhmmer hits for transposon terminal repeat detection.
+"""TIRmite-pair: Pair precomputed nhmmer hits for transposon terminal repeat detection.
 
 This module takes precomputed nhmmer results and runs the pairing workflow:
 1. Import nhmmer hits from tabular files
@@ -25,14 +24,14 @@ from tirmite.utils.utils import (
 
 
 def get_hmm_model_length(hmm_file_path):
-    """
-    Extract model length from HMM file.
+    """Extract model length from HMM file.
 
     Args:
         hmm_file_path: Path to HMM file
 
     Returns:
         dict: {model_name: model_length}
+
     """
     model_lengths = {}
 
@@ -57,8 +56,7 @@ def get_hmm_model_length(hmm_file_path):
 
 
 def load_model_lengths_file(lengths_file):
-    """
-    Load model lengths from tab-delimited file.
+    """Load model lengths from tab-delimited file.
 
     Format: model_name<TAB>model_length
 
@@ -67,6 +65,7 @@ def load_model_lengths_file(lengths_file):
 
     Returns:
         dict: {model_name: model_length}
+
     """
     model_lengths = {}
 
@@ -100,8 +99,7 @@ def load_model_lengths_file(lengths_file):
 
 
 def calculate_hit_coverage(hitTable, model_lengths):
-    """
-    Calculate coverage for hits based on model lengths.
+    """Calculate coverage for hits based on model lengths.
 
     Args:
         hitTable: DataFrame with hits
@@ -109,6 +107,7 @@ def calculate_hit_coverage(hitTable, model_lengths):
 
     Returns:
         DataFrame with coverage column added
+
     """
     hitTable = hitTable.copy()
     coverage_values = []
@@ -131,8 +130,7 @@ def calculate_hit_coverage(hitTable, model_lengths):
 
 
 def filter_hits_coverage(hitTable, mincov):
-    """
-    Filter hits by coverage threshold.
+    """Filter hits by coverage threshold.
 
     Args:
         hitTable: DataFrame with coverage column
@@ -140,6 +138,7 @@ def filter_hits_coverage(hitTable, mincov):
 
     Returns:
         Filtered DataFrame
+
     """
     return hitTable[hitTable['coverage'] >= mincov]
 

@@ -11,11 +11,11 @@ class BlastError(Exception):
 
 
 def check_blast_available() -> bool:
-    """
-    Check if blastn is available in PATH.
+    """Check if blastn is available in PATH.
 
     Returns:
         bool: True if blastn is found, False otherwise
+
     """
     try:
         result = subprocess.run(
@@ -37,8 +37,7 @@ def run_blastn(
     verbose: bool = False,
     num_threads: int = 1,
 ) -> subprocess.CompletedProcess:
-    """
-    Run blastn with specified parameters using subprocess best practices.
+    """Run blastn with specified parameters using subprocess best practices.
 
     Args:
         query: Path to query sequence file
@@ -57,6 +56,7 @@ def run_blastn(
     Raises:
         BlastError: If blastn fails or is not available
         FileNotFoundError: If input files don't exist
+
     """
     # Validate inputs
     query_path = Path(query)
@@ -146,8 +146,7 @@ def run_self_blast(
     verbose: bool = False,
     num_threads: int = 1,  # Add threading support
 ) -> subprocess.CompletedProcess:
-    """
-    Run blastn with sequence file as both query and subject (self-alignment).
+    """Run blastn with sequence file as both query and subject (self-alignment).
 
     This is a convenience wrapper for the common case of self-alignment
     used in TIR identification.
@@ -161,6 +160,7 @@ def run_self_blast(
 
     Returns:
         subprocess.CompletedProcess: Result of the blastn command
+
     """
     return run_blastn(
         query=sequence_file,
@@ -179,8 +179,7 @@ def run_blast_batch(
     verbose: bool = False,
     max_workers: int = 1,
 ) -> List[subprocess.CompletedProcess]:
-    """
-    Run BLAST on multiple sequence files.
+    """Run BLAST on multiple sequence files.
 
     Args:
         sequence_files: List of sequence files for self-alignment
@@ -191,6 +190,7 @@ def run_blast_batch(
 
     Returns:
         List of subprocess.CompletedProcess results
+
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -256,8 +256,7 @@ def run_blast_batch(
 
 # Deprecated functions kept for backwards compatibility
 def makeBlast(seq=None, outfile=None, pid=60):
-    """
-    DEPRECATED: Use run_self_blast() instead.
+    """DEPRECATED: Use run_self_blast() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings
@@ -275,8 +274,7 @@ def makeBlast(seq=None, outfile=None, pid=60):
 
 
 def run_blast(cmds, verbose=False):
-    """
-    DEPRECATED: Use run_blastn() or run_self_blast() instead.
+    """DEPRECATED: Use run_blastn() or run_self_blast() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings

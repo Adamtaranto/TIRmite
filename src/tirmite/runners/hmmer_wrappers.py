@@ -8,8 +8,7 @@ from tirmite.runners.wrapping import run_commands_sequential
 
 
 def cleanID(sequence_id: str) -> str:
-    """
-    Remove non-alphanumeric characters from string and replace whitespace with underscores.
+    """Remove non-alphanumeric characters from string and replace whitespace with underscores.
 
     Parameters
     ----------
@@ -25,6 +24,7 @@ def cleanID(sequence_id: str) -> str:
     --------
     >>> cleanID("My Model-Name 1")
     'My_Model_Name_1'
+
     """
     # Remove non-alphanumeric characters except whitespace
     cleaned = re.sub(r'[^\w\s]', '', sequence_id)
@@ -40,8 +40,7 @@ def build_hmmbuild_command(
     executable_path: str = 'hmmbuild',
     cores: Optional[int] = None,
 ) -> Tuple[List[str], Path]:
-    """
-    Construct hmmbuild command for creating HMM from multiple sequence alignment.
+    """Construct hmmbuild command for creating HMM from multiple sequence alignment.
 
     Parameters
     ----------
@@ -66,6 +65,7 @@ def build_hmmbuild_command(
     ------
     FileNotFoundError
         If input alignment file doesn't exist.
+
     """
     # Clean model name for filesystem safety
     clean_model_name = cleanID(model_name)
@@ -107,8 +107,7 @@ def build_hmmpress_command(
     hmm_file: Union[str, Path],
     executable_path: str = 'hmmpress',
 ) -> List[str]:
-    """
-    Construct hmmpress command for indexing HMM database.
+    """Construct hmmpress command for indexing HMM database.
 
     Parameters
     ----------
@@ -126,6 +125,7 @@ def build_hmmpress_command(
     ------
     FileNotFoundError
         If HMM file doesn't exist.
+
     """
     hmm_path = Path(hmm_file)
 
@@ -153,8 +153,7 @@ def build_nhmmer_command(
     nobias: bool = False,
     matrix_file: Optional[Union[str, Path]] = None,
 ) -> Tuple[List[str], Path]:
-    """
-    Construct nhmmer command for searching HMM against genome sequence.
+    """Construct nhmmer command for searching HMM against genome sequence.
 
     Parameters
     ----------
@@ -185,6 +184,7 @@ def build_nhmmer_command(
     ------
     FileNotFoundError
         If model or genome files don't exist.
+
     """
     # Convert to Path objects
     model_path = Path(model_path)
@@ -249,8 +249,7 @@ def process_hmmer_workflow(
     search_params: Optional[dict] = None,
     verbose: bool = False,
 ) -> Tuple[Path, Path]:
-    """
-    Execute complete HMMER workflow: build models, press databases, and search genome.
+    """Execute complete HMMER workflow: build models, press databases, and search genome.
 
     Parameters
     ----------
@@ -297,6 +296,7 @@ def process_hmmer_workflow(
     ...     genome_path='genome.fasta',
     ...     search_params={'evalue': 1e-3, 'cores': 4}
     ... )
+
     """
     # Validate inputs - now includes left_model and right_model
     if not any([hmm_dir, hmm_file, alignment_dir, left_model, right_model]):

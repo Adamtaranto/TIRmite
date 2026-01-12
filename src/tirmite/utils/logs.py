@@ -1,5 +1,4 @@
-"""
-Logging configuration for the tirmite package.
+"""Logging configuration for the tirmite package.
 
 This module provides functionality to initialize and configure logging with rich
 formatting for better readability in terminal output. It uses the 'rich' library
@@ -17,8 +16,7 @@ from rich.logging import RichHandler
 def init_logging(
     loglevel: str = 'DEBUG', logfile: Optional[Union[str, Path]] = None
 ) -> None:
-    """
-    Initialize root logger with specified log level and rich formatting.
+    """Initialize root logger with specified log level and rich formatting.
 
     Configures the global logging system with rich formatting for console output
     and optionally writes logs to a file.
@@ -42,6 +40,7 @@ def init_logging(
         If the provided log level is invalid.
     OSError
         If the log file cannot be created or written to.
+
     """
     # Convert log level string to numeric value
     numeric_level = getattr(logging, loglevel.upper(), None)

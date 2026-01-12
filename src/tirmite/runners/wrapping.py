@@ -20,8 +20,7 @@ class CommandError(Exception):
 
 
 def cleanID(s: str) -> str:
-    """
-    Remove non alphanumeric characters from string.
+    """Remove non alphanumeric characters from string.
     Replace whitespace with underscores.
 
     Args:
@@ -29,6 +28,7 @@ def cleanID(s: str) -> str:
 
     Returns:
         str: Cleaned string with only alphanumeric chars and underscores
+
     """
     s = re.sub(r'[^\w\s]', '', s)
     s = re.sub(r'\s+', '_', s)
@@ -42,8 +42,7 @@ def run_command(
     cwd: Optional[Union[str, Path]] = None,
     shell: bool = False,
 ) -> subprocess.CompletedProcess:
-    """
-    Execute a command using subprocess with proper error handling.
+    """Execute a command using subprocess with proper error handling.
 
     Args:
         cmd: Command to execute (string or list of arguments)
@@ -57,6 +56,7 @@ def run_command(
 
     Raises:
         CommandError: If command fails or times out
+
     """
     if verbose:
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(cmd)
@@ -117,8 +117,7 @@ def run_commands_sequential(
     cwd: Optional[Union[str, Path]] = None,
     stop_on_error: bool = True,
 ) -> List[subprocess.CompletedProcess]:
-    """
-    Execute multiple commands sequentially.
+    """Execute multiple commands sequentially.
 
     Args:
         cmds: List of commands to execute
@@ -132,6 +131,7 @@ def run_commands_sequential(
 
     Raises:
         CommandError: If any command fails and stop_on_error is True
+
     """
     results = []
 
@@ -167,8 +167,7 @@ def run_cmd_in_tempdir(
     keeptemp: bool = False,
     timeout: Optional[int] = None,
 ) -> List[subprocess.CompletedProcess]:
-    """
-    Execute commands in a temporary directory with automatic cleanup.
+    """Execute commands in a temporary directory with automatic cleanup.
 
     This is the modern replacement for the original run_cmd function.
 
@@ -184,6 +183,7 @@ def run_cmd_in_tempdir(
 
     Raises:
         CommandError: If any command fails
+
     """
     if tempDir is None:
         tempDir = os.getcwd()
@@ -231,8 +231,7 @@ def write_script_file(
     shell: str = 'bash',
     executable: bool = True,
 ) -> Path:
-    """
-    Write commands to a script file with proper headers and permissions.
+    """Write commands to a script file with proper headers and permissions.
 
     Args:
         cmds: List of commands to write
@@ -242,6 +241,7 @@ def write_script_file(
 
     Returns:
         Path: Path to created script file
+
     """
     script_path = Path(script_path)
 
@@ -270,8 +270,7 @@ def run_script_file(
     timeout: Optional[int] = None,
     cwd: Optional[Union[str, Path]] = None,
 ) -> subprocess.CompletedProcess:
-    """
-    Execute a script file.
+    """Execute a script file.
 
     Args:
         script_path: Path to script file
@@ -281,6 +280,7 @@ def run_script_file(
 
     Returns:
         subprocess.CompletedProcess: Result of script execution
+
     """
     script_path = Path(script_path)
 
@@ -297,8 +297,7 @@ def run_script_file(
 
 # Legacy functions for backwards compatibility
 def syscall(cmd: str, verbose: bool = False) -> None:
-    """
-    DEPRECATED: Use run_command() instead.
+    """DEPRECATED: Use run_command() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings
@@ -322,8 +321,7 @@ def run_cmd(
     tempDir: Optional[str] = None,
     keeptemp: bool = False,
 ) -> None:
-    """
-    DEPRECATED: Use run_cmd_in_tempdir() instead.
+    """DEPRECATED: Use run_cmd_in_tempdir() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings
@@ -342,8 +340,7 @@ def run_cmd(
 
 
 def _write_script(cmds: List[str], script: str) -> None:
-    """
-    DEPRECATED: Use write_script_file() instead.
+    """DEPRECATED: Use write_script_file() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings
@@ -360,8 +357,7 @@ def _write_script(cmds: List[str], script: str) -> None:
 
 
 def decode(x):
-    """
-    DEPRECATED: Modern subprocess uses text=True parameter.
+    """DEPRECATED: Modern subprocess uses text=True parameter.
     Legacy function maintained for backwards compatibility.
     """
     import warnings

@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tirmite"
-description = "Map profile HMMs of transposon termini to genomic sequences for annotation of cryptic variants."
+description = "Map profile HMMs of transposon termini to genomic sequences for annotation of cryptic transposon variants."
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT" }
+license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Adam Taranto", email = "adam.p.taranto@gmail.com" }]
 
 classifiers = [
@@ -80,11 +80,12 @@ select = [
     "W", # pycodestyle warning rules
     "B", # flake8-bugbear rules
     "I", # isort rules
+    "D", # pydocstyle rules
 ]
 ignore = [
     "C901", # max-complexity-10
     "E501", # line-too-long
-    "I001", # isort-imports
+    #"I001", # isort-imports
     "B905", # `zip()` without an explicit `strict=` parameter
 ]
 
@@ -117,3 +118,14 @@ override_SS05 = [ # allow docstrings to start with these words
     '^Assess ',
     '^Access ',
 ]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pydocstyle]
+convention = "numpy"
+# Ignore files in directories named "tests"
+match-dir = "((?!tests).)*"

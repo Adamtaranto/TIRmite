@@ -120,35 +120,35 @@ def import_nhmmer(infile: Optional[str] = None, hitTable: Optional[pd.DataFrame]
         for line in f.readlines():
             li = line.strip()
             if not li.startswith('#'):
-                li = li.split()
-                if li[11] == '+':
+                li_split = li.split()
+                if li_split[11] == '+':
                     hitRecords.append(
                         {
-                            'target': li[0],
-                            'model': li[2],
-                            'hmmStart': li[4],
-                            'hmmEnd': li[5],
-                            'hitStart': li[6],
-                            'hitEnd': li[7],
-                            'strand': li[11],
-                            'evalue': li[12],
-                            'score': li[13],
-                            'bias': li[14],
+                            'target': li_split[0],
+                            'model': li_split[2],
+                            'hmmStart': li_split[4],
+                            'hmmEnd': li_split[5],
+                            'hitStart': li_split[6],
+                            'hitEnd': li_split[7],
+                            'strand': li_split[11],
+                            'evalue': li_split[12],
+                            'score': li_split[13],
+                            'bias': li_split[14],
                         }
                     )
-                elif li[11] == '-':
+                elif li_split[11] == '-':
                     hitRecords.append(
                         {
-                            'target': li[0],
-                            'model': li[2],
-                            'hmmStart': li[4],
-                            'hmmEnd': li[5],
-                            'hitStart': li[7],
-                            'hitEnd': li[6],
-                            'strand': li[11],
-                            'evalue': li[12],
-                            'score': li[13],
-                            'bias': li[14],
+                            'target': li_split[0],
+                            'model': li_split[2],
+                            'hmmStart': li_split[4],
+                            'hmmEnd': li_split[5],
+                            'hitStart': li_split[7],
+                            'hitEnd': li_split[6],
+                            'strand': li_split[11],
+                            'evalue': li_split[12],
+                            'score': li_split[13],
+                            'bias': li_split[14],
                         }
                     )
     # Convert list of dicts into dataframe
@@ -217,17 +217,17 @@ def import_BED(infile: Optional[str] = None, hitTable: Optional[pd.DataFrame] = 
         for line in f.readlines():
             li = line.strip()
             if not li.startswith('#'):
-                li = li.split()
+                li_split = li.split()
                 hitRecords.append(
                     {
-                        'target': li[0],
-                        'model': li[3],
+                        'target': li_split[0],
+                        'model': li_split[3],
                         'hmmStart': 'NA',
                         'hmmEnd': 'NA',
-                        'hitStart': li[1],
-                        'hitEnd': li[2],
-                        'strand': li[5],
-                        'evalue': li[4],
+                        'hitStart': li_split[1],
+                        'hitEnd': li_split[2],
+                        'strand': li_split[5],
+                        'evalue': li_split[4],
                         'score': 'NA',
                         'bias': 'NA',
                     }
@@ -305,13 +305,13 @@ def filterHitsLen(hmmDB: Optional[str] = None, mincov: Optional[float] = None, h
                 modelLens[hmmName] = hmmLen
     for model in modelLens.keys():
         minlen = modelLens[model] * mincov
-        hitTable = hitTable.loc[
+        hitTable = hitTable.loc[  # type: ignore[assignment]
             ~(
                 (hitTable['model'] == model)
                 & (
                     (hitTable['hitEnd'].astype(int) - hitTable['hitStart'].astype(int))
                     + 1
-                    < minlen
+                    < minlen  # type: ignore[operator]
                 )
             )
         ]
@@ -377,7 +377,7 @@ def table2dict(hitTable: pd.DataFrame) -> Tuple[Dict[str, Dict[str, List[Any]]],
             hitsDict[hmm][chr] = []
     # Set up named tuple
     hitTup = namedtuple(
-        'Elem', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue']
+        'hitTup', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue']  # type: ignore[name-match]
     )
     # Add each record to dicts
     for row in hitTable.iterrows():
@@ -393,7 +393,7 @@ def table2dict(hitTable: pd.DataFrame) -> Tuple[Dict[str, Dict[str, List[Any]]],
         # Log hit for model on chromosome
         hitsDict[row[1].model][row[1].target].append(record)
         # Populate tracker - FIX: use row[1].model not hmm
-        hitIndex[row[1].model][row[0]] = {
+        hitIndex[row[1].model][row[0]] = {  # type: ignore[index]
             'rec': record,
             'partner': None,
             'candidates': [],
@@ -428,7 +428,7 @@ def parseHits(hitsDict: Optional[Dict[str, Dict[str, List[Any]]]] = None, hitInd
     Candidates are sorted by proximity to the reference hit.
     """
     if not maxDist:
-        maxDist = float('inf')
+        maxDist = float('inf')  # type: ignore[assignment]
     for hmm in hitIndex.keys():
         for UID in hitIndex[hmm].keys():
             ref = hitIndex[hmm][UID]['rec']
@@ -560,7 +560,7 @@ def getPairs(hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None, pa
     # If pair tracker not given
     if not paired:
         # Create dict of empty lists, keyed by model name
-        paired = {}
+        paired: Dict[str, List[Set[int]]] = {}
         for model in hitIndex.keys():
             paired[model] = []
     # For each HMM model
@@ -952,9 +952,9 @@ def fetchElements(paired: Optional[Dict[str, List[Set[int]]]] = None, hitIndex: 
             # Flat structure - direct access
             return hitIndex[hit_id]['rec']
 
-    TIRelements = {}
+    TIRelements: Dict[str, List[Any]] = {}
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',  # type: ignore[name-match]
         [
             'model',
             'chromosome',
@@ -1312,7 +1312,7 @@ def fetchUnpaired(hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = Non
     """
     orphans = []
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',  # type: ignore[name-match]
         [
             'model',
             'chromosome',
@@ -1387,7 +1387,7 @@ def gffWrite(
     Features are sorted by model, chromosome, start, end.
     """
     if featureList is None:
-        featureList = []
+        featureList = {}  # type: ignore[assignment]
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1643,7 +1643,7 @@ def parseHitsGeneral(hitsDict: Optional[Dict[str, Dict[str, List[Any]]]] = None,
     logging.debug(f'Is asymmetric: {config.is_asymmetric}')
 
     if not maxDist:
-        maxDist = float('inf')
+        maxDist = float('inf')  # type: ignore[assignment]
         logging.debug('Using infinite maxDist')
     else:
         logging.debug(f'Using maxDist: {maxDist}')
@@ -2232,7 +2232,7 @@ def getPairsAsymmetric(hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] 
     import logging
 
     if not paired:
-        paired = {config.left_model: []}
+        paired: Dict[str, List[Set[int]]] = {config.left_model: []}
 
     pairs_found = 0
 

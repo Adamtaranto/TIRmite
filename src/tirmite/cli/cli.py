@@ -6,7 +6,7 @@ TIRmite command-line interface with subcommands.
 import argparse
 import sys
 
-from tirmite._version import __version__
+from tirmite._version import __version__  # type: ignore[import-not-found]
 
 
 def create_parser() -> argparse.ArgumentParser:

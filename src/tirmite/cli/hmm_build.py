@@ -42,7 +42,7 @@ from tirmite.utils.utils import (
 class HMMBuildError(Exception):
     """
     Custom exception for HMM building errors.
-"""
+    """
 
     pass
 

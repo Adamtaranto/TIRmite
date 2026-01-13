@@ -908,7 +908,7 @@ def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=N
     def get_hit_record(hit_id):
         """
         Helper function to get hit record from either nested or flat hitIndex.
-"""
+        """
         if is_nested:
             # Search through all models to find the hit
             for _model_name, model_hits in hitIndex.items():
@@ -1095,7 +1095,7 @@ def writePairedTIRs(
     def get_hit_record(hit_id):
         """
         Helper function to get hit record from either nested or flat hitIndex.
-"""
+        """
         if is_nested:
             # Search through all models to find the hit
             for _model_name, model_hits in hitIndex.items():
@@ -1803,7 +1803,7 @@ def _check_distance(ref_hit, candidate, direction, maxDist):
     def get_terminus_position(hit):
         """
         Get the relevant terminus position based on strand and biological direction.
-"""
+        """
         if hit.strand == '+':
             # Positive strand: hitStart < hitEnd
             # For left terminus: use 3' end (hitEnd)
@@ -1985,7 +1985,7 @@ def _find_candidates(
     def get_distance_for_sorting(ref, cand, direction):
         """
         Calculate distance for sorting - matches _check_distance logic.
-"""
+        """
 
         def get_terminus_position(hit):
             if hit.strand == '+':

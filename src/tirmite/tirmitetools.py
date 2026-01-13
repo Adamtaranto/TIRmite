@@ -453,6 +453,8 @@ def parseHits(
     For reverse strand (-) hits, searches for upstream forward strand (+) partners.
     Candidates are sorted by proximity to the reference hit.
     """
+    assert hitsDict is not None, "hitsDict cannot be None"
+    assert hitIndex is not None, "hitIndex cannot be None"
     if not maxDist:
         maxDist = float('inf')  # type: ignore[assignment]
     for hmm in hitIndex.keys():
@@ -524,6 +526,10 @@ def isfirstUnpaired(
     Searches mate's candidate list for ref. If ref is mate's first unpaired
     candidate, they form a reciprocal pair and are marked as partners.
     """
+    assert ref is not None, "ref cannot be None"
+    assert mate is not None, "mate cannot be None"
+    assert model is not None, "model cannot be None"
+    assert index is not None, "index cannot be None"
     # Init result trackers
     found = None
     mateFUP = None
@@ -591,12 +597,15 @@ def getPairs(
     This allows pairing in cases where direct reciprocity is blocked by
     competing candidates.
     """
+    assert hitIndex is not None, "hitIndex cannot be None"
     # If pair tracker not given
     if not paired:
         # Create dict of empty lists, keyed by model name
-        paired: Dict[str, List[Set[int]]] = {}
+        paired_dict: Dict[str, List[Set[int]]] = {}
         for model in hitIndex.keys():
-            paired[model] = []
+            paired_dict[model] = []
+    else:
+        paired_dict = paired
     # For each HMM model
     for model in hitIndex.keys():
         # Ask each hit in genome
@@ -615,7 +624,7 @@ def getPairs(
                         if found:
                             # If current hit is also the best return match of
                             # our candidate, store as pair.
-                            paired[model].append(found)
+                            paired_dict[model].append(found)
                         elif mateFUP:
                             # Else if not a return match, check candidate's
                             # first outbound match for reciprocity.
@@ -624,8 +633,8 @@ def getPairs(
                             )
                             if found:
                                 # Store if found.
-                                paired[model].append(found)
-    return hitIndex, paired
+                                paired_dict[model].append(found)
+    return hitIndex, paired_dict
 
 
 def countUnpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> int:
@@ -766,6 +775,9 @@ def extractTIRs(
     Padded flanking sequence is shown in lowercase letters.
     Uses 0-based indexing for pyfaidx extraction.
     """
+    assert model is not None, "model cannot be None"
+    assert hitTable is not None, "hitTable cannot be None"
+    assert genome is not None, "genome cannot be None"
     hitcount = 0
     seqList = []
 
@@ -809,8 +821,8 @@ def extractTIRs(
                 [
                     '[' + str(row['target']) + ':' + str(row['strand']),
                     str(row['hitStart']),
-                    str(row['hitEnd']) + ' modelAlignment:' + row['hmmStart'],
-                    row['hmmEnd'] + ' E-value:' + str(row['evalue']) + ']',
+                    str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
+                    str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
                 ]
             )
 
@@ -867,6 +879,8 @@ def writeTIRs(
     Creates one FASTA file per model with filename format:
     {prefix}{model}_hits_{count}.fasta
     """
+    assert hitTable is not None, "hitTable cannot be None"
+    assert genome is not None, "genome cannot be None"
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -955,10 +969,13 @@ def fetchElements(
     Handles both symmetric (same model) and asymmetric (different models) pairing.
     Element IDs have format: Element_{counter}.
     """
+    assert paired is not None, "paired cannot be None"
+    assert hitIndex is not None, "hitIndex cannot be None"
+    assert genome is not None, "genome cannot be None"
     # Check if hitIndex is nested or flat
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
 
-    def get_hit_record(hit_id):
+    def get_hit_record(hit_id: int) -> Any:
         """
         Retrieve hit record from either nested or flat hitIndex structure.
 
@@ -991,7 +1008,7 @@ def fetchElements(
             raise KeyError(f'Hit ID {hit_id} not found in any model')
         else:
             # Flat structure - direct access
-            return hitIndex[hit_id]['rec']
+            return hitIndex[hit_id]['rec']  # type: ignore[index]
 
     TIRelements: Dict[str, List[Any]] = {}
     gffTup = namedtuple(
@@ -1107,6 +1124,7 @@ def writeElements(
     Only creates files for models that have at least one element.
     Output filename format: {prefix}{model}_elements.fasta
     """
+    assert eleDict is not None, "eleDict cannot be None"
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1162,6 +1180,10 @@ def writePairedTIRs(
     {model}_{counter}_L (left TIR) and {model}_{counter}_R (right TIR).
     Filename format: {prefix}{model}_paired_term_hits_{count}.fasta
     """
+    assert outDir is not None, "outDir cannot be None"
+    assert paired is not None, "paired cannot be None"
+    assert hitIndex is not None, "hitIndex cannot be None"
+    assert genome is not None, "genome cannot be None"
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1170,7 +1192,7 @@ def writePairedTIRs(
     # Check if hitIndex is nested (new format) or flat (old format)
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
 
-    def get_hit_record(hit_id):
+    def get_hit_record(hit_id: int) -> Any:
         """
         Retrieve hit record from either nested or flat hitIndex structure.
 
@@ -1203,7 +1225,7 @@ def writePairedTIRs(
             raise KeyError(f'Hit ID {hit_id} not found in any model')
         else:
             # Flat structure - direct access
-            return hitIndex[hit_id]['rec']
+            return hitIndex[hit_id]['rec']  # type: ignore[index]
 
     # Only process models that actually have pairs
     for model in paired.keys():
@@ -1357,6 +1379,7 @@ def fetchUnpaired(
     Unpaired hits are marked with type 'orphan_term' to distinguish them from
     paired terminal repeats in GFF3 output.
     """
+    assert hitIndex is not None, "hitIndex cannot be None"
     orphans = []
     gffTup = namedtuple(
         'gffTup',  # type: ignore[name-match]
@@ -1692,6 +1715,9 @@ def parseHitsGeneral(
     within the specified distance constraint. Supports all strand combinations:
     F,R (canonical), R,F, F,F, and R,R orientations.
     """
+    assert hitsDict is not None, "hitsDict cannot be None"
+    assert hitIndex is not None, "hitIndex cannot be None"
+    assert config is not None, "config cannot be None"
     logging.debug('=== ENTERING parseHitsGeneral ===')
     logging.debug(
         f'Config: orientation={config.orientation}, left_strand={config.left_strand}, right_strand={config.right_strand}'
@@ -1699,10 +1725,11 @@ def parseHitsGeneral(
     logging.debug(f'Is asymmetric: {config.is_asymmetric}')
 
     if not maxDist:
-        maxDist = float('inf')  # type: ignore[assignment]
+        maxDist_value: float = float('inf')
         logging.debug('Using infinite maxDist')
     else:
-        logging.debug(f'Using maxDist: {maxDist}')
+        maxDist_value = float(maxDist)
+        logging.debug(f'Using maxDist: {maxDist_value}')
 
     model_pairs = config.get_model_pairs()
     logging.debug(f'Model pairs to process: {model_pairs}')
@@ -1756,7 +1783,7 @@ def parseHitsGeneral(
                             config.right_strand,
                             hitsDict,
                             hitIndex,
-                            maxDist,
+                            maxDist_value,
                             search_direction,
                         )
 
@@ -1788,7 +1815,7 @@ def parseHitsGeneral(
                             config.left_strand,
                             hitsDict,
                             hitIndex,
-                            maxDist,
+                            maxDist_value,
                             search_direction,
                         )
                     else:
@@ -1846,7 +1873,7 @@ def parseHitsGeneral(
                                 right_strand,
                                 hitsDict,
                                 hitIndex,
-                                maxDist,
+                                maxDist_value,
                                 search_direction,
                             )
 
@@ -1874,7 +1901,7 @@ def parseHitsGeneral(
                                 left_strand,
                                 hitsDict,
                                 hitIndex,
-                                maxDist,
+                                maxDist_value,
                                 search_direction,
                             )
 
@@ -1912,7 +1939,7 @@ def _check_distance(
     from terminus 3' end to partner 5' end based on strand orientations.
     """
 
-    def get_terminus_position(hit):
+    def get_terminus_position(hit: Any) -> Dict[str, int]:
         """
         Extract terminus positions based on strand orientation and biological direction.
 
@@ -2117,7 +2144,7 @@ def _find_candidates(
 
     # Sort candidates by distance using the same logic as _check_distance
     # This ensures closest valid partners are prioritized
-    def get_distance_for_sorting(ref, cand, direction):
+    def get_distance_for_sorting(ref: Any, cand: Any, direction: str) -> int:
         """
         Calculate biological distance between hits for sorting candidates.
 
@@ -2143,7 +2170,7 @@ def _find_candidates(
         For right_to_left: distance from right terminus 5' end to left terminus 3' end.
         """
 
-        def get_terminus_position(hit):
+        def get_terminus_position(hit: Any) -> Dict[str, int]:
             """
             Extract 5' and 3' terminus positions accounting for strand orientation.
 
@@ -2168,10 +2195,10 @@ def _find_candidates(
 
         if direction == 'left_to_right':
             # Distance from left terminus 3' end to right terminus 5' end
-            return cand_pos['5_prime'] - ref_pos['3_prime']
+            return int(cand_pos['5_prime'] - ref_pos['3_prime'])
         else:
             # Distance from right terminus 5' end to left terminus 3' end
-            return ref_pos['5_prime'] - cand_pos['3_prime']
+            return int(ref_pos['5_prime'] - cand_pos['3_prime'])
 
     if hitIndex[model_key][uid_key]['candidates']:
         # Sort by calculated distance (closest first)
@@ -2226,7 +2253,7 @@ def iterateGetPairsAsymmetric(
     reps = 0
 
     # Initialize paired dict with left model name (convention for asymmetric)
-    paired = {config.left_model: []}
+    paired: Dict[str, List[Set[int]]] = {config.left_model: []}
 
     # Run initial pairing
     hitIndex, paired = getPairsAsymmetric(
@@ -2299,10 +2326,14 @@ def getPairsAsymmetric(
     Checks reciprocal best-match relationship between left and right model hits.
     Only pairs hits that are each other's closest valid unpaired partners.
     """
+    assert hitIndex is not None, "hitIndex cannot be None"
+    assert config is not None, "config cannot be None"
     import logging
 
     if not paired:
-        paired: Dict[str, List[Set[int]]] = {config.left_model: []}
+        paired_dict: Dict[str, List[Set[int]]] = {config.left_model: []}
+    else:
+        paired_dict = paired
 
     pairs_found = 0
 
@@ -2350,7 +2381,7 @@ def getPairsAsymmetric(
                             )
 
                             # Add to paired list (store under left model)
-                            paired[config.left_model].append({leftID, candidate.idx})
+                            paired_dict[config.left_model].append({leftID, candidate.idx})
                             pairs_found += 1
 
                             logging.debug(
@@ -2359,7 +2390,7 @@ def getPairsAsymmetric(
                             break
 
     logging.debug(f'Found {pairs_found} new asymmetric pairs')
-    return hitIndex, paired
+    return hitIndex, paired_dict
 
 
 def checkAsymmetricReciprocity(
@@ -2470,7 +2501,7 @@ def iterateGetPairsCustom(
         return hitIndex, {model_name: []}, []
 
     # Initialize pairing structures
-    paired = {model_name: []}
+    paired: Dict[str, List[Set[int]]] = {model_name: []}
     reps = 0
 
     # Run initial pairing
@@ -2543,10 +2574,20 @@ def getPairsSymmetric(
     Each hit must have complementary role (left or right) based on strand
     to form a valid symmetric pair.
     """
+    assert hitIndex is not None, "hitIndex cannot be None"
+    assert model_name is not None, "model_name cannot be None"
+    assert config is not None, "config cannot be None"
     import logging
 
     if model_name not in hitIndex:
+        if paired is None:
+            paired = {}
         return hitIndex, paired
+
+    if not paired:
+        paired_dict: Dict[str, List[Set[int]]] = {model_name: []}
+    else:
+        paired_dict = paired
 
     pairs_found = 0
 
@@ -2607,7 +2648,7 @@ def getPairsSymmetric(
                             hitIndex[model_name][candidate.idx]['partner'] = refID
 
                             # Add to paired list
-                            paired[model_name].append({refID, candidate.idx})
+                            paired_dict[model_name].append({refID, candidate.idx})
                             pairs_found += 1
 
                             logging.debug(
@@ -2616,7 +2657,7 @@ def getPairsSymmetric(
                             break
 
     logging.debug(f'Found {pairs_found} new symmetric pairs')
-    return hitIndex, paired
+    return hitIndex, paired_dict
 
 
 def checkSymmetricReciprocity(
@@ -2676,7 +2717,7 @@ def checkSymmetricReciprocity(
             )
 
             if strand_compatible:
-                reciprocal = mate_candidate.idx == ref_id
+                reciprocal = bool(mate_candidate.idx == ref_id)
                 logging.debug(
                     f'Reciprocal check: {candidate_id} -> {mate_candidate.idx} == {ref_id}? {reciprocal}'
                 )

@@ -1,18 +1,19 @@
-from collections import namedtuple
 import glob
 import logging
-from operator import attrgetter
 import os
+from collections import namedtuple
+from operator import attrgetter
 
+import pandas as pd
 from Bio import AlignIO, Seq, SeqIO
 from Bio.SeqRecord import SeqRecord
-import pandas as pd
 
 from tirmite.utils.utils import cleanID
 
 
 def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
-    """Convert input alignments into Stockholm format."""
+    """
+    Convert input alignments into Stockholm format."""
     # Construct out model path
     if tempDir:
         alnOutDir = os.path.join(os.path.abspath(tempDir), 'temp_aln')
@@ -46,7 +47,8 @@ def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
 
 
 def import_nhmmer(infile=None, hitTable=None, prefix=None):
-    """Read nhmmer tab files to pandas dataframe."""
+    """
+    Read nhmmer tab files to pandas dataframe."""
     hitRecords = []
     with open(infile, 'r') as f:
         for line in f.readlines():
@@ -115,7 +117,8 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
 
 
 def import_BED(infile=None, hitTable=None, prefix=None):
-    """Read TIR bedfile to pandas dataframe."""
+    """
+    Read TIR bedfile to pandas dataframe."""
     # Format: Chrm, start, end, name, evalue, strand
     hitRecords = []
     with open(infile, 'r') as f:
@@ -198,13 +201,15 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
 
 
 def filterHitsEval(maxeval=None, hitTable=None):
-    """Filter hitTable df to remove hits with e-value in excess of --maxeval."""
+    """
+    Filter hitTable df to remove hits with e-value in excess of --maxeval."""
     hitTable = hitTable.loc[((hitTable['evalue'].astype(float)) < float(maxeval))]
     return hitTable
 
 
 def table2dict(hitTable):
-    """Convert pandas dataframe of nhmmer hits into dict[model][chrom]
+    """
+    Convert pandas dataframe of nhmmer hits into dict[model][chrom]
     and index[model] = [hitlist].withCandidates and pairing status.
     """
     # Set up empty dict
@@ -244,7 +249,9 @@ def table2dict(hitTable):
 
 
 def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
-    """Populate hitIndex with pairing candidates."""
+    """
+    Populate hitIndex with pairing candidates.
+    """
     if not maxDist:
         maxDist = float('inf')
     for hmm in hitIndex.keys():
@@ -282,7 +289,8 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
 
 
 def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
-    """Provided with a hitID (ref) and the ID of its nearest unpaired
+    """
+    Provided with a hitID (ref) and the ID of its nearest unpaired
     candidate partner (mate), check if ref is also the nearest unpaired
     partner to mate.
     """
@@ -324,7 +332,8 @@ def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
 
 
 def getPairs(hitIndex=None, paired=None):
-    """Loop over all hit for all models and search for reciprocity within
+    """
+    Loop over all hit for all models and search for reciprocity within
     2 degrees of the top unpaired candidate for each unpaired hit.
     """
     # If pair tracker not given
@@ -365,7 +374,8 @@ def getPairs(hitIndex=None, paired=None):
 
 
 def countUnpaired(hitIndex):
-    """How many hits are still unpaired across all models."""
+    """
+    How many hits are still unpaired across all models."""
     count = 0
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
@@ -375,7 +385,8 @@ def countUnpaired(hitIndex):
 
 
 def listunpaired(hitIndex):
-    """Return list of all unpaired hit IDs."""
+    """
+    Return list of all unpaired hit IDs."""
     unpaired = []
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
@@ -385,7 +396,8 @@ def listunpaired(hitIndex):
 
 
 def iterateGetPairs(hitIndex, stableReps=0):
-    """Iterate pairing procedure for all models until no unpaired hits remain or
+    """
+    Iterate pairing procedure for all models until no unpaired hits remain or
     number of reps without change is exceeded.
     """
     # Init stable repeat counter
@@ -421,7 +433,8 @@ def extractTIRs(
     padlen=None,
     genome_descriptions=None,
 ):
-    """For significant hits in model, compose seqrecords.
+    """
+    For significant hits in model, compose seqrecords.
 
     Args:
         genome: pyfaidx.Fasta indexed genome object
@@ -498,7 +511,8 @@ def writeTIRs(
     padlen=None,
     genome_descriptions=None,
 ):
-    """Write all hits per Model to a multifasta in the outdir."""
+    """
+    Write all hits per Model to a multifasta in the outdir."""
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -534,20 +548,23 @@ def writeTIRs(
 
 
 def flipTIRs(x, y):
-    """Sort hits into left and right TIRs."""
+    """
+    Sort hits into left and right TIRs."""
     left2right = sorted([x, y], key=attrgetter('hitStart', 'hitEnd'))
     return (left2right[0], left2right[1])
 
 
 def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=None):
-    """Extract complete sequence of paired elements.
+    """
+    Extract complete sequence of paired elements.
     Now handles nested hitIndex structure and asymmetric pairing correctly.
     """
     # Check if hitIndex is nested or flat
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
 
     def get_hit_record(hit_id):
-        """Helper function to get hit record from either nested or flat hitIndex."""
+        """
+        Helper function to get hit record from either nested or flat hitIndex."""
         if is_nested:
             # Search through all models to find the hit
             for _model_name, model_hits in hitIndex.items():
@@ -646,7 +663,8 @@ def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=N
 
 
 def writeElements(outDir, eleDict=None, prefix=None):
-    """Takes dict of extracted sequences keyed by model.
+    """
+    Takes dict of extracted sequences keyed by model.
     Writes to fasta by model only if model has elements.
     """
     if prefix:
@@ -672,7 +690,8 @@ def writePairedTIRs(
     padlen=None,
     genome_descriptions=None,
 ):
-    """Extract TIR sequence of paired hits, write to fasta."""
+    """
+    Extract TIR sequence of paired hits, write to fasta."""
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -682,7 +701,8 @@ def writePairedTIRs(
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
 
     def get_hit_record(hit_id):
-        """Helper function to get hit record from either nested or flat hitIndex."""
+        """
+        Helper function to get hit record from either nested or flat hitIndex."""
         if is_nested:
             # Search through all models to find the hit
             for _model_name, model_hits in hitIndex.items():
@@ -823,7 +843,8 @@ def writePairedTIRs(
 
 
 def fetchUnpaired(hitIndex=None):
-    """Take list of unpaired hit IDs from listunpaired(),
+    """
+    Take list of unpaired hit IDs from listunpaired(),
     Compose TIR gff3 record.
     """
     orphans = []
@@ -872,7 +893,8 @@ def gffWrite(
     suppressMeta=False,
     prefix=None,
 ):
-    """Write predicted paired-TIR features (i.e. MITEs) from fetchElements()
+    """
+    Write predicted paired-TIR features (i.e. MITEs) from fetchElements()
     as GFF3. Optionally, write child TIRS and orphan TIRs to GFF3 also.
     """
     if featureList is None:
@@ -1022,7 +1044,8 @@ class PairingConfig:
     def __init__(
         self, orientation='F,R', left_model=None, right_model=None, single_model=None
     ):
-        """Configure pairing rules for terminal repeat elements.
+        """
+        Configure pairing rules for terminal repeat elements.
 
         Args:
             orientation: String like 'F,R', 'F,F', 'R,R', 'R,F'
@@ -1042,7 +1065,8 @@ class PairingConfig:
         self.right_model = right_model if self.is_asymmetric else single_model
 
     def get_model_pairs(self):
-        """Return list of (left_model, right_model) tuples for pairing."""
+        """
+        Return list of (left_model, right_model) tuples for pairing."""
         if self.is_asymmetric:
             return [(self.left_model, self.right_model)]
         else:
@@ -1051,7 +1075,8 @@ class PairingConfig:
 
 
 def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
-    """Generalized version that properly handles custom model orientations."""
+    """
+    Generalized version that properly handles custom model orientations."""
     logging.debug('=== ENTERING parseHitsGeneral ===')
     logging.debug(
         f'Config: orientation={config.orientation}, left_strand={config.left_strand}, right_strand={config.right_strand}'
@@ -1243,7 +1268,8 @@ def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
 
 
 def _check_distance(ref_hit, candidate, direction, maxDist):
-    """Check if candidate is within valid distance of reference hit.
+    """
+    Check if candidate is within valid distance of reference hit.
 
     For negative strand hits, coordinates are flipped in nhmmer output:
     - hitStart > hitEnd (genomic coordinates)
@@ -1255,7 +1281,8 @@ def _check_distance(ref_hit, candidate, direction, maxDist):
     """
 
     def get_terminus_position(hit):
-        """Get the relevant terminus position based on strand and biological direction."""
+        """
+        Get the relevant terminus position based on strand and biological direction."""
         if hit.strand == '+':
             # Positive strand: hitStart < hitEnd
             # For left terminus: use 3' end (hitEnd)
@@ -1359,7 +1386,8 @@ def _check_distance(ref_hit, candidate, direction, maxDist):
 def _find_candidates(
     ref_hit, target_model, target_strand, hitsDict, hitIndex, maxDist, direction
 ):
-    """Helper function to find candidate partners for a reference hit."""
+    """
+    Helper function to find candidate partners for a reference hit."""
     import logging
 
     logging.debug('=== _find_candidates DEBUG ===')
@@ -1406,7 +1434,8 @@ def _find_candidates(
     # Sort candidates by distance using the same logic as _check_distance
     # This ensures closest valid partners are prioritized
     def get_distance_for_sorting(ref, cand, direction):
-        """Calculate distance for sorting - matches _check_distance logic."""
+        """
+        Calculate distance for sorting - matches _check_distance logic."""
 
         def get_terminus_position(hit):
             if hit.strand == '+':
@@ -1437,7 +1466,8 @@ def _find_candidates(
 
 
 def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
-    """Pairing procedure for asymmetric models (different left and right models).
+    """
+    Pairing procedure for asymmetric models (different left and right models).
     Enhanced to account for custom orientations.
     """
     import logging
@@ -1496,7 +1526,8 @@ def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
 
 
 def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
-    """Asymmetric pairing procedure that pairs hits from different models.
+    """
+    Asymmetric pairing procedure that pairs hits from different models.
     Enhanced to handle multiple strand combinations.
     """
     import logging
@@ -1565,7 +1596,8 @@ def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
 def checkAsymmetricReciprocity(
     left_model, left_id, right_model, right_id, hitIndex, config
 ):
-    """Check if left and right hits are each other's best candidates.
+    """
+    Check if left and right hits are each other's best candidates.
     Strand compatibility already ensured by parseHitsGeneral.
     """
     import logging
@@ -1598,7 +1630,8 @@ def checkAsymmetricReciprocity(
 
 
 def iterateGetPairsCustom(hitIndex, config, stableReps=0):
-    """Enhanced pairing procedure that supports custom orientations for symmetric models."""
+    """
+    Enhanced pairing procedure that supports custom orientations for symmetric models."""
     import logging
 
     logging.debug('=== ENTERING iterateGetPairsCustom ===')
@@ -1654,7 +1687,9 @@ def iterateGetPairsCustom(hitIndex, config, stableReps=0):
 
 
 def getPairsSymmetric(hitIndex=None, model_name=None, config=None, paired=None):
-    """Symmetric pairing procedure that works with nested hitIndex structure.
+    """
+
+    Symmetric pairing procedure that works with nested hitIndex structure.
     Enhanced to respect orientation constraints.
     """
     import logging
@@ -1734,7 +1769,8 @@ def getPairsSymmetric(hitIndex=None, model_name=None, config=None, paired=None):
 
 
 def checkSymmetricReciprocity(model_name, ref_id, candidate_id, hitIndex, config):
-    """Check if two hits are each other's best unpaired candidates with orientation constraints."""
+    """
+    Check if two hits are each other's best unpaired candidates with orientation constraints."""
     import logging
 
     # Check if ref_id is the best unpaired candidate for candidate_id
@@ -1771,7 +1807,8 @@ def checkSymmetricReciprocity(model_name, ref_id, candidate_id, hitIndex, config
 
 # Update helper functions to include config parameter
 def countUnpairedAsymmetric(hitIndex, config):
-    """Count unpaired hits across asymmetric models without orientation constraints."""
+    """
+    Count unpaired hits across asymmetric models without orientation constraints."""
     count = 0
     for model in [config.left_model, config.right_model]:
         if model in hitIndex:
@@ -1782,7 +1819,8 @@ def countUnpairedAsymmetric(hitIndex, config):
 
 
 def listunpairedAsymmetric(hitIndex, config):
-    """List all unpaired hit IDs for asymmetric models without orientation constraints."""
+    """
+    List all unpaired hit IDs for asymmetric models without orientation constraints."""
     unpaired = []
     for model in [config.left_model, config.right_model]:
         if model in hitIndex:
@@ -1795,7 +1833,8 @@ def listunpairedAsymmetric(hitIndex, config):
 
 
 def countUnpairedSymmetric(hitIndex, model_name, config):
-    """Count unpaired hits for a specific model with orientation constraints."""
+    """
+    Count unpaired hits for a specific model with orientation constraints."""
     if model_name not in hitIndex:
         return 0
 
@@ -1810,7 +1849,8 @@ def countUnpairedSymmetric(hitIndex, model_name, config):
 
 
 def listunpairedSymmetric(hitIndex, model_name, config):
-    """List unpaired hit IDs for a specific model with orientation constraints."""
+    """
+    List unpaired hit IDs for a specific model with orientation constraints."""
     if model_name not in hitIndex:
         return []
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""TIRmite-pair: Pair precomputed nhmmer hits for transposon terminal repeat detection.
+"""
+TIRmite-pair: Pair precomputed nhmmer hits for transposon terminal repeat detection.
 
 This module takes precomputed nhmmer results and runs the pairing workflow:
 1. Import nhmmer hits from tabular files
@@ -10,11 +11,11 @@ This module takes precomputed nhmmer results and runs the pairing workflow:
 
 import logging
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 
-from tirmite._version import __version__
 import tirmite.tirmitetools as tirmite
+from tirmite._version import __version__
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
@@ -24,7 +25,8 @@ from tirmite.utils.utils import (
 
 
 def get_hmm_model_length(hmm_file_path):
-    """Extract model length from HMM file.
+    """
+    Extract model length from HMM file.
 
     Args:
         hmm_file_path: Path to HMM file
@@ -56,7 +58,8 @@ def get_hmm_model_length(hmm_file_path):
 
 
 def load_model_lengths_file(lengths_file):
-    """Load model lengths from tab-delimited file.
+    """
+    Load model lengths from tab-delimited file.
 
     Format: model_name<TAB>model_length
 
@@ -99,7 +102,8 @@ def load_model_lengths_file(lengths_file):
 
 
 def calculate_hit_coverage(hitTable, model_lengths):
-    """Calculate coverage for hits based on model lengths.
+    """
+    Calculate coverage for hits based on model lengths.
 
     Args:
         hitTable: DataFrame with hits
@@ -130,7 +134,8 @@ def calculate_hit_coverage(hitTable, model_lengths):
 
 
 def filter_hits_coverage(hitTable, mincov):
-    """Filter hits by coverage threshold.
+    """
+    Filter hits by coverage threshold.
 
     Args:
         hitTable: DataFrame with coverage column
@@ -144,7 +149,8 @@ def filter_hits_coverage(hitTable, mincov):
 
 
 def extract_model_name_from_path(model_path):
-    """Extract model name from HMM file path by reading the HMM file."""
+    """
+    Extract model name from HMM file path by reading the HMM file."""
     if not model_path:
         return None
 
@@ -161,7 +167,8 @@ def extract_model_name_from_path(model_path):
 
 
 def add_pair_parser(subparsers):
-    """Add pair subcommand parser."""
+    """
+    Add pair subcommand parser."""
     parser = subparsers.add_parser(
         'pair',
         help='Pair precomputed nhmmer hits',
@@ -338,7 +345,8 @@ def add_pair_parser(subparsers):
 
 
 def validate_arguments(args):
-    """Validate argument combinations and file existence."""
+    """
+    Validate argument combinations and file existence."""
     # Check asymmetric pairing requirements
     if args.leftNhmmer and not args.rightNhmmer:
         raise ValueError('--leftNhmmer requires --rightNhmmer')
@@ -380,7 +388,8 @@ def validate_arguments(args):
 
 
 def main(args=None):
-    """Main entry point for tirmite-pair."""
+    """
+    Main entry point for tirmite-pair."""
     try:
         # Validate arguments
         try:

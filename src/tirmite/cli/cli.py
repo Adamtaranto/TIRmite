@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""TIRmite command-line interface with subcommands."""
+"""
+TIRmite command-line interface with subcommands."""
 
 import argparse
 import sys
@@ -8,7 +9,9 @@ from tirmite._version import __version__
 
 
 def create_parser():
-    """Create the main argument parser with subcommands."""
+    """
+    Create the main argument parser with subcommands.
+    """
     parser = argparse.ArgumentParser(
         prog='tirmite',
         description='TIRmite: Transposon Terminal Repeat detection suite',
@@ -46,7 +49,8 @@ Examples:
 
 
 def main():
-    """Main CLI entry point."""
+    """
+    The main CLI entry point."""
     parser = create_parser()
 
     # Parse arguments

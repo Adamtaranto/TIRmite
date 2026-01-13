@@ -1,15 +1,16 @@
 import logging
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
+from pathlib import Path
 from typing import List, Optional, Union
 
 
 class CommandError(Exception):
-    """Custom exception for command execution errors."""
+    """
+    Custom exception for command execution errors."""
 
     def __init__(self, message: str, cmd: str, returncode: int, output: str = ''):
         self.message = message
@@ -20,7 +21,8 @@ class CommandError(Exception):
 
 
 def cleanID(s: str) -> str:
-    """Remove non alphanumeric characters from string.
+    """
+    Remove non alphanumeric characters from string.
     Replace whitespace with underscores.
 
     Args:
@@ -42,7 +44,8 @@ def run_command(
     cwd: Optional[Union[str, Path]] = None,
     shell: bool = False,
 ) -> subprocess.CompletedProcess:
-    """Execute a command using subprocess with proper error handling.
+    """
+    Execute a command using subprocess with proper error handling.
 
     Args:
         cmd: Command to execute (string or list of arguments)
@@ -117,7 +120,8 @@ def run_commands_sequential(
     cwd: Optional[Union[str, Path]] = None,
     stop_on_error: bool = True,
 ) -> List[subprocess.CompletedProcess]:
-    """Execute multiple commands sequentially.
+    """
+    Execute multiple commands sequentially.
 
     Args:
         cmds: List of commands to execute
@@ -167,7 +171,8 @@ def run_cmd_in_tempdir(
     keeptemp: bool = False,
     timeout: Optional[int] = None,
 ) -> List[subprocess.CompletedProcess]:
-    """Execute commands in a temporary directory with automatic cleanup.
+    """
+    Execute commands in a temporary directory with automatic cleanup.
 
     This is the modern replacement for the original run_cmd function.
 
@@ -231,7 +236,8 @@ def write_script_file(
     shell: str = 'bash',
     executable: bool = True,
 ) -> Path:
-    """Write commands to a script file with proper headers and permissions.
+    """
+    Write commands to a script file with proper headers and permissions.
 
     Args:
         cmds: List of commands to write
@@ -270,7 +276,8 @@ def run_script_file(
     timeout: Optional[int] = None,
     cwd: Optional[Union[str, Path]] = None,
 ) -> subprocess.CompletedProcess:
-    """Execute a script file.
+    """
+    Execute a script file.
 
     Args:
         script_path: Path to script file
@@ -297,7 +304,8 @@ def run_script_file(
 
 # Legacy functions for backwards compatibility
 def syscall(cmd: str, verbose: bool = False) -> None:
-    """DEPRECATED: Use run_command() instead.
+    """
+    DEPRECATED: Use run_command() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings
@@ -321,7 +329,8 @@ def run_cmd(
     tempDir: Optional[str] = None,
     keeptemp: bool = False,
 ) -> None:
-    """DEPRECATED: Use run_cmd_in_tempdir() instead.
+    """
+    DEPRECATED: Use run_cmd_in_tempdir() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings
@@ -340,7 +349,8 @@ def run_cmd(
 
 
 def _write_script(cmds: List[str], script: str) -> None:
-    """DEPRECATED: Use write_script_file() instead.
+    """
+    DEPRECATED: Use write_script_file() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings
@@ -357,7 +367,8 @@ def _write_script(cmds: List[str], script: str) -> None:
 
 
 def decode(x):
-    """DEPRECATED: Modern subprocess uses text=True parameter.
+    """
+    DEPRECATED: Modern subprocess uses text=True parameter.
     Legacy function maintained for backwards compatibility.
     """
     import warnings

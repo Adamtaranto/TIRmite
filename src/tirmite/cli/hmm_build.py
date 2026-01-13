@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""HMM building from seed sequences for TIRmite.
+"""
+HMM building from seed sequences for TIRmite.
 
 This module builds HMM models from seed sequences by:
 1. Comparing left/right seeds if both provided
@@ -13,14 +14,14 @@ import argparse
 import io
 import logging
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import List, Optional, Tuple
 
+import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-import pandas as pd
 from pyhmmer.easel import Alphabet, DigitalMSA, MSAFile, SequenceFile
 from pyhmmer.plan7 import Background, Builder
 
@@ -37,13 +38,15 @@ from tirmite.utils.utils import (
 
 
 class HMMBuildError(Exception):
-    """Custom exception for HMM building errors."""
+    """
+    Custom exception for HMM building errors."""
 
     pass
 
 
 class BlastHit:
-    """Container for BLAST hit information."""
+    """
+    Container for BLAST hit information."""
 
     def __init__(
         self,
@@ -93,7 +96,8 @@ class BlastHit:
 
 
 def check_dependencies() -> List[str]:
-    """Check if required external tools are available."""
+    """
+    Check if required external tools are available."""
     required_tools = ['blastn', 'makeblastdb', 'mafft']
     missing = []
 
@@ -105,7 +109,8 @@ def check_dependencies() -> List[str]:
 
 
 def parse_blast_output(blast_file: Path) -> List[BlastHit]:
-    """Parse BLAST tabular output into BlastHit objects.
+    """
+    Parse BLAST tabular output into BlastHit objects.
 
     Expected format: qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid
     """
@@ -159,7 +164,8 @@ def compare_seeds(
     min_identity: float = 50.0,
     num_threads: int = 1,  # Add threading parameter
 ) -> List[Tuple[BlastHit, object]]:
-    """Compare left and right seeds using BLAST to identify similarity regions.
+    """
+    Compare left and right seeds using BLAST to identify similarity regions.
 
     Args:
         left_seed: Path to left seed FASTA file
@@ -312,7 +318,8 @@ def compare_seeds(
 
 
 def create_blast_database(genome_file: Path, db_dir: Path) -> Path:
-    """Create BLAST nucleotide database from genome file using makeblastdb."""
+    """
+    Create BLAST nucleotide database from genome file using makeblastdb."""
     db_name = db_dir / f'{genome_file.stem}_db'
 
     cmd = [
@@ -348,7 +355,8 @@ def blast_seed_against_genome(
     identity_threshold: float = 60.0,
     num_threads: int = 1,  # Add threading parameter
 ) -> List[BlastHit]:
-    """BLAST seed sequence against genome database using blastn with threading support."""
+    """
+    BLAST seed sequence against genome database using blastn with threading support."""
     cmd = [
         'blastn',
         '-query',
@@ -392,7 +400,8 @@ def blast_seed_against_genome(
 
 
 def add_blast_header(blast_file: Path) -> None:
-    """Add header to BLAST output file."""
+    """
+    Add header to BLAST output file."""
     # Read existing content
     with open(blast_file, 'r') as f:
         content = f.read()
@@ -409,7 +418,8 @@ def add_blast_header(blast_file: Path) -> None:
 def resolve_overlapping_hits(
     hits: List[BlastHit], max_overlap: int = 50
 ) -> List[BlastHit]:
-    """Resolve overlapping hits using RepeatMasker-like logic.
+    """
+    Resolve overlapping hits using RepeatMasker-like logic.
     Prioritize by: 1) length, 2) identity, 3) query coverage.
     """
     if not hits:
@@ -472,7 +482,8 @@ def resolve_overlapping_hits(
 def filter_hits_by_thresholds(
     hits: List[BlastHit], min_coverage: float, min_identity: float
 ) -> List[BlastHit]:
-    """Filter hits by coverage and identity thresholds."""
+    """
+    Filter hits by coverage and identity thresholds."""
     filtered = []
 
     for hit in hits:
@@ -503,7 +514,8 @@ def filter_hits_by_thresholds(
 def chain_fragmented_hits(
     hits: List[BlastHit], max_gap: int = 500
 ) -> List[List[BlastHit]]:
-    """Chain hits that may represent fragments of the same element.
+    """
+    Chain hits that may represent fragments of the same element.
     Returns list of hit chains (each chain is a list of hits).
     """
     if not hits:
@@ -552,7 +564,8 @@ def chain_fragmented_hits(
 def extract_sequences_from_chains(
     chains: List[List[BlastHit]], genome_index, model_name: str
 ) -> List[SeqRecord]:
-    """Extract sequences from hit chains, concatenating fragments where needed."""
+    """
+    Extract sequences from hit chains, concatenating fragments where needed."""
     sequences = []
 
     for chain_idx, chain in enumerate(chains):
@@ -641,7 +654,8 @@ def extract_sequences_from_chains(
 def extract_flanked_sequences_from_chains(
     chains: List[List[BlastHit]], genome_index, model_name: str, flank_size: int
 ) -> List[SeqRecord]:
-    """Extract sequences from hit chains with flanking sequence.
+    """
+    Extract sequences from hit chains with flanking sequence.
     For chained hits, only add flanks to the beginning of the first segment and end of the last segment.
     """
     sequences = []
@@ -763,13 +777,15 @@ def extract_flanked_sequences_from_chains(
 
 
 def deduplicate_sequences(sequences: List[SeqRecord]) -> List[SeqRecord]:
-    """Remove identical sequences, keeping the first occurrence. Prioritize seed sequences over extracted sequences."""
+    """
+    Remove identical sequences, keeping the first occurrence. Prioritize seed sequences over extracted sequences."""
     seen_sequences = set()
     unique_sequences = []
 
     # Sort sequences to prioritize seeds (seed sequences typically don't have genomic coordinates in their IDs)
     def is_seed_sequence(seq_record):
-        """Check if sequence is likely a seed sequence (no genomic coordinates)."""
+        """
+        Check if sequence is likely a seed sequence (no genomic coordinates)."""
         seq_id = seq_record.id.lower()
         # Seed sequences typically don't have chromosome coordinates or chain info
         return not any(
@@ -807,7 +823,8 @@ def deduplicate_sequences(sequences: List[SeqRecord]) -> List[SeqRecord]:
 def run_mafft_alignment(
     sequences: List[SeqRecord], output_file: Path, threads: int = 1
 ) -> Path:
-    """Run MAFFT multiple sequence alignment with default parameters."""
+    """
+    Run MAFFT multiple sequence alignment with default parameters."""
     if len(sequences) < 2:
         raise HMMBuildError('Need at least 2 sequences for alignment')
 
@@ -859,7 +876,8 @@ def run_mafft_alignment(
 
 
 def calculate_pairwise_identity(alignment_file: Path) -> pd.DataFrame:
-    """Calculate pairwise identity matrix from alignment."""
+    """
+    Calculate pairwise identity matrix from alignment."""
     try:
         # Use SeqIO.parse instead of Align.read to get SeqRecord objects
         alignment_records = list(SeqIO.parse(alignment_file, 'fasta'))
@@ -901,7 +919,8 @@ def calculate_pairwise_identity(alignment_file: Path) -> pd.DataFrame:
 def build_hmm_from_alignment(
     alignment_file: Path, model_name: str, output_dir: Path
 ) -> Path:
-    """Build HMM from multiple sequence alignment."""
+    """
+    Build HMM from multiple sequence alignment."""
     clean_model_name = cleanID(model_name)
 
     try:
@@ -925,7 +944,8 @@ def build_hmm_from_alignment(
 
 
 def clean_hmm_name(name: str) -> str:
-    """Clean model name for HMM compatibility with strict validation.
+    """
+    Clean model name for HMM compatibility with strict validation.
 
     Args:
         name: Raw model name
@@ -970,7 +990,8 @@ def clean_hmm_name(name: str) -> str:
 def build_hmm_from_alignment_pyhmmer(
     alignment_file: Path, model_name: str, output_dir: Path
 ) -> Path:
-    """Build HMM from multiple sequence alignment using pyhmmer."""
+    """
+    Build HMM from multiple sequence alignment using pyhmmer."""
     # Clean the model name with stricter rules
     clean_model_name = clean_hmm_name(model_name)
     output_hmm = output_dir / f'{clean_model_name}.hmm'
@@ -1124,7 +1145,8 @@ def build_hmm_from_alignment_pyhmmer(
 
 
 def save_all_blast_hits(all_hits: List[BlastHit], output_file: Path) -> None:
-    """Save all BLAST hits in tab-delimited format 6."""
+    """
+    Save all BLAST hits in tab-delimited format 6."""
     with open(output_file, 'w') as f:
         # Write header
         f.write('# BLAST tabular output format 6\n')
@@ -1156,7 +1178,8 @@ def process_seed_sequences(
     flank_size: Optional[int] = None,
     threads: int = 1,
 ) -> Tuple[Path, Path, Optional[Path], Optional[Path]]:
-    """Process a seed file against genomes to build HMM.
+    """
+    Process a seed file against genomes to build HMM.
 
     Returns:
         Tuple of (hmm_file, alignment_file, blast_hits_file, flanked_alignment_file)
@@ -1312,7 +1335,8 @@ def process_asymmetric_seeds(
     flank_size: Optional[int] = None,
     threads: int = 1,  # Add threads parameter
 ) -> Tuple[Path, Path, Path, Path]:
-    """Process asymmetric left and right seeds together to avoid filtering conflicts.
+    """
+    Process asymmetric left and right seeds together to avoid filtering conflicts.
 
     Returns:
         Tuple of (left_hmm_file, right_hmm_file, left_alignment_file, right_alignment_file)
@@ -1562,7 +1586,8 @@ def process_asymmetric_seeds(
 def resolve_asymmetric_conflicts(
     left_hits: List[BlastHit], right_hits: List[BlastHit], max_gap: int
 ) -> Tuple[List[BlastHit], List[BlastHit]]:
-    """Resolve conflicts between left and right seed hits.
+    """
+    Resolve conflicts between left and right seed hits.
     Prioritize longer, higher-identity hits.
     """
     # Group hits by chromosome
@@ -1646,7 +1671,8 @@ def resolve_asymmetric_conflicts(
 
 
 def hits_overlap(hit1: BlastHit, hit2: BlastHit, min_overlap: int = 50) -> bool:
-    """Check if two hits overlap significantly."""
+    """
+    Check if two hits overlap significantly."""
     if hit1.subject_id != hit2.subject_id:
         return False
 
@@ -1667,7 +1693,8 @@ def hits_overlap(hit1: BlastHit, hit2: BlastHit, min_overlap: int = 50) -> bool:
 
 
 def validate_coverage(value):
-    """Custom type validator for coverage."""
+    """
+    Custom type validator for coverage."""
     try:
         fval = float(value)
         if not (0.0 <= fval <= 1.0):
@@ -1682,7 +1709,8 @@ def validate_coverage(value):
 
 
 def validate_identity(value):
-    """Custom type validator for identity."""
+    """
+    Custom type validator for identity."""
     try:
         fval = float(value)
         if not (0.0 <= fval <= 100.0):
@@ -1697,7 +1725,8 @@ def validate_identity(value):
 
 
 def validate_threads(value):
-    """Custom type validator for threads."""
+    """
+    Custom type validator for threads."""
     try:
         ival = int(value)
         if ival < 1:
@@ -1710,7 +1739,8 @@ def validate_threads(value):
 
 
 def add_seed_parser(subparsers):
-    """Add seed subcommand parser."""
+    """
+    Add seed subcommand parser."""
     parser = subparsers.add_parser(
         'seed',
         help='Build HMM models from seed sequences',
@@ -1801,7 +1831,8 @@ def add_seed_parser(subparsers):
 
 
 def main(args=None):
-    """Main function for HMM building workflow."""
+    """
+    Main function for HMM building workflow."""
     # Check available CPU threads
     max_threads = os.cpu_count() or 1
     if args.threads > max_threads:

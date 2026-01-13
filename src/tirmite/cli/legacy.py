@@ -2,13 +2,13 @@ import argparse
 import glob
 import logging
 import os
-from pathlib import Path
 import shutil
 import sys
+from pathlib import Path
 
+import tirmite.tirmitetools as tirmite
 from tirmite._version import __version__
 from tirmite.runners.hmmer_wrappers import process_hmmer_workflow
-import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
@@ -18,7 +18,9 @@ from tirmite.utils.utils import (
 
 
 def mainArgs():
-    """Parse command line arguments."""
+    """
+    Parse command line arguments.
+    """
     parser = argparse.ArgumentParser(
         description='Map HMM models of transposon termini to genomic sequences for annotation \
         of variable non-autonomous and complete transposons.',
@@ -236,7 +238,8 @@ def missing_tool(tool_name):
 
 
 def validate_pairbed_compatibility(hitTable, config, args):
-    """Validate that BED file contents are compatible with pairing configuration.
+    """
+    Validate that BED file contents are compatible with pairing configuration.
 
     Args:
         hitTable: DataFrame of hits from BED file
@@ -339,7 +342,8 @@ def validate_pairbed_compatibility(hitTable, config, args):
 
 # Extract model names from file paths for validation
 def extract_model_name_from_path(model_path):
-    """Extract model name from HMM file path by reading the HMM file."""
+    """
+    Extract model name from HMM file path by reading the HMM file."""
     if not model_path:
         return None
 
@@ -356,7 +360,8 @@ def extract_model_name_from_path(model_path):
 
 
 def add_legacy_parser(subparsers):
-    """Add legacy subcommand parser."""
+    """
+    Add legacy subcommand parser."""
     parser = subparsers.add_parser(
         'legacy',
         help='Original TIRmite workflow (HMM search + pairing)',
@@ -567,7 +572,8 @@ def add_legacy_parser(subparsers):
 
 
 def main(args=None):
-    """Do the work."""
+    """
+    Do the work."""
     # Get cmd line args
     if args is None:
         args = mainArgs()

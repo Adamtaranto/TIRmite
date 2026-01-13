@@ -1,12 +1,12 @@
-from collections import Counter
-from contextlib import contextmanager
 import logging
 import os
-from pathlib import Path
 import re
 import shutil
 import sys
 import tempfile
+from collections import Counter
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Optional, Tuple, Union
 
 from Bio import SeqIO
@@ -20,7 +20,8 @@ def temporary_directory(
     base_dir: Optional[Union[str, Path]] = None,
     cleanup: bool = True,
 ):
-    """Context manager for creating and managing temporary directories.
+    """
+    Context manager for creating and managing temporary directories.
 
     Parameters
     ----------
@@ -76,7 +77,8 @@ def temporary_directory(
 
 
 def create_output_directory(output_path: Optional[Union[str, Path]] = None) -> Path:
-    """Create output directory with proper error handling.
+    """
+    Create output directory with proper error handling.
 
     Parameters
     ----------
@@ -116,7 +118,8 @@ def create_output_directory(output_path: Optional[Union[str, Path]] = None) -> P
 
 
 def validate_input_files(args) -> None:
-    """Validate that all required input files exist and are readable.
+    """
+    Validate that all required input files exist and are readable.
 
     Parameters
     ----------
@@ -171,7 +174,8 @@ def validate_input_files(args) -> None:
 
 
 def setup_directories(args) -> Tuple[Path, Path]:
-    """Set up output and temporary directories with proper error handling.
+    """
+    Set up output and temporary directories with proper error handling.
 
     Parameters
     ----------
@@ -238,7 +242,8 @@ def setup_directories(args) -> Tuple[Path, Path]:
 
 
 def cleanup_temp_directory(temp_dir: Union[str, Path], keep_temp: bool = False) -> None:
-    """Safely clean up temporary directory.
+    """
+    Safely clean up temporary directory.
 
     Parameters
     ----------
@@ -270,7 +275,8 @@ def cleanup_temp_directory(temp_dir: Union[str, Path], keep_temp: bool = False) 
 
 # Legacy function for backwards compatibility
 def dochecks(args):
-    """DEPRECATED: Use setup_directories() instead.
+    """
+    DEPRECATED: Use setup_directories() instead.
     Legacy function maintained for backwards compatibility.
     """
     import warnings
@@ -285,7 +291,9 @@ def dochecks(args):
 
 
 def isfile(path):
-    """DEPRECATED: Use validate_input_files() instead."""
+    """
+    DEPRECATED: Use validate_input_files() instead.
+    """
     import warnings
 
     warnings.warn(
@@ -300,7 +308,8 @@ def isfile(path):
 
 
 def cleanID(s):
-    """Remove non alphanumeric characters from string.
+    """
+    Remove non alphanumeric characters from string.
     Replace whitespace with underscores.
     """
     s = re.sub(r'[^\w\s]', '', s)
@@ -309,7 +318,8 @@ def cleanID(s):
 
 
 def manageTemp(record=None, tempPath=None, scrub=False):
-    """Create single sequence fasta files or scrub temp files.
+    """
+    Create single sequence fasta files or scrub temp files.
 
     Note: Consider using temporary_directory() context manager instead.
     """
@@ -324,7 +334,8 @@ def manageTemp(record=None, tempPath=None, scrub=False):
 
 
 def checkUniqueID(records):
-    """Check that IDs for input elements are unique."""
+    """
+    Check that IDs for input elements are unique."""
     seqIDs = [records[x].id for x in range(len(records))]
     IDcounts = Counter(seqIDs)
     duplicates = [k for k, v in IDcounts.items() if v > 1]
@@ -337,7 +348,8 @@ def checkUniqueID(records):
 
 
 def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
-    """Index genome using pyfaidx and extract sequence descriptions.
+    """
+    Index genome using pyfaidx and extract sequence descriptions.
 
     Returns:
         Tuple of (genome_index, descriptions_dict)
@@ -361,7 +373,8 @@ def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
 
 
 def extract_genome_descriptions(genome_path: Union[str, Path]) -> dict:
-    """Extract sequence descriptions from genome FASTA file.
+    """
+    Extract sequence descriptions from genome FASTA file.
 
     Args:
         genome_path: Path to genome FASTA file

@@ -1,14 +1,15 @@
 import logging
-from pathlib import Path
 import re
 import shutil
+from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 from tirmite.runners.wrapping import run_commands_sequential
 
 
 def cleanID(sequence_id: str) -> str:
-    """Remove non-alphanumeric characters from string and replace whitespace with underscores.
+    """
+    Remove non-alphanumeric characters from string and replace whitespace with underscores.
 
     Parameters
     ----------
@@ -40,7 +41,8 @@ def build_hmmbuild_command(
     executable_path: str = 'hmmbuild',
     cores: Optional[int] = None,
 ) -> Tuple[List[str], Path]:
-    """Construct hmmbuild command for creating HMM from multiple sequence alignment.
+    """
+    Construct hmmbuild command for creating HMM from multiple sequence alignment.
 
     Parameters
     ----------
@@ -107,7 +109,8 @@ def build_hmmpress_command(
     hmm_file: Union[str, Path],
     executable_path: str = 'hmmpress',
 ) -> List[str]:
-    """Construct hmmpress command for indexing HMM database.
+    """
+    Construct hmmpress command for indexing HMM database.
 
     Parameters
     ----------
@@ -153,7 +156,8 @@ def build_nhmmer_command(
     nobias: bool = False,
     matrix_file: Optional[Union[str, Path]] = None,
 ) -> Tuple[List[str], Path]:
-    """Construct nhmmer command for searching HMM against genome sequence.
+    """
+    Construct nhmmer command for searching HMM against genome sequence.
 
     Parameters
     ----------
@@ -249,7 +253,8 @@ def process_hmmer_workflow(
     search_params: Optional[dict] = None,
     verbose: bool = False,
 ) -> Tuple[Path, Path]:
-    """Execute complete HMMER workflow: build models, press databases, and search genome.
+    """
+    Execute complete HMMER workflow: build models, press databases, and search genome.
 
     Parameters
     ----------

@@ -23,7 +23,8 @@ from typing import List, Optional, Union
 
 class CommandError(Exception):
     """
-    Custom exception for command execution errors."""
+    Custom exception for command execution errors.
+"""
 
     def __init__(self, message: str, cmd: str, returncode: int, output: str = ''):
         self.message = message
@@ -46,7 +47,6 @@ def cleanID(s: str) -> str:
     -------
     str
         Cleaned string with only alphanumeric characters and underscores.
-
     """
     s = re.sub(r'[^\w\s]', '', s)
     s = re.sub(r'\s+', '_', s)
@@ -89,7 +89,6 @@ def run_command(
     Notes
     -----
     Prefer shell=False for security. Use list form of cmd when possible.
-
     """
     if verbose:
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(cmd)
@@ -176,7 +175,6 @@ def run_commands_sequential(
     ------
     CommandError
         If any command fails and stop_on_error is True.
-
     """
     results = []
 
@@ -243,7 +241,6 @@ def run_cmd_in_tempdir(
     Modern replacement for legacy run_cmd() function.
     Always returns to original directory even if commands fail.
     Temporary directory named with 'tirmite_tmp_' prefix.
-
     """
     if tempDir is None:
         tempDir = os.getcwd()
@@ -315,7 +312,6 @@ def write_script_file(
     Adds shebang and error handling directives:
     - #!/bin/{shell}
     - set -euo pipefail (exit on error, undefined vars, pipe failures)
-
     """
     script_path = Path(script_path)
 
@@ -371,7 +367,6 @@ def run_script_file(
     Notes
     -----
     Automatically sets execute permissions (chmod 755) before running.
-
     """
     script_path = Path(script_path)
 
@@ -471,4 +466,6 @@ def decode(x):
 
 # Keep original Error class for backwards compatibility
 class Error(Exception):
+    """Legacy exception class for backwards compatibility."""
+
     pass

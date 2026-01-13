@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-TIRmite command-line interface with subcommands."""
+TIRmite command-line interface with subcommands.
+"""
 
 import argparse
 import sys
@@ -23,7 +24,6 @@ def create_parser():
     - legacy: Original TIRmite workflow (HMM search + pairing)
     - seed: Build HMM models from seed sequences
     - pair: Pair precomputed nhmmer hits
-
     """
     parser = argparse.ArgumentParser(
         prog='tirmite',
@@ -74,7 +74,6 @@ def main():
     -----
     Parses command-line arguments and dispatches to appropriate subcommand handler.
     Prints help message if run without arguments.
-
     """
     parser = create_parser()
 

@@ -45,7 +45,6 @@ def get_hmm_model_length(hmm_file_path):
     -----
     Parses HMM file format looking for NAME and LENG lines.
     Handles multi-model HMM files, extracting length for each named model.
-
     """
     model_lengths = {}
 
@@ -76,7 +75,7 @@ def load_model_lengths_file(lengths_file):
     Parameters
     ----------
     lengths_file : str or Path
-        Path to tab-delimited file with format: model_name<TAB>model_length
+        Path to tab-delimited file with format: model_name<TAB>model_length.
 
     Returns
     -------
@@ -87,7 +86,6 @@ def load_model_lengths_file(lengths_file):
     -----
     Skips comment lines (starting with #) and blank lines.
     Logs warnings for malformed lines but continues parsing.
-
     """
     model_lengths = {}
 
@@ -130,7 +128,6 @@ def calculate_hit_coverage(hitTable, model_lengths):
 
     Returns:
         DataFrame with coverage column added
-
     """
     hitTable = hitTable.copy()
     coverage_values = []
@@ -162,14 +159,14 @@ def filter_hits_coverage(hitTable, mincov):
 
     Returns:
         Filtered DataFrame
-
     """
     return hitTable[hitTable['coverage'] >= mincov]
 
 
 def extract_model_name_from_path(model_path):
     """
-    Extract model name from HMM file path by reading the HMM file."""
+    Extract model name from HMM file path by reading the HMM file.
+"""
     if not model_path:
         return None
 
@@ -187,7 +184,8 @@ def extract_model_name_from_path(model_path):
 
 def add_pair_parser(subparsers):
     """
-    Add pair subcommand parser."""
+    Add pair subcommand parser.
+"""
     parser = subparsers.add_parser(
         'pair',
         help='Pair precomputed nhmmer hits',
@@ -365,7 +363,8 @@ def add_pair_parser(subparsers):
 
 def validate_arguments(args):
     """
-    Validate argument combinations and file existence."""
+    Validate argument combinations and file existence.
+"""
     # Check asymmetric pairing requirements
     if args.leftNhmmer and not args.rightNhmmer:
         raise ValueError('--leftNhmmer requires --rightNhmmer')
@@ -408,7 +407,8 @@ def validate_arguments(args):
 
 def main(args=None):
     """
-    Main entry point for tirmite-pair."""
+    Main entry point for tirmite-pair.
+"""
     try:
         # Validate arguments
         try:

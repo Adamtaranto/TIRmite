@@ -36,7 +36,6 @@ def check_blast_available() -> bool:
     Notes
     -----
     Tests blastn availability by running 'blastn -version' with a 10-second timeout.
-
     """
     try:
         result = subprocess.run(
@@ -97,7 +96,6 @@ def run_blastn(
     Notes
     -----
     Uses 5-minute timeout for BLAST execution. Creates output directory if needed.
-
     """
     # Validate inputs
     query_path = Path(query)
@@ -212,7 +210,6 @@ def run_self_blast(
     -----
     Convenience wrapper for run_blastn() with query and subject set to same file.
     Commonly used for TIR identification through self-complementarity detection.
-
     """
     return run_blastn(
         query=sequence_file,
@@ -257,7 +254,6 @@ def run_blast_batch(
     Output files named {input_stem}_blast.tab in output_dir.
     Failed BLAST runs are logged but don't stop batch processing.
     For parallel execution (max_workers > 1), uses ThreadPoolExecutor.
-
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -377,6 +373,8 @@ def run_blast(cmds, verbose=False):
 
 # Keep original Error class for backwards compatibility
 class Error(Exception):
+    """Legacy exception class for backwards compatibility."""
+
     pass
 
 

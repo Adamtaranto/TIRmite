@@ -52,7 +52,6 @@ def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
     -----
     Creates a 'temp_aln' subdirectory in tempDir (or cwd) to store output files.
     Each alignment file is converted and saved with a .stockholm extension.
-
     """
     # Construct out model path
     if tempDir:
@@ -110,7 +109,6 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
     -----
     Handles strand orientation: for reverse strand hits (-), hitStart and
     hitEnd are swapped to ensure hitStart < hitEnd in genomic coordinates.
-
     """
     hitRecords = []
     with open(infile, 'r') as f:
@@ -205,7 +203,6 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     Expected BED format: chromosome, start, end, name, evalue, strand.
     Since BED format lacks HMM alignment coordinates, hmmStart and hmmEnd
     are set to 'NA'.
-
     """
     # Format: Chrm, start, end, name, evalue, strand
     hitRecords = []
@@ -282,7 +279,6 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
     -----
     Extracts model lengths from HMM files by parsing LENG and NAME fields.
     For each model, calculates minimum acceptable hit length as model_length * mincov.
-
     """
     modelLens = {}
     for hmm in glob.glob(os.path.join(hmmDB, '*.hmm')):
@@ -328,7 +324,6 @@ def filterHitsEval(maxeval=None, hitTable=None):
     -------
     pandas.DataFrame
         Filtered DataFrame containing only hits with e-value < maxeval.
-
     """
     hitTable = hitTable.loc[((hitTable['evalue'].astype(float)) < float(maxeval))]
     return hitTable
@@ -358,7 +353,6 @@ def table2dict(hitTable):
     -----
     Creates namedtuple 'Elem' with fields: model, target, hitStart, hitEnd, strand,
     idx (DataFrame row index), evalue. The idx field links back to the original DataFrame.
-
     """
     # Set up empty dict
     hitsDict = {}
@@ -420,7 +414,6 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
     For forward strand (+) hits, searches for downstream reverse strand (-) partners.
     For reverse strand (-) hits, searches for upstream forward strand (+) partners.
     Candidates are sorted by proximity to the reference hit.
-
     """
     if not maxDist:
         maxDist = float('inf')
@@ -487,7 +480,6 @@ def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
     -----
     Searches mate's candidate list for ref. If ref is mate's first unpaired
     candidate, they form a reciprocal pair and are marked as partners.
-
     """
     # Init result trackers
     found = None
@@ -552,7 +544,6 @@ def getPairs(hitIndex=None, paired=None):
     2. Second-degree: If not, check if B's best match C is reciprocal with B.
     This allows pairing in cases where direct reciprocity is blocked by
     competing candidates.
-
     """
     # If pair tracker not given
     if not paired:
@@ -604,7 +595,6 @@ def countUnpaired(hitIndex):
     -------
     int
         Total count of hits without assigned partners.
-
     """
     count = 0
     for model in hitIndex.keys():
@@ -627,7 +617,6 @@ def listunpaired(hitIndex):
     -------
     list of int
         List of DataFrame indices for all hits without assigned partners.
-
     """
     unpaired = []
     for model in hitIndex.keys():
@@ -663,7 +652,6 @@ def iterateGetPairs(hitIndex, stableReps=0):
     Iterates pairing until either all hits are paired or the unpaired count
     remains stable for 'stableReps' consecutive iterations. This allows
     pairing to progress through complex candidate competition scenarios.
-
     """
     # Init stable repeat counter
     reps = 0
@@ -729,7 +717,6 @@ def extractTIRs(
     Reverse complement is applied for hits on the negative strand.
     Padded flanking sequence is shown in lowercase letters.
     Uses 0-based indexing for pyfaidx extraction.
-
     """
     hitcount = 0
     seqList = []
@@ -831,7 +818,6 @@ def writeTIRs(
     -----
     Creates one FASTA file per model with filename format:
     {prefix}{model}_hits_{count}.fasta
-
     """
     if prefix:
         prefix = cleanID(prefix) + '_'
@@ -882,7 +868,6 @@ def flipTIRs(x, y):
     -------
     tuple
         (left_hit, right_hit) ordered by genomic coordinates (hitStart, then hitEnd).
-
     """
     left2right = sorted([x, y], key=attrgetter('hitStart', 'hitEnd'))
     return (left2right[0], left2right[1])
@@ -916,14 +901,14 @@ def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=N
     Extracts sequence from leftHit.hitStart to rightHit.hitEnd.
     Handles both symmetric (same model) and asymmetric (different models) pairing.
     Element IDs have format: Element_{counter}.
-
     """
     # Check if hitIndex is nested or flat
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
 
     def get_hit_record(hit_id):
         """
-        Helper function to get hit record from either nested or flat hitIndex."""
+        Helper function to get hit record from either nested or flat hitIndex.
+"""
         if is_nested:
             # Search through all models to find the hit
             for _model_name, model_hits in hitIndex.items():
@@ -1043,7 +1028,6 @@ def writeElements(outDir, eleDict=None, prefix=None):
     -----
     Only creates files for models that have at least one element.
     Output filename format: {prefix}{model}_elements.fasta
-
     """
     if prefix:
         prefix = cleanID(prefix) + '_'
@@ -1099,7 +1083,6 @@ def writePairedTIRs(
     Right TIRs are reverse complemented. Outputs two sequences per pair:
     {model}_{counter}_L (left TIR) and {model}_{counter}_R (right TIR).
     Filename format: {prefix}{model}_paired_term_hits_{count}.fasta
-
     """
     if prefix:
         prefix = cleanID(prefix) + '_'
@@ -1111,7 +1094,8 @@ def writePairedTIRs(
 
     def get_hit_record(hit_id):
         """
-        Helper function to get hit record from either nested or flat hitIndex."""
+        Helper function to get hit record from either nested or flat hitIndex.
+"""
         if is_nested:
             # Search through all models to find the hit
             for _model_name, model_hits in hitIndex.items():
@@ -1271,7 +1255,6 @@ def fetchUnpaired(hitIndex=None):
     -----
     Unpaired hits are marked with type 'orphan_term' to distinguish them from
     paired terminal repeats in GFF3 output.
-
     """
     orphans = []
     gffTup = namedtuple(
@@ -1348,7 +1331,6 @@ def gffWrite(
     Output includes element features with optional child TIR features.
     Elements have type 'Element', paired TIRs 'paired_term', orphans 'orphan_term'.
     Features are sorted by model, chromosome, start, end.
-
     """
     if featureList is None:
         featureList = []
@@ -1531,7 +1513,6 @@ class PairingConfig:
     -------
     get_model_pairs()
         Returns list of (left_model, right_model) tuples for pairing analysis.
-
     """
 
     def __init__(
@@ -1546,7 +1527,6 @@ class PairingConfig:
             left_model: Model name for left terminus (None for symmetric)
             right_model: Model name for right terminus (None for symmetric)
             single_model: Model name when using same model for both ends
-
         """
         self.orientation = orientation.split(',')
         self.left_strand = '+' if self.orientation[0] == 'F' else '-'
@@ -1567,7 +1547,6 @@ class PairingConfig:
             List containing (left_model, right_model) tuples.
             For symmetric pairing, returns [(model, model)].
             For asymmetric pairing, returns [(left_model, right_model)].
-
         """
         if self.is_asymmetric:
             return [(self.left_model, self.right_model)]
@@ -1602,7 +1581,6 @@ def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
     For each orientation configuration, searches for valid partners on correct strands
     within the specified distance constraint. Supports all strand combinations:
     F,R (canonical), R,F, F,F, and R,R orientations.
-
     """
     logging.debug('=== ENTERING parseHitsGeneral ===')
     logging.debug(
@@ -1820,12 +1798,12 @@ def _check_distance(ref_hit, candidate, direction, maxDist):
     Handles strand-aware distance calculation. For negative strand hits, coordinates
     are inverted in nhmmer output (hitStart > hitEnd). Calculates biological distance
     from terminus 3' end to partner 5' end based on strand orientations.
-
     """
 
     def get_terminus_position(hit):
         """
-        Get the relevant terminus position based on strand and biological direction."""
+        Get the relevant terminus position based on strand and biological direction.
+"""
         if hit.strand == '+':
             # Positive strand: hitStart < hitEnd
             # For left terminus: use 3' end (hitEnd)
@@ -1958,7 +1936,6 @@ def _find_candidates(
     -----
     Candidates are sorted by calculated biological distance with closest partners first.
     Only hits on target chromosome matching target_strand and within maxDist are added.
-
     """
     import logging
 
@@ -2007,7 +1984,8 @@ def _find_candidates(
     # This ensures closest valid partners are prioritized
     def get_distance_for_sorting(ref, cand, direction):
         """
-        Calculate distance for sorting - matches _check_distance logic."""
+        Calculate distance for sorting - matches _check_distance logic.
+"""
 
         def get_terminus_position(hit):
             if hit.strand == '+':
@@ -2064,7 +2042,6 @@ def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
     Pairs hits from different HMM models representing left and right termini.
     Handles multiple strand combinations for each orientation configuration.
     Iterates until convergence or stable iteration limit reached.
-
     """
     import logging
 
@@ -2145,7 +2122,6 @@ def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
     -----
     Checks reciprocal best-match relationship between left and right model hits.
     Only pairs hits that are each other's closest valid unpaired partners.
-
     """
     import logging
 
@@ -2240,7 +2216,6 @@ def checkAsymmetricReciprocity(
     -----
     Asymmetric reciprocity requires left hit to be the first valid unpaired
     candidate in right hit's candidate list, accounting for strand compatibility.
-
     """
     import logging
 
@@ -2297,7 +2272,6 @@ def iterateGetPairsCustom(hitIndex, config, stableReps=0):
     -----
     Handles non-standard orientations (F,F or R,R) for symmetric model pairing.
     Useful for elements with non-canonical TIR orientations or inverted structures.
-
     """
     import logging
 
@@ -2380,7 +2354,6 @@ def getPairsSymmetric(hitIndex=None, model_name=None, config=None, paired=None):
     Pairs hits from the same HMM model that meet orientation requirements.
     Each hit must have complementary role (left or right) based on strand
     to form a valid symmetric pair.
-
     """
     import logging
 
@@ -2484,7 +2457,6 @@ def checkSymmetricReciprocity(model_name, ref_id, candidate_id, hitIndex, config
     -----
     Verifies ref_id appears as first valid unpaired candidate in candidate_id's
     candidate list, with both hits having complementary strand roles.
-
     """
     import logging
 
@@ -2536,7 +2508,6 @@ def countUnpairedAsymmetric(hitIndex, config):
     -------
     int
         Total number of unpaired hits across both models.
-
     """
     count = 0
     for model in [config.left_model, config.right_model]:
@@ -2562,7 +2533,6 @@ def listunpairedAsymmetric(hitIndex, config):
     -------
     list of int
         List of hit indices without assigned partners from both models.
-
     """
     unpaired = []
     for model in [config.left_model, config.right_model]:
@@ -2597,7 +2567,6 @@ def countUnpairedSymmetric(hitIndex, model_name, config):
     -----
     Only counts hits whose strand matches either left_strand or right_strand
     in the configuration, as other hits cannot participate in pairing.
-
     """
     if model_name not in hitIndex:
         return 0
@@ -2634,7 +2603,6 @@ def listunpairedSymmetric(hitIndex, model_name, config):
     -----
     Only includes hits whose strand can participate in pairing based on
     left_strand and right_strand in configuration.
-
     """
     if model_name not in hitIndex:
         return []

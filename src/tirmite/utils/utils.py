@@ -56,7 +56,6 @@ def temporary_directory(
     ...     # Use temp_dir for operations
     ...     pass
     # Directory is automatically cleaned up
-
     """
     temp_dir = None
     temp_path = None
@@ -105,7 +104,6 @@ def create_output_directory(output_path: Optional[Union[str, Path]] = None) -> P
     ------
     OSError
         If directory creation fails or path is not writable.
-
     """
     if output_path:
         out_path = Path(output_path).resolve()
@@ -141,7 +139,6 @@ def validate_input_files(args) -> None:
     ------
     FileNotFoundError
         If any required input file doesn't exist or isn't readable.
-
     """
     required_files = []
     optional_files = []
@@ -205,7 +202,6 @@ def setup_directories(args) -> Tuple[Path, Path]:
         If directory creation fails.
     FileNotFoundError
         If input files don't exist.
-
     """
     # Validate input files first
     validate_input_files(args)
@@ -262,7 +258,6 @@ def cleanup_temp_directory(temp_dir: Union[str, Path], keep_temp: bool = False) 
         Path to temporary directory to clean up.
     keep_temp : bool, default False
         If True, skip cleanup and log directory location.
-
     """
     temp_path = Path(temp_dir)
 
@@ -337,7 +332,6 @@ def cleanID(s):
     --------
     >>> cleanID("My-Model Name_v1!")
     'My_Model_Name_v1'
-
     """
     s = re.sub(r'[^\w\s]', '', s)
     s = re.sub(r'\s+', '_', s)
@@ -360,12 +354,12 @@ def manageTemp(record=None, tempPath=None, scrub=False):
     Returns
     -------
     None
+        No return value.
 
     Notes
     -----
     This is a legacy function. Consider using temporary_directory()
     context manager for more robust temporary file handling.
-
     """
     if scrub and tempPath:
         try:
@@ -389,12 +383,12 @@ def checkUniqueID(records):
     Returns
     -------
     None
+        No return value.
 
     Raises
     ------
     SystemExit
         If duplicate IDs are found, prints duplicate IDs and exits with code 1.
-
     """
     seqIDs = [records[x].id for x in range(len(records))]
     IDcounts = Counter(seqIDs)
@@ -432,7 +426,6 @@ def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
     -----
     Creates a .fai index file alongside the genome FASTA for rapid sequence access.
     Descriptions are parsed from FASTA headers (text after first whitespace).
-
     """
     genome_path = Path(genomePath)
 
@@ -471,7 +464,6 @@ def extract_genome_descriptions(genome_path: Union[str, Path]) -> dict:
     Extracts text following the sequence ID in FASTA headers.
     Header format: >sequence_id description text
     If no description present, maps to empty string.
-
     """
     descriptions = {}
 

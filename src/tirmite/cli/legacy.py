@@ -42,7 +42,6 @@ def mainArgs():
     -----
     Supports multiple input sources: HMM files, HMM directories, alignments,
     or BED files. Includes options for pairing, filtering, and output control.
-
     """
     parser = argparse.ArgumentParser(
         description='Map HMM models of transposon termini to genomic sequences for annotation \
@@ -269,7 +268,6 @@ def missing_tool(tool_name):
     Notes
     -----
     Uses shutil.which() to search PATH for executable.
-
     """
     path = shutil.which(tool_name)
     if path is None:
@@ -301,7 +299,6 @@ def validate_pairbed_compatibility(hitTable, config, args):
     -----
     For asymmetric pairing, checks presence of both left and right models.
     For symmetric pairing, verifies specified model exists in BED file.
-
     """
     logging.info('Validating BED file compatibility with pairing configuration...')
 
@@ -413,7 +410,6 @@ def extract_model_name_from_path(model_path):
     Notes
     -----
     Reads HMM file looking for 'NAME  ' line which specifies model name.
-
     """
     if not model_path:
         return None
@@ -448,7 +444,6 @@ def add_legacy_parser(subparsers):
     -----
     Configures full argument specification for original TIRmite workflow
     including HMM search and pairing with various filtering options.
-
     """
     parser = subparsers.add_parser(
         'legacy',
@@ -661,7 +656,8 @@ def add_legacy_parser(subparsers):
 
 def main(args=None):
     """
-    Do the work."""
+    Do the work.
+"""
     # Get cmd line args
     if args is None:
         args = mainArgs()

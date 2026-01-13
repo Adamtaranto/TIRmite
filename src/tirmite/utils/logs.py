@@ -42,7 +42,6 @@ def init_logging(
         If the provided log level is invalid.
     OSError
         If the log file cannot be created or written to.
-
     """
     # Convert log level string to numeric value
     numeric_level = getattr(logging, loglevel.upper(), None)

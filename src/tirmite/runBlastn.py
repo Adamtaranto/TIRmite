@@ -13,9 +13,12 @@ class Error(Exception):
 
 def decode(x: bytes | str) -> str:
     try:
-        s = x.decode()
+        if isinstance(x, bytes):
+            s = x.decode()
+        else:
+            return x
     except:
-        return x
+        return str(x)
     return s
 
 

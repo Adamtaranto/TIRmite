@@ -24,9 +24,12 @@ def _write_script(cmds: List[str], script: str) -> None:
 
 def decode(x: bytes | str) -> str:
     try:
-        s = x.decode()
+        if isinstance(x, bytes):
+            s = x.decode()
+        else:
+            return x
     except:
-        return x
+        return str(x)
     return s
 
 

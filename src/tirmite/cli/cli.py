@@ -9,7 +9,7 @@ import sys
 from tirmite._version import __version__
 
 
-def create_parser():
+def create_parser() -> argparse.ArgumentParser:
     """
     Create the main argument parser with subcommand structure.
 
@@ -61,7 +61,7 @@ Examples:
     return parser
 
 
-def main():
+def main() -> int:
     """
     Main CLI entry point for TIRmite.
 

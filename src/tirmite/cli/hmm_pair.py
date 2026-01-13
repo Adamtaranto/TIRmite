@@ -12,6 +12,7 @@ Supports both canonical (F,R) and custom strand orientations
 for flexible transposon architecture detection.
 """
 
+import argparse
 import logging
 import os
 from pathlib import Path
@@ -453,7 +454,7 @@ def validate_arguments(args: Any) -> None:
             raise FileNotFoundError(f'Required file not found: {file_path}')
 
 
-def main(args: Optional[Any] = None) -> int:
+def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main entry point for tirmite-pair.
 

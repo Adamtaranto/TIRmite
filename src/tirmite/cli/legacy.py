@@ -30,7 +30,7 @@ from tirmite.utils.utils import (
 )
 
 
-def mainArgs() -> argparse.ArgumentParser:
+def mainArgs() -> argparse.Namespace:
     """
     Parse command-line arguments for legacy TIRmite workflow.
 
@@ -655,7 +655,7 @@ def add_legacy_parser(subparsers: Any) -> None:
     return parser
 
 
-def main(args: Optional[Any] = None) -> int:
+def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main entry point for legacy TIRmite workflow.
 
@@ -672,6 +672,7 @@ def main(args: Optional[Any] = None) -> int:
     # Get cmd line args
     if args is None:
         args = mainArgs()
+    assert args is not None, "Failed to parse arguments"
 
     # TODO: Remove use of verbose option
     # Manually add args.verbose and set to True

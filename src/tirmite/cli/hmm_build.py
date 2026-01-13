@@ -268,7 +268,7 @@ def compare_seeds(
     which may represent inverted repeats or conserved motifs.
     """
     from Bio import SeqIO
-    from Bio.Align import PairwiseAligner
+    from Bio.Align import PairwiseAligner  # type: ignore[import-not-found]
 
     logging.info('Comparing left and right seed sequences...')
 
@@ -1358,7 +1358,7 @@ def build_hmm_from_alignment_pyhmmer(
                 )
 
                 # Manual creation from BioPython records
-                import pyhmmer.easel
+                import pyhmmer.easel  # type: ignore[import-not-found]
 
                 text_sequences = []
                 for i, record in enumerate(alignment_records):
@@ -2289,7 +2289,7 @@ def add_seed_parser(subparsers: Any) -> None:
     return parser
 
 
-def main(args: Optional[Any] = None) -> int:
+def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main function for HMM building workflow.
 

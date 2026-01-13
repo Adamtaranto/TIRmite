@@ -122,6 +122,11 @@ override_SS05 = [ # allow docstrings to start with these words
     '^Access ',
 ]
 
+# Don't process filepaths that match these regex patterns
+exclude_files = [
+    '^_version\\.py$',
+]
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true

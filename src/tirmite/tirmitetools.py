@@ -907,7 +907,28 @@ def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=N
 
     def get_hit_record(hit_id):
         """
-        Helper function to get hit record from either nested or flat hitIndex.
+        Retrieve hit record from either nested or flat hitIndex structure.
+
+        Parameters
+        ----------
+        hit_id : int
+            Index of the hit record to retrieve.
+
+        Returns
+        -------
+        namedtuple
+            Hit record namedtuple with fields: model, target, hitStart, hitEnd,
+            strand, idx, evalue.
+
+        Raises
+        ------
+        KeyError
+            If hit_id is not found in any model within the hitIndex.
+
+        Notes
+        -----
+        Handles both nested (model-keyed) and flat hitIndex structures for
+        backward compatibility.
         """
         if is_nested:
             # Search through all models to find the hit
@@ -1094,7 +1115,28 @@ def writePairedTIRs(
 
     def get_hit_record(hit_id):
         """
-        Helper function to get hit record from either nested or flat hitIndex.
+        Retrieve hit record from either nested or flat hitIndex structure.
+
+        Parameters
+        ----------
+        hit_id : int
+            Index of the hit record to retrieve.
+
+        Returns
+        -------
+        namedtuple
+            Hit record namedtuple with fields: model, target, hitStart, hitEnd,
+            strand, idx, evalue.
+
+        Raises
+        ------
+        KeyError
+            If hit_id is not found in any model within the hitIndex.
+
+        Notes
+        -----
+        Handles both nested (model-keyed) and flat hitIndex structures for
+        backward compatibility.
         """
         if is_nested:
             # Search through all models to find the hit
@@ -1802,7 +1844,24 @@ def _check_distance(ref_hit, candidate, direction, maxDist):
 
     def get_terminus_position(hit):
         """
-        Get the relevant terminus position based on strand and biological direction.
+        Extract terminus positions based on strand orientation and biological direction.
+
+        Parameters
+        ----------
+        hit : namedtuple
+            Hit record with strand, hitStart, and hitEnd attributes.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys: 'start', 'end', '5_prime', '3_prime' containing
+            genomic coordinates adjusted for strand orientation.
+
+        Notes
+        -----
+        For positive strand (+): hitStart < hitEnd, 5' = hitStart, 3' = hitEnd.
+        For negative strand (-): hitStart > hitEnd (flipped), 5' = hitEnd, 3' = hitStart.
+        The 5' and 3' positions represent biological directionality.
         """
         if hit.strand == '+':
             # Positive strand: hitStart < hitEnd
@@ -1984,10 +2043,45 @@ def _find_candidates(
     # This ensures closest valid partners are prioritized
     def get_distance_for_sorting(ref, cand, direction):
         """
-        Calculate distance for sorting - matches _check_distance logic.
+        Calculate biological distance between hits for sorting candidates.
+
+        Parameters
+        ----------
+        ref : namedtuple
+            Reference hit with strand, hitStart, hitEnd attributes.
+        cand : namedtuple
+            Candidate partner hit with strand, hitStart, hitEnd attributes.
+        direction : str
+            Search direction: 'left_to_right' or 'right_to_left'.
+
+        Returns
+        -------
+        int
+            Calculated distance in base pairs from reference to candidate based
+            on terminus positions and biological orientation.
+
+        Notes
+        -----
+        Matches the distance calculation logic in _check_distance function.
+        For left_to_right: distance from left terminus 3' end to right terminus 5' end.
+        For right_to_left: distance from right terminus 5' end to left terminus 3' end.
         """
 
         def get_terminus_position(hit):
+            """
+            Extract 5' and 3' terminus positions accounting for strand orientation.
+
+            Parameters
+            ----------
+            hit : namedtuple
+                Hit record with strand, hitStart, and hitEnd attributes.
+
+            Returns
+            -------
+            dict
+                Dictionary with '5_prime' and '3_prime' keys containing genomic coordinates
+                adjusted for strand directionality.
+            """
             if hit.strand == '+':
                 return {'5_prime': hit.hitStart, '3_prime': hit.hitEnd}
             else:

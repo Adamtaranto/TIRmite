@@ -50,7 +50,43 @@ class HMMBuildError(Exception):
 class BlastHit:
     """
     Container for BLAST hit information.
-"""
+
+    Parameters
+    ----------
+    query_id : str
+        Query sequence identifier.
+    subject_id : str
+        Subject/database sequence identifier.
+    query_start : int
+        Start position in query sequence.
+    query_end : int
+        End position in query sequence.
+    subject_start : int
+        Start position in subject sequence.
+    subject_end : int
+        End position in subject sequence.
+    length : int
+        Length of alignment.
+    identity : float
+        Percent identity of alignment.
+    query_len : int
+        Total length of query sequence.
+    subject_len : int
+        Total length of subject sequence.
+    query_frame : int, default 1
+        Reading frame of query alignment.
+    subject_frame : int, default 1
+        Reading frame of subject alignment.
+
+    Attributes
+    ----------
+    query_coverage : float
+        Query coverage calculated as length / query_len.
+    subject_coverage : float
+        Subject coverage calculated as length / subject_len.
+    strand : str
+        Strand orientation ('+' or '-') determined from coordinates and frames.
+    """
 
     def __init__(
         self,
@@ -368,7 +404,24 @@ def compare_seeds(
 def create_blast_database(genome_file: Path, db_dir: Path) -> Path:
     """
     Create BLAST nucleotide database from genome file using makeblastdb.
-"""
+
+    Parameters
+    ----------
+    genome_file : Path
+        Path to genome FASTA file to convert to BLAST database.
+    db_dir : Path
+        Directory where BLAST database files will be created.
+
+    Returns
+    -------
+    Path
+        Path to created BLAST database (without extension).
+
+    Raises
+    ------
+    HMMBuildError
+        If makeblastdb command fails.
+    """
     db_name = db_dir / f'{genome_file.stem}_db'
 
     cmd = [
@@ -406,7 +459,30 @@ def blast_seed_against_genome(
 ) -> List[BlastHit]:
     """
     BLAST seed sequence against genome database using blastn with threading support.
-"""
+
+    Parameters
+    ----------
+    seed_file : Path
+        Path to seed sequence file in FASTA format.
+    blast_db : Path
+        Path to BLAST database (without extension).
+    output_file : Path
+        Path to write BLAST tabular output.
+    identity_threshold : float, default 60.0
+        Minimum percent identity threshold for BLAST hits.
+    num_threads : int, default 1
+        Number of CPU threads for BLAST to use.
+
+    Returns
+    -------
+    list of BlastHit
+        List of parsed BLAST hit objects from output file.
+
+    Raises
+    ------
+    HMMBuildError
+        If BLAST command fails or output cannot be parsed.
+    """
     cmd = [
         'blastn',
         '-query',
@@ -451,8 +527,18 @@ def blast_seed_against_genome(
 
 def add_blast_header(blast_file: Path) -> None:
     """
-    Add header to BLAST output file.
-"""
+    Add header comment lines to BLAST output file.
+
+    Parameters
+    ----------
+    blast_file : Path
+        Path to BLAST tabular output file to add header to.
+
+    Returns
+    -------
+    None
+        No return value. Modifies file in place.
+    """
     # Read existing content
     with open(blast_file, 'r') as f:
         content = f.read()
@@ -471,7 +557,19 @@ def resolve_overlapping_hits(
 ) -> List[BlastHit]:
     """
     Resolve overlapping hits using RepeatMasker-like logic.
-    Prioritize by: 1) length, 2) identity, 3) query coverage.
+
+    Parameters
+    ----------
+    hits : list of BlastHit
+        List of BLAST hits to filter for overlaps.
+    max_overlap : int, default 50
+        Maximum allowed overlap in base pairs between hits.
+
+    Returns
+    -------
+    list of BlastHit
+        Filtered list with overlapping hits removed, prioritized by:
+        1) alignment length, 2) percent identity, 3) query coverage.
     """
     if not hits:
         return hits
@@ -535,6 +633,21 @@ def filter_hits_by_thresholds(
 ) -> List[BlastHit]:
     """
     Filter hits by coverage and identity thresholds.
+
+    Parameters
+    ----------
+    hits : list of BlastHit
+        List of BLAST hits to filter.
+    min_coverage : float
+        Minimum query coverage required (0.0 to 1.0).
+    min_identity : float
+        Minimum percent identity required (0.0 to 100.0).
+
+    Returns
+    -------
+    list of BlastHit
+        Filtered list containing only hits meeting both thresholds.
+    """
 """
     filtered = []
 
@@ -568,7 +681,18 @@ def chain_fragmented_hits(
 ) -> List[List[BlastHit]]:
     """
     Chain hits that may represent fragments of the same element.
-    Returns list of hit chains (each chain is a list of hits).
+
+    Parameters
+    ----------
+    hits : list of BlastHit
+        List of BLAST hits to chain together.
+    max_gap : int, default 500
+        Maximum gap in base pairs between hits to be considered part of same chain.
+
+    Returns
+    -------
+    list of list of BlastHit
+        List of hit chains where each chain is a list of consecutive hits.
     """
     if not hits:
         return []

@@ -88,15 +88,18 @@ def main() -> int:
     if args.command == 'legacy':
         from tirmite.cli.legacy import main as legacy_main
 
-        return legacy_main(args)
+        result = legacy_main(args)
+        return int(result) if result is not None else 0
     elif args.command == 'seed':
         from tirmite.cli.hmm_build import main as seed_main
 
-        return seed_main(args)
+        result = seed_main(args)
+        return int(result) if result is not None else 0
     elif args.command == 'pair':
         from tirmite.cli.hmm_pair import main as pair_main
 
-        return pair_main(args)
+        result = pair_main(args)
+        return int(result) if result is not None else 0
     else:
         parser.print_help()
         sys.exit(1)

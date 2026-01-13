@@ -16,6 +16,7 @@ import logging
 import os
 from pathlib import Path
 import sys
+from typing import Any, Dict, Optional
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
 import tirmite.tirmitetools as tirmite
@@ -27,7 +28,7 @@ from tirmite.utils.utils import (
 )
 
 
-def get_hmm_model_length(hmm_file_path):
+def get_hmm_model_length(hmm_file_path: str) -> Dict[str, int]:
     """
     Extract HMM model lengths from HMM file by parsing LENG fields.
 
@@ -68,7 +69,7 @@ def get_hmm_model_length(hmm_file_path):
     return model_lengths
 
 
-def load_model_lengths_file(lengths_file):
+def load_model_lengths_file(lengths_file: str) -> Dict[str, int]:
     """
     Load model lengths from tab-delimited text file.
 
@@ -118,7 +119,7 @@ def load_model_lengths_file(lengths_file):
     return model_lengths
 
 
-def calculate_hit_coverage(hitTable, model_lengths):
+def calculate_hit_coverage(hitTable: Any, model_lengths: Dict[str, int]) -> Any:
     """
     Calculate coverage for hits based on model lengths.
 
@@ -154,7 +155,7 @@ def calculate_hit_coverage(hitTable, model_lengths):
     return hitTable
 
 
-def filter_hits_coverage(hitTable, mincov):
+def filter_hits_coverage(hitTable: Any, mincov: float) -> Any:
     """
     Filter hits by coverage threshold.
 
@@ -173,7 +174,7 @@ def filter_hits_coverage(hitTable, mincov):
     return hitTable[hitTable['coverage'] >= mincov]
 
 
-def extract_model_name_from_path(model_path):
+def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
     """
     Extract model name from HMM file path by reading the HMM file.
 
@@ -202,7 +203,7 @@ def extract_model_name_from_path(model_path):
     return Path(model_path).stem
 
 
-def add_pair_parser(subparsers):
+def add_pair_parser(subparsers: Any) -> None:
     """
     Add pair subcommand parser.
 
@@ -391,7 +392,7 @@ def add_pair_parser(subparsers):
     return parser
 
 
-def validate_arguments(args):
+def validate_arguments(args: Any) -> None:
     """
     Validate argument combinations and file existence.
 
@@ -452,7 +453,7 @@ def validate_arguments(args):
             raise FileNotFoundError(f'Required file not found: {file_path}')
 
 
-def main(args=None):
+def main(args: Optional[Any] = None) -> int:
     """
     Main entry point for tirmite-pair.
 

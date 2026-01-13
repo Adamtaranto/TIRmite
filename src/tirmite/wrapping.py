@@ -69,7 +69,7 @@ def run_cmd(
     keeptemp: bool = False,
 ) -> None:
     """
-    Write and excute script
+    Write and execute script
     """
     if not tempDir:
         tempDir = os.getcwd()

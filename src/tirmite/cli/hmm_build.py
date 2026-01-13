@@ -648,7 +648,6 @@ def filter_hits_by_thresholds(
     list of BlastHit
         Filtered list containing only hits meeting both thresholds.
     """
-"""
     filtered = []
 
     for hit in hits:
@@ -742,7 +741,21 @@ def extract_sequences_from_chains(
 ) -> List[SeqRecord]:
     """
     Extract sequences from hit chains, concatenating fragments where needed.
-"""
+
+    Parameters
+    ----------
+    chains : list of list of BlastHit
+        List of hit chains where each chain is a list of consecutive hits.
+    genome_index : pyfaidx.Fasta
+        Indexed genome object for sequence extraction.
+    model_name : str
+        Name of model for sequence ID generation.
+
+    Returns
+    -------
+    list of Bio.SeqRecord.SeqRecord
+        List of extracted sequences, one per chain.
+    """
     sequences = []
 
     for chain_idx, chain in enumerate(chains):
@@ -833,7 +846,27 @@ def extract_flanked_sequences_from_chains(
 ) -> List[SeqRecord]:
     """
     Extract sequences from hit chains with flanking sequence.
-    For chained hits, only add flanks to the beginning of the first segment and end of the last segment.
+
+    Parameters
+    ----------
+    chains : list of list of BlastHit
+        List of hit chains where each chain is a list of consecutive hits.
+    genome_index : pyfaidx.Fasta
+        Indexed genome object for sequence extraction.
+    model_name : str
+        Name of model for sequence ID generation.
+    flank_size : int
+        Number of base pairs of flanking sequence to add on each side.
+
+    Returns
+    -------
+    list of Bio.SeqRecord.SeqRecord
+        List of extracted sequences with flanks, one per chain.
+
+    Notes
+    -----
+    For chained hits, only adds flanks to the beginning of the first segment
+    and end of the last segment.
     """
     sequences = []
 
@@ -955,16 +988,24 @@ def extract_flanked_sequences_from_chains(
 
 def deduplicate_sequences(sequences: List[SeqRecord]) -> List[SeqRecord]:
     """
-    Remove identical sequences, keeping the first occurrence. Prioritize seed sequences over extracted sequences.
-"""
+    Remove identical sequences, keeping first occurrence and prioritizing seeds.
+
+    Parameters
+    ----------
+    sequences : list of Bio.SeqRecord.SeqRecord
+        List of sequence records potentially containing duplicates.
+
+    Returns
+    -------
+    list of Bio.SeqRecord.SeqRecord
+        Deduplicated list with seed sequences prioritized over extracted sequences.
+    """
     seen_sequences = set()
     unique_sequences = []
 
     # Sort sequences to prioritize seeds (seed sequences typically don't have genomic coordinates in their IDs)
     def is_seed_sequence(seq_record):
-        """
-        Check if sequence is likely a seed sequence (no genomic coordinates).
-"""
+        """Check if sequence is likely a seed sequence (no genomic coordinates)."""
         seq_id = seq_record.id.lower()
         # Seed sequences typically don't have chromosome coordinates or chain info
         return not any(
@@ -1004,7 +1045,26 @@ def run_mafft_alignment(
 ) -> Path:
     """
     Run MAFFT multiple sequence alignment with default parameters.
-"""
+
+    Parameters
+    ----------
+    sequences : list of Bio.SeqRecord.SeqRecord
+        List of sequences to align.
+    output_file : Path
+        Path to write alignment output file.
+    threads : int, default 1
+        Number of CPU threads for MAFFT.
+
+    Returns
+    -------
+    Path
+        Path to output alignment file.
+
+    Raises
+    ------
+    HMMBuildError
+        If fewer than 2 sequences provided or MAFFT fails.
+    """
     if len(sequences) < 2:
         raise HMMBuildError('Need at least 2 sequences for alignment')
 

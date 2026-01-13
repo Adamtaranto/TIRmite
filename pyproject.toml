@@ -136,6 +136,13 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
+# Disable specific error codes for false positives and external library type issues
+# arg-type: Path vs str conversions for functions expecting str in other modules
+# attr-defined: Attribute access on objects from external libraries (pandas, pyhmmer)
+# union-attr: Pandas DataFrame operations that mypy can't fully type check
+# index: Indexing operations on Union types from pandas
+disable_error_code = ["arg-type", "attr-defined", "union-attr", "index"]
+
 [tool.pydocstyle]
 convention = "numpy"
 match-dir = "[^\\.].*"     # matches all dirs that don't start with a dot

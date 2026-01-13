@@ -18,7 +18,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
@@ -2184,7 +2184,24 @@ def validate_threads(value: str) -> int:
         ) from None
 
 
-def add_seed_parser(subparsers: Any) -> None:
+def create_seed_parser() -> argparse.ArgumentParser:
+    """
+    Create standalone argument parser for seed command.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Configured argument parser for seed workflow options.
+    """
+    parser = argparse.ArgumentParser(
+        prog='tirmite-seed',
+        description='Build HMM models from seed sequences for TIRmite',
+    )
+    _configure_seed_parser(parser)
+    return parser
+
+
+def add_seed_parser(subparsers: Any) -> argparse.ArgumentParser:
     """
     Add seed subcommand parser.
 
@@ -2195,15 +2212,35 @@ def add_seed_parser(subparsers: Any) -> None:
 
     Returns
     -------
-    None
-        Modifies subparsers in place.
+    argparse.ArgumentParser
+        The configured seed subcommand parser.
     """
-    parser = subparsers.add_parser(
-        'seed',
-        help='Build HMM models from seed sequences',
-        description='Build HMM models from seed sequences for TIRmite',
+    parser = cast(
+        argparse.ArgumentParser,
+        subparsers.add_parser(
+            'seed',
+            help='Build HMM models from seed sequences',
+            description='Build HMM models from seed sequences for TIRmite',
+        ),
     )
+    _configure_seed_parser(parser)
+    return parser
 
+
+def _configure_seed_parser(parser: argparse.ArgumentParser) -> None:
+    """
+    Configure parser with seed command arguments.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        Parser to configure.
+
+    Returns
+    -------
+    None
+        Modifies parser in place.
+    """
     # Input arguments
     parser.add_argument(
         '--left-seed',
@@ -2284,8 +2321,6 @@ def add_seed_parser(subparsers: Any) -> None:
         help='Number of CPU threads to use for MAFFT alignment (default: 1)',
     )
 
-    return parser
-
 
 def main(args: Optional[argparse.Namespace] = None) -> int:
     """
@@ -2294,13 +2329,21 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     Parameters
     ----------
     args : argparse.Namespace, optional
-        Parsed command-line arguments.
+        Parsed command-line arguments. If None, parses from sys.argv.
 
     Returns
     -------
     int
         Exit code (0 for success, 1 for error).
     """
+    # Parse arguments if not provided
+    if args is None:
+        parser = create_seed_parser()
+        args = parser.parse_args()
+    
+    # Mypy assertion: args is guaranteed non-None after parsing
+    assert args is not None
+    
     # Check available CPU threads
     max_threads = os.cpu_count() or 1
     if args.threads > max_threads:

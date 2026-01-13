@@ -2,13 +2,13 @@ import argparse
 import glob
 import logging
 import os
+from pathlib import Path
 import shutil
 import sys
-from pathlib import Path
 
-import tirmite.tirmitetools as tirmite
 from tirmite._version import __version__
 from tirmite.runners.hmmer_wrappers import process_hmmer_workflow
+import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,

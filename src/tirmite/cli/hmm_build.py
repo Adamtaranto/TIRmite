@@ -14,14 +14,14 @@ import argparse
 import io
 import logging
 import os
-import shutil
 from pathlib import Path
+import shutil
 from typing import List, Optional, Tuple
 
-import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
+import pandas as pd
 from pyhmmer.easel import Alphabet, DigitalMSA, MSAFile, SequenceFile
 from pyhmmer.plan7 import Background, Builder
 

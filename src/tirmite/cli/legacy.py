@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+from typing import Any, Optional
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
 from tirmite.runners.hmmer_wrappers import process_hmmer_workflow
@@ -29,7 +30,7 @@ from tirmite.utils.utils import (
 )
 
 
-def mainArgs():
+def mainArgs() -> argparse.Namespace:
     """
     Parse command-line arguments for legacy TIRmite workflow.
 
@@ -251,7 +252,7 @@ def mainArgs():
     return args
 
 
-def missing_tool(tool_name):
+def missing_tool(tool_name: str) -> list[str]:
     """
     Check if command-line tool is available in system PATH.
 
@@ -276,7 +277,7 @@ def missing_tool(tool_name):
         return []
 
 
-def validate_pairbed_compatibility(hitTable, config, args):
+def validate_pairbed_compatibility(hitTable: Any, config: Any, args: Any) -> None:
     """
     Validate BED file contents match pairing configuration requirements.
 
@@ -391,7 +392,7 @@ def validate_pairbed_compatibility(hitTable, config, args):
 
 
 # Extract model names from file paths for validation
-def extract_model_name_from_path(model_path):
+def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
     """
     Extract HMM model name from file path by parsing HMM file header.
 
@@ -426,7 +427,7 @@ def extract_model_name_from_path(model_path):
     return Path(model_path).stem
 
 
-def add_legacy_parser(subparsers):
+def add_legacy_parser(subparsers: Any) -> None:
     """
     Add legacy workflow subcommand to argument parser.
 
@@ -654,7 +655,7 @@ def add_legacy_parser(subparsers):
     return parser
 
 
-def main(args=None):
+def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main entry point for legacy TIRmite workflow.
 
@@ -671,6 +672,7 @@ def main(args=None):
     # Get cmd line args
     if args is None:
         args = mainArgs()
+    assert args is not None, "Failed to parse arguments"
 
     # TODO: Remove use of verbose option
     # Manually add args.verbose and set to True

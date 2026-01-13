@@ -18,7 +18,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import List, Optional, Union
+from typing import List, Optional, Sequence, Union
 
 
 class CommandError(Exception):
@@ -154,7 +154,7 @@ def run_command(
 
 
 def run_commands_sequential(
-    cmds: List[Union[str, List[str]]],
+    cmds: Sequence[Union[str, List[str]]],
     verbose: bool = True,
     timeout: Optional[int] = None,
     cwd: Optional[Union[str, Path]] = None,

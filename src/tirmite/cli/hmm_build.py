@@ -18,7 +18,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
@@ -133,7 +133,7 @@ class BlastHit:
         elif subject_frame > 0 and subject_start <= subject_end:
             self.strand = '+'
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f'BlastHit({self.query_id}->{self.subject_id}, '
             f'cov={self.query_coverage:.2f}, id={self.identity:.1f}%, strand={self.strand})'
@@ -268,7 +268,7 @@ def compare_seeds(
     which may represent inverted repeats or conserved motifs.
     """
     from Bio import SeqIO
-    from Bio.Align import PairwiseAligner
+    from Bio.Align import PairwiseAligner  # type: ignore[import-not-found]
 
     logging.info('Comparing left and right seed sequences...')
 
@@ -584,7 +584,7 @@ def resolve_overlapping_hits(
         hits, key=lambda h: (h.subject_id, h.subject_start, h.subject_end)
     )
 
-    filtered_hits = []
+    filtered_hits: List[Any] = []
 
     for current_hit in sorted_hits:
         keep_current = True
@@ -741,7 +741,8 @@ def chain_fragmented_hits(
     return chains
 
 
-def extract_sequences_from_chains(
+def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
+
     chains: List[List[BlastHit]], genome_index, model_name: str
 ) -> List[SeqRecord]:
     """
@@ -846,7 +847,8 @@ def extract_sequences_from_chains(
     return sequences
 
 
-def extract_flanked_sequences_from_chains(
+def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
+
     chains: List[List[BlastHit]], genome_index, model_name: str, flank_size: int
 ) -> List[SeqRecord]:
     """
@@ -1009,7 +1011,7 @@ def deduplicate_sequences(sequences: List[SeqRecord]) -> List[SeqRecord]:
     unique_sequences = []
 
     # Sort sequences to prioritize seeds (seed sequences typically don't have genomic coordinates in their IDs)
-    def is_seed_sequence(seq_record):
+    def is_seed_sequence(seq_record: Any) -> bool:
         """
         Check if sequence is likely a seed sequence (no genomic coordinates).
 
@@ -1356,7 +1358,7 @@ def build_hmm_from_alignment_pyhmmer(
                 )
 
                 # Manual creation from BioPython records
-                import pyhmmer.easel
+                import pyhmmer.easel  # type: ignore[import-not-found]
 
                 text_sequences = []
                 for i, record in enumerate(alignment_records):
@@ -1974,8 +1976,8 @@ def resolve_asymmetric_conflicts(
         prioritizing longer and higher-identity hits.
     """
     # Group hits by chromosome
-    left_by_chrom = {}
-    right_by_chrom = {}
+    left_by_chrom: Dict[str, List[Any]] = {}
+    right_by_chrom: Dict[str, List[Any]] = {}
 
     for hit in left_hits:
         if hit.subject_id not in left_by_chrom:
@@ -2090,7 +2092,7 @@ def hits_overlap(hit1: BlastHit, hit2: BlastHit, min_overlap: int = 50) -> bool:
     return overlap_length >= min_overlap
 
 
-def validate_coverage(value):
+def validate_coverage(value: str) -> float:
     """
     Custom type validator for coverage argument.
 
@@ -2122,7 +2124,7 @@ def validate_coverage(value):
         ) from None
 
 
-def validate_identity(value):
+def validate_identity(value: str) -> float:
     """
     Custom type validator for identity argument.
 
@@ -2154,7 +2156,7 @@ def validate_identity(value):
         ) from None
 
 
-def validate_threads(value):
+def validate_threads(value: str) -> int:
     """
     Custom type validator for threads argument.
 
@@ -2184,7 +2186,7 @@ def validate_threads(value):
         ) from None
 
 
-def add_seed_parser(subparsers):
+def add_seed_parser(subparsers: Any) -> None:
     """
     Add seed subcommand parser.
 
@@ -2287,7 +2289,7 @@ def add_seed_parser(subparsers):
     return parser
 
 
-def main(args=None):
+def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main function for HMM building workflow.
 

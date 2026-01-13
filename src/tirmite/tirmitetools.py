@@ -2,14 +2,27 @@ from collections import namedtuple
 import glob
 from operator import attrgetter
 import os
+from typing import Any, Dict, List, Set
 
 from Bio import AlignIO, SeqIO
+from Bio.SeqRecord import SeqRecord
 import pandas as pd
 
 from tirmite.utils import cleanID
 
+# Type aliases for complex nested structures
+HitsDict = Dict[str, Dict[str, List[Any]]]
+HitIndex = Dict[str, Dict[int, Dict[str, Any]]]
+PairedDict = Dict[str, List[Set[int]]]
+ElementDict = Dict[str, List[Any]]
 
-def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
+
+def convertAlign(
+    alnDir: str | None = None,
+    alnFile: str | None = None,
+    inFormat: str = 'fasta',
+    tempDir: str | None = None,
+) -> str:
     """
     Convert input alignments into Stockholm format.
     """
@@ -45,7 +58,11 @@ def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
     return alnOutDir
 
 
-def import_nhmmer(infile=None, hitTable=None, prefix=None):
+def import_nhmmer(
+    infile: str | None = None,
+    hitTable: pd.DataFrame | None = None,
+    prefix: str | None = None,
+) -> pd.DataFrame:
     """
     Read nhmmer tab files to pandas dataframe.
     """
@@ -54,35 +71,35 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
         for line in f.readlines():
             li = line.strip()
             if not li.startswith('#'):
-                li = li.split()
-                if li[11] == '+':
+                parts = li.split()
+                if parts[11] == '+':
                     hitRecords.append(
                         {
-                            'target': li[0],
-                            'model': li[2],
-                            'hmmStart': li[4],
-                            'hmmEnd': li[5],
-                            'hitStart': li[6],
-                            'hitEnd': li[7],
-                            'strand': li[11],
-                            'evalue': li[12],
-                            'score': li[13],
-                            'bias': li[14],
+                            'target': parts[0],
+                            'model': parts[2],
+                            'hmmStart': parts[4],
+                            'hmmEnd': parts[5],
+                            'hitStart': parts[6],
+                            'hitEnd': parts[7],
+                            'strand': parts[11],
+                            'evalue': parts[12],
+                            'score': parts[13],
+                            'bias': parts[14],
                         }
                     )
-                elif li[11] == '-':
+                elif parts[11] == '-':
                     hitRecords.append(
                         {
-                            'target': li[0],
-                            'model': li[2],
-                            'hmmStart': li[4],
-                            'hmmEnd': li[5],
-                            'hitStart': li[7],
-                            'hitEnd': li[6],
-                            'strand': li[11],
-                            'evalue': li[12],
-                            'score': li[13],
-                            'bias': li[14],
+                            'target': parts[0],
+                            'model': parts[2],
+                            'hmmStart': parts[4],
+                            'hmmEnd': parts[5],
+                            'hitStart': parts[7],
+                            'hitEnd': parts[6],
+                            'strand': parts[11],
+                            'evalue': parts[12],
+                            'score': parts[13],
+                            'bias': parts[14],
                         }
                     )
     # Convert list of dicts into dataframe
@@ -116,7 +133,11 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
     return df
 
 
-def import_BED(infile=None, hitTable=None, prefix=None):
+def import_BED(
+    infile: str | None = None,
+    hitTable: pd.DataFrame | None = None,
+    prefix: str | None = None,
+) -> pd.DataFrame:
     """
     Read TIR bedfile to pandas dataframe.
     """
@@ -126,17 +147,17 @@ def import_BED(infile=None, hitTable=None, prefix=None):
         for line in f.readlines():
             li = line.strip()
             if not li.startswith('#'):
-                li = li.split()
+                parts = li.split()
                 hitRecords.append(
                     {
-                        'target': li[0],
-                        'model': li[3],
+                        'target': parts[0],
+                        'model': parts[3],
                         'hmmStart': 'NA',
                         'hmmEnd': 'NA',
-                        'hitStart': li[1],
-                        'hitEnd': li[2],
-                        'strand': li[5],
-                        'evalue': li[4],
+                        'hitStart': parts[1],
+                        'hitEnd': parts[2],
+                        'strand': parts[5],
+                        'evalue': parts[4],
                         'score': 'NA',
                         'bias': 'NA',
                     }
@@ -172,7 +193,11 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     return df
 
 
-def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
+def filterHitsLen(
+    hmmDB: str | None = None,
+    mincov: float | None = None,
+    hitTable: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     modelLens = dict()
     for hmm in glob.glob(os.path.join(hmmDB, '*.hmm')):
         hmmLen = None
@@ -188,20 +213,22 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
                 modelLens[hmmName] = hmmLen
     for model in modelLens.keys():
         minlen = modelLens[model] * mincov
-        hitTable = hitTable.loc[
+        hitTable = hitTable.loc[  # type: ignore[assignment]
             ~(
                 (hitTable['model'] == model)
                 & (
-                    (hitTable['hitEnd'].astype(int) - hitTable['hitStart'].astype(int))
+                    (hitTable['hitEnd'].astype(int) - hitTable['hitStart'].astype(int))  # type: ignore[operator]
                     + 1
-                    < minlen
+                    < minlen  # type: ignore[operator]
                 )
             )
         ]
     return hitTable
 
 
-def filterHitsEval(maxeval=None, hitTable=None):
+def filterHitsEval(
+    maxeval: float | None = None, hitTable: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """
     Filter hitTable df to remove hits with e-value in excess of --maxeval.
     """
@@ -209,23 +236,23 @@ def filterHitsEval(maxeval=None, hitTable=None):
     return hitTable
 
 
-def table2dict(hitTable):
+def table2dict(hitTable: pd.DataFrame) -> tuple[HitsDict, HitIndex]:
     """
     Convert pandas dataframe of nhmmer hits into dict[model][chrom]
     and index[model] = [hitlist].withCandidates and pairing status.
     """
     # Set up empty dict
-    hitsDict = dict()
-    hitIndex = dict()
+    hitsDict: HitsDict = {}
+    hitIndex: HitIndex = {}
     # Populate keys from dataframe
     for hmm in hitTable.model.unique():
-        hitsDict[hmm] = dict()
-        hitIndex[hmm] = dict()
+        hitsDict[hmm] = {}
+        hitIndex[hmm] = {}
         for chr in hitTable[hitTable['model'] == hmm].target.unique():
-            hitsDict[hmm][chr] = list()
+            hitsDict[hmm][chr] = []
     # Set up named tuple
     hitTup = namedtuple(
-        'Elem', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue']
+        'hitTup', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue']
     )
     # Add each record to dicts
     for row in hitTable.iterrows():
@@ -241,17 +268,23 @@ def table2dict(hitTable):
         # Log hit for model on chromosome
         hitsDict[row[1].model][row[1].target].append(record)
         # Populate tracker
-        hitIndex[hmm][row[0]] = {'rec': record, 'partner': None, 'candidates': list()}
+        hitIndex[hmm][int(row[0])] = {'rec': record, 'partner': None, 'candidates': []}  # type: ignore[call-overload]
     # Return master rec object and pairing tracker
     return hitsDict, hitIndex
 
 
-def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
+def parseHits(
+    hitsDict: HitsDict | None = None,
+    hitIndex: HitIndex | None = None,
+    maxDist: int | None = None,
+) -> HitIndex:
     """
     Populate hitIndex with pairing candidates
     """
     if not maxDist:
-        maxDist = float('inf')
+        maxDist_val: float = float('inf')
+    else:
+        maxDist_val = float(maxDist)
     for hmm in hitIndex.keys():
         for UID in hitIndex[hmm].keys():
             ref = hitIndex[hmm][UID]['rec']
@@ -260,7 +293,7 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
                     if (
                         localhit.strand == '-'
                         and localhit.hitStart >= ref.hitEnd
-                        and localhit.hitStart - ref.hitEnd <= maxDist
+                        and localhit.hitStart - ref.hitEnd <= maxDist_val
                     ):
                         hitIndex[hmm][UID]['candidates'].append(localhit)
                 # Sort candidate hit records from low to high on hitStart vals
@@ -273,7 +306,7 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
                     if (
                         localhit.strand == '+'
                         and localhit.hitEnd <= ref.hitStart
-                        and ref.hitStart - localhit.hitEnd <= maxDist
+                        and ref.hitStart - localhit.hitEnd <= maxDist_val
                     ):
                         hitIndex[hmm][UID]['candidates'].append(localhit)
                 # Sort candidate hit records from high to low on hitEnd values
@@ -286,7 +319,12 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
     return hitIndex
 
 
-def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
+def isfirstUnpaired(
+    ref: int | None = None,
+    mate: int | None = None,
+    model: str | None = None,
+    index: HitIndex | None = None,
+) -> tuple[Set[int] | None, HitIndex, int | None]:
     """
     Provided with a hitID (ref) and the ID of its nearest unpaired
     candidate partner (mate), check if ref is also the nearest unpaired
@@ -316,7 +354,10 @@ def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
     return found, index, mateFUP
 
 
-def getPairs(hitIndex=None, paired=None):
+def getPairs(
+    hitIndex: HitIndex | None = None,
+    paired: PairedDict | None = None,
+) -> tuple[HitIndex, PairedDict]:
     """
     Loop over all hit for all models and search for reciprocity within
     2 degrees of the top unpaired candidate for each unpaired hit.
@@ -358,7 +399,7 @@ def getPairs(hitIndex=None, paired=None):
     return hitIndex, paired
 
 
-def countUnpaired(hitIndex):
+def countUnpaired(hitIndex: HitIndex) -> int:
     """
     How many hits are still unpaired across all models.
     """
@@ -370,7 +411,7 @@ def countUnpaired(hitIndex):
     return count
 
 
-def listunpaired(hitIndex):
+def listunpaired(hitIndex: HitIndex) -> List[int]:
     """
     Return list of all unpaired hit IDs.
     """
@@ -382,7 +423,9 @@ def listunpaired(hitIndex):
     return unpaired
 
 
-def iterateGetPairs(hitIndex, stableReps=0):
+def iterateGetPairs(
+    hitIndex: HitIndex, stableReps: int = 0
+) -> tuple[HitIndex, PairedDict, List[int]]:
     """
     Iterate pairing procedure for all models until no unpaired hits remain or
     number of reps without change is exceeded.
@@ -412,7 +455,13 @@ def iterateGetPairs(hitIndex, stableReps=0):
 
 
 # Fix: Do not load fasta into genome!
-def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=None):
+def extractTIRs(
+    model: str | None = None,
+    hitTable: pd.DataFrame | None = None,
+    maxeval: float = 0.001,
+    genome: Dict[str, SeqRecord] | None = None,
+    padlen: int | None = None,
+) -> tuple[List[SeqRecord], int]:
     """
     For significant hits in model, compose seqrecords.
     """
@@ -460,8 +509,13 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=No
 
 # Fix: Do not load fasta into genome!
 def writeTIRs(
-    outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None, padlen=None
-):
+    outDir: str | None = None,
+    hitTable: pd.DataFrame | None = None,
+    maxeval: float = 0.001,
+    genome: Dict[str, SeqRecord] | None = None,
+    prefix: str | None = None,
+    padlen: int | None = None,
+) -> None:
     """
     Write all hits per Model to a multifasta in the outdir
     """
@@ -498,7 +552,7 @@ def writeTIRs(
 # CS10_Chromosome_02_+_88294_88353_modelAlignment:1_60
 
 
-def flipTIRs(x, y):
+def flipTIRs(x: Any, y: Any) -> tuple[Any, Any]:
     """
     Sort hits into left and right TIRs.
     """
@@ -507,14 +561,18 @@ def flipTIRs(x, y):
 
 
 # Fix: Do not load fasta into genome!
-def fetchElements(paired=None, hitIndex=None, genome=None):
+def fetchElements(
+    paired: PairedDict | None = None,
+    hitIndex: HitIndex | None = None,
+    genome: Dict[str, SeqRecord] | None = None,
+) -> ElementDict:
     """
     Extract complete sequence of paired elements,
     asign names and child TIRs for use in seq and GFF reporting.
     """
-    TIRelements = dict()
+    TIRelements: ElementDict = {}
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',
         [
             'model',
             'chromosome',
@@ -576,7 +634,9 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
 # Fix: Do not load fasta into genome!
 # Probably fine, but could just store coords in eledict (from fetchElements)
 # and fetch from index at time of writing.
-def writeElements(outDir, eleDict=None, prefix=None):
+def writeElements(
+    outDir: str, eleDict: ElementDict | None = None, prefix: str | None = None
+) -> None:
     """
     Takes dict of extracted sequences keyed by model.
     Writes to fasta by model.
@@ -595,15 +655,20 @@ def writeElements(outDir, eleDict=None, prefix=None):
 
 # Fix: Do not load fasta into genome!
 def writePairedTIRs(
-    outDir=None, paired=None, hitIndex=None, genome=None, prefix=None, padlen=None
-):
+    outDir: str | None = None,
+    paired: PairedDict | None = None,
+    hitIndex: HitIndex | None = None,
+    genome: Dict[str, SeqRecord] | None = None,
+    prefix: str | None = None,
+    padlen: int | None = None,
+) -> None:
     """
     Extract TIR sequence of paired hits, write to fasta.
     """
     # Note: Sequence padding not yet enabled for paired TIRs
-    TIRpairs = dict()
+    TIRpairs: Dict[str, List[Any]] = {}
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',
         [
             'model',
             'chromosome',
@@ -724,14 +789,16 @@ def writePairedTIRs(
                 SeqIO.write(element.seq, handle, 'fasta')
 
 
-def fetchUnpaired(hitIndex=None):
+def fetchUnpaired(
+    hitIndex: HitIndex | None = None,
+) -> List[Any]:
     """
     Take list of unpaired hit IDs from listunpaired(),
     Compose TIR gff3 record.
     """
-    orphans = list()
+    orphans = []
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',
         [
             'model',
             'chromosome',
@@ -768,17 +835,19 @@ def fetchUnpaired(hitIndex=None):
 
 
 def gffWrite(
-    outpath=None,
-    featureList=list(),
-    writeTIRs=True,
-    unpaired=None,
-    suppressMeta=False,
-    prefix=None,
-):
+    outpath: str | None = None,
+    featureList: ElementDict | None = None,
+    writeTIRs: bool | str = True,
+    unpaired: List[Any] | None = None,
+    suppressMeta: bool = False,
+    prefix: str | None = None,
+) -> None:
     """
     Write predicted paired-TIR features (i.e. MITEs) from fetchElements()
     as GFF3. Optionally, write child TIRS and orphan TIRs to GFF3 also.
     """
+    if featureList is None:
+        featureList = {}
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:

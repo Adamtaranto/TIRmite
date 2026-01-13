@@ -4,21 +4,25 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from typing import List
 
 
 class Error(Exception):
     pass
 
 
-def decode(x):
+def decode(x: bytes | str) -> str:
     try:
-        s = x.decode()
+        if isinstance(x, bytes):
+            s = x.decode()
+        else:
+            return x
     except:
-        return x
+        return str(x)
     return s
 
 
-def _write_script(cmds, script):
+def _write_script(cmds: List[str], script: str) -> None:
     """Write commands into a bash script"""
     f = open(script, 'w+')
     for cmd in cmds:
@@ -26,7 +30,7 @@ def _write_script(cmds, script):
     f.close()
 
 
-def syscall(cmd, verbose=False):
+def syscall(cmd: str, verbose: bool = False) -> None:
     """Manage error handling when making syscalls"""
     if verbose:
         print('Running command:', cmd, flush=True)
@@ -46,7 +50,9 @@ def syscall(cmd, verbose=False):
         print(decode(output))
 
 
-def makeBlast(seq=None, outfile=None, pid=60):
+def makeBlast(
+    seq: str | None = None, outfile: str | None = None, pid: int = 60
+) -> List[str]:
     cmd = (
         'blastn -word_size 4 -outfmt "6 qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid" -query '
         + quote(str(seq))
@@ -60,7 +66,7 @@ def makeBlast(seq=None, outfile=None, pid=60):
     return [cmd]
 
 
-def run_blast(cmds, verbose=False):
+def run_blast(cmds: List[str], verbose: bool = False) -> None:
     """Write and excute script"""
     tmpdir = tempfile.mkdtemp(prefix='tmp.', dir=os.getcwd())
     original_dir = os.getcwd()

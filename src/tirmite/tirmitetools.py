@@ -2,14 +2,21 @@ from collections import namedtuple
 import glob
 from operator import attrgetter
 import os
+from typing import Any, Dict, List, Set
 
 from Bio import AlignIO, SeqIO
+from Bio.SeqRecord import SeqRecord
 import pandas as pd
 
 from tirmite.utils import cleanID
 
 
-def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
+def convertAlign(
+    alnDir: str | None = None,
+    alnFile: str | None = None,
+    inFormat: str = 'fasta',
+    tempDir: str | None = None,
+) -> str:
     """
     Convert input alignments into Stockholm format.
     """
@@ -45,7 +52,11 @@ def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
     return alnOutDir
 
 
-def import_nhmmer(infile=None, hitTable=None, prefix=None):
+def import_nhmmer(
+    infile: str | None = None,
+    hitTable: pd.DataFrame | None = None,
+    prefix: str | None = None,
+) -> pd.DataFrame:
     """
     Read nhmmer tab files to pandas dataframe.
     """
@@ -116,7 +127,11 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
     return df
 
 
-def import_BED(infile=None, hitTable=None, prefix=None):
+def import_BED(
+    infile: str | None = None,
+    hitTable: pd.DataFrame | None = None,
+    prefix: str | None = None,
+) -> pd.DataFrame:
     """
     Read TIR bedfile to pandas dataframe.
     """
@@ -172,7 +187,11 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     return df
 
 
-def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
+def filterHitsLen(
+    hmmDB: str | None = None,
+    mincov: float | None = None,
+    hitTable: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     modelLens = dict()
     for hmm in glob.glob(os.path.join(hmmDB, '*.hmm')):
         hmmLen = None
@@ -201,7 +220,9 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
     return hitTable
 
 
-def filterHitsEval(maxeval=None, hitTable=None):
+def filterHitsEval(
+    maxeval: float | None = None, hitTable: pd.DataFrame | None = None
+) -> pd.DataFrame:
     """
     Filter hitTable df to remove hits with e-value in excess of --maxeval.
     """
@@ -209,7 +230,7 @@ def filterHitsEval(maxeval=None, hitTable=None):
     return hitTable
 
 
-def table2dict(hitTable):
+def table2dict(hitTable: pd.DataFrame) -> tuple[Dict[str, Dict[str, List[Any]]], Dict[str, Dict[int, Dict[str, Any]]]]:
     """
     Convert pandas dataframe of nhmmer hits into dict[model][chrom]
     and index[model] = [hitlist].withCandidates and pairing status.
@@ -246,7 +267,11 @@ def table2dict(hitTable):
     return hitsDict, hitIndex
 
 
-def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
+def parseHits(
+    hitsDict: Dict[str, Dict[str, List[Any]]] | None = None,
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]] | None = None,
+    maxDist: int | None = None,
+) -> Dict[str, Dict[int, Dict[str, Any]]]:
     """
     Populate hitIndex with pairing candidates
     """
@@ -286,7 +311,12 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
     return hitIndex
 
 
-def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
+def isfirstUnpaired(
+    ref: int | None = None,
+    mate: int | None = None,
+    model: str | None = None,
+    index: Dict[str, Dict[int, Dict[str, Any]]] | None = None,
+) -> tuple[Set[int] | None, Dict[str, Dict[int, Dict[str, Any]]], int | None]:
     """
     Provided with a hitID (ref) and the ID of its nearest unpaired
     candidate partner (mate), check if ref is also the nearest unpaired
@@ -316,7 +346,10 @@ def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
     return found, index, mateFUP
 
 
-def getPairs(hitIndex=None, paired=None):
+def getPairs(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]] | None = None,
+    paired: Dict[str, List[Set[int]]] | None = None,
+) -> tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]]]:
     """
     Loop over all hit for all models and search for reciprocity within
     2 degrees of the top unpaired candidate for each unpaired hit.
@@ -358,7 +391,7 @@ def getPairs(hitIndex=None, paired=None):
     return hitIndex, paired
 
 
-def countUnpaired(hitIndex):
+def countUnpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> int:
     """
     How many hits are still unpaired across all models.
     """
@@ -370,7 +403,7 @@ def countUnpaired(hitIndex):
     return count
 
 
-def listunpaired(hitIndex):
+def listunpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> List[int]:
     """
     Return list of all unpaired hit IDs.
     """
@@ -382,7 +415,9 @@ def listunpaired(hitIndex):
     return unpaired
 
 
-def iterateGetPairs(hitIndex, stableReps=0):
+def iterateGetPairs(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], stableReps: int = 0
+) -> tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]], List[int]]:
     """
     Iterate pairing procedure for all models until no unpaired hits remain or
     number of reps without change is exceeded.
@@ -412,7 +447,13 @@ def iterateGetPairs(hitIndex, stableReps=0):
 
 
 # Fix: Do not load fasta into genome!
-def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=None):
+def extractTIRs(
+    model: str | None = None,
+    hitTable: pd.DataFrame | None = None,
+    maxeval: float = 0.001,
+    genome: Dict[str, SeqRecord] | None = None,
+    padlen: int | None = None,
+) -> tuple[List[SeqRecord], int]:
     """
     For significant hits in model, compose seqrecords.
     """
@@ -460,8 +501,13 @@ def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=No
 
 # Fix: Do not load fasta into genome!
 def writeTIRs(
-    outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None, padlen=None
-):
+    outDir: str | None = None,
+    hitTable: pd.DataFrame | None = None,
+    maxeval: float = 0.001,
+    genome: Dict[str, SeqRecord] | None = None,
+    prefix: str | None = None,
+    padlen: int | None = None,
+) -> None:
     """
     Write all hits per Model to a multifasta in the outdir
     """
@@ -498,7 +544,7 @@ def writeTIRs(
 # CS10_Chromosome_02_+_88294_88353_modelAlignment:1_60
 
 
-def flipTIRs(x, y):
+def flipTIRs(x: Any, y: Any) -> tuple[Any, Any]:
     """
     Sort hits into left and right TIRs.
     """
@@ -507,7 +553,11 @@ def flipTIRs(x, y):
 
 
 # Fix: Do not load fasta into genome!
-def fetchElements(paired=None, hitIndex=None, genome=None):
+def fetchElements(
+    paired: Dict[str, List[Set[int]]] | None = None,
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]] | None = None,
+    genome: Dict[str, SeqRecord] | None = None,
+) -> Dict[str, List[Any]]:
     """
     Extract complete sequence of paired elements,
     asign names and child TIRs for use in seq and GFF reporting.
@@ -576,7 +626,9 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
 # Fix: Do not load fasta into genome!
 # Probably fine, but could just store coords in eledict (from fetchElements)
 # and fetch from index at time of writing.
-def writeElements(outDir, eleDict=None, prefix=None):
+def writeElements(
+    outDir: str, eleDict: Dict[str, List[Any]] | None = None, prefix: str | None = None
+) -> None:
     """
     Takes dict of extracted sequences keyed by model.
     Writes to fasta by model.
@@ -595,8 +647,13 @@ def writeElements(outDir, eleDict=None, prefix=None):
 
 # Fix: Do not load fasta into genome!
 def writePairedTIRs(
-    outDir=None, paired=None, hitIndex=None, genome=None, prefix=None, padlen=None
-):
+    outDir: str | None = None,
+    paired: Dict[str, List[Set[int]]] | None = None,
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]] | None = None,
+    genome: Dict[str, SeqRecord] | None = None,
+    prefix: str | None = None,
+    padlen: int | None = None,
+) -> None:
     """
     Extract TIR sequence of paired hits, write to fasta.
     """
@@ -724,7 +781,9 @@ def writePairedTIRs(
                 SeqIO.write(element.seq, handle, 'fasta')
 
 
-def fetchUnpaired(hitIndex=None):
+def fetchUnpaired(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]] | None = None,
+) -> List[Any]:
     """
     Take list of unpaired hit IDs from listunpaired(),
     Compose TIR gff3 record.
@@ -768,17 +827,19 @@ def fetchUnpaired(hitIndex=None):
 
 
 def gffWrite(
-    outpath=None,
-    featureList=list(),
-    writeTIRs=True,
-    unpaired=None,
-    suppressMeta=False,
-    prefix=None,
-):
+    outpath: str | None = None,
+    featureList: List[Any] | Dict[str, List[Any]] | None = None,
+    writeTIRs: bool | str = True,
+    unpaired: List[Any] | None = None,
+    suppressMeta: bool = False,
+    prefix: str | None = None,
+) -> None:
     """
     Write predicted paired-TIR features (i.e. MITEs) from fetchElements()
     as GFF3. Optionally, write child TIRS and orphan TIRs to GFF3 also.
     """
+    if featureList is None:
+        featureList = []
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:

@@ -4,6 +4,7 @@ import logging
 import os
 import shutil
 import sys
+from typing import List
 
 from tirmite._version import __version__
 from tirmite.hmmer_wrappers import cmdScriptHMMER
@@ -13,7 +14,7 @@ from tirmite.utils import dochecks, importFasta
 from tirmite.wrapping import run_cmd
 
 
-def mainArgs():
+def mainArgs() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description='Map TIR-pHMM models to genomic sequences for annotation \
@@ -191,7 +192,7 @@ def mainArgs():
     return args
 
 
-def missing_tool(tool_name):
+def missing_tool(tool_name: str) -> List[str]:
     path = shutil.which(tool_name)
     if path is None:
         return [tool_name]
@@ -199,7 +200,7 @@ def missing_tool(tool_name):
         return []
 
 
-def main():
+def main() -> None:
     """Do the work."""
     # Get cmd line args
     args = mainArgs()

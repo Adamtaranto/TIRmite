@@ -3,11 +3,13 @@ from datetime import datetime
 import os
 import re
 import sys
+from typing import Any, Dict, List
 
 from Bio import SeqIO
+from Bio.SeqRecord import SeqRecord
 
 
-def dochecks(args):
+def dochecks(args: Any) -> tuple[str, str]:
     """
     Housekeeping tasks:
     Create output files/dirs and temp dirs as required.
@@ -33,7 +35,7 @@ def dochecks(args):
     return outDir, tempDir
 
 
-def getTimestring():
+def getTimestring() -> str:
     """
     Return int only string of current datetime with milliseconds.
     """
@@ -42,13 +44,13 @@ def getTimestring():
     return dt
 
 
-def isfile(path):
+def isfile(path: str) -> None:
     if not os.path.isfile(path):
         print('Input file not found: %s' % path)
         sys.exit(1)
 
 
-def cleanID(s):
+def cleanID(s: str) -> str:
     """
     Remove non alphanumeric characters from string.
     Replace whitespace with underscores.
@@ -59,7 +61,9 @@ def cleanID(s):
 
 
 # Fix: Do not load fasta into genome!
-def manageTemp(record=None, tempPath=None, scrub=False):
+def manageTemp(
+    record: SeqRecord | None = None, tempPath: str | None = None, scrub: bool = False
+) -> None:
     """
     Create single sequence fasta files or scrub temp files.
     """
@@ -74,7 +78,7 @@ def manageTemp(record=None, tempPath=None, scrub=False):
 
 
 # Fix: Do not load fasta into genome!
-def checkUniqueID(records):
+def checkUniqueID(records: List[SeqRecord]) -> None:
     """
     Check that IDs for input elements are unique.
     """
@@ -90,7 +94,7 @@ def checkUniqueID(records):
 
 
 # Fix: Do not load fasta into genome!
-def importFasta(file):
+def importFasta(file: str) -> Dict[str, SeqRecord]:
     """
     Load elements from multifasta file. Check that seq IDs are unique.
     """

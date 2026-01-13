@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from typing import List
 
 
 # Note sure why I did this. Test removal.
@@ -11,7 +12,7 @@ class Error(Exception):
     pass
 
 
-def _write_script(cmds, script):
+def _write_script(cmds: List[str], script: str) -> None:
     """
     Write commands into a bash script
     """
@@ -21,7 +22,7 @@ def _write_script(cmds, script):
     f.close()
 
 
-def decode(x):
+def decode(x: bytes | str) -> str:
     try:
         s = x.decode()
     except:
@@ -29,7 +30,7 @@ def decode(x):
     return s
 
 
-def cleanID(s):
+def cleanID(s: str) -> str:
     """
     Remove non alphanumeric characters from string.
     Replace whitespace with underscores.
@@ -39,7 +40,7 @@ def cleanID(s):
     return s
 
 
-def syscall(cmd, verbose=False):
+def syscall(cmd: str, verbose: bool = False) -> None:
     """
     Manage error handling when making syscalls
     """
@@ -61,7 +62,12 @@ def syscall(cmd, verbose=False):
         print(decode(output))
 
 
-def run_cmd(cmds, verbose=False, tempDir=None, keeptemp=False):
+def run_cmd(
+    cmds: List[str],
+    verbose: bool = False,
+    tempDir: str | None = None,
+    keeptemp: bool = False,
+) -> None:
     """
     Write and excute script
     """

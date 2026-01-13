@@ -3,11 +3,12 @@ import os
 import re
 from shlex import quote
 import shutil
+from typing import Any, List
 
 from tirmite.wrapping import run_cmd
 
 
-def cleanID(s):
+def cleanID(s: str) -> str:
     """
     Remove non alphanumeric characters from string.
     Replace whitespace with underscores.
@@ -18,8 +19,12 @@ def cleanID(s):
 
 
 def _hmmbuild_command(
-    exePath='hmmbuild', modelname=None, cores=None, inAlign=None, outdir=None
-):
+    exePath: str = 'hmmbuild',
+    modelname: str | None = None,
+    cores: int | None = None,
+    inAlign: str | None = None,
+    outdir: str | None = None,
+) -> tuple[str, str]:
     """
     Construct the hmmbuild command.
     """
@@ -52,7 +57,7 @@ def _hmmbuild_command(
     return command, os.path.abspath(modelout)
 
 
-def _hmmpress_command(exePath='hmmpress', hmmfile=None):
+def _hmmpress_command(exePath: str = 'hmmpress', hmmfile: str | None = None) -> str:
     """
     Construct the hmmbuild command.
     """
@@ -62,15 +67,15 @@ def _hmmpress_command(exePath='hmmpress', hmmfile=None):
 
 
 def _nhmmer_command(
-    exePath='nhmmer',
-    modelPath=None,
-    genome=None,
-    evalue=None,
-    nobias=False,
-    matrix=None,
-    cores=None,
-    outdir=None,
-):
+    exePath: str = 'nhmmer',
+    modelPath: str | None = None,
+    genome: str | None = None,
+    evalue: float | None = None,
+    nobias: bool = False,
+    matrix: str | None = None,
+    cores: int | None = None,
+    outdir: str | None = None,
+) -> tuple[str, str]:
     """
     Construct the nhmmer command
     """
@@ -107,7 +112,13 @@ def _nhmmer_command(
     return command, outdir
 
 
-def cmdScriptHMMER(hmmDir=None, hmmFile=None, alnDir=None, tempDir=None, args=None):
+def cmdScriptHMMER(
+    hmmDir: str | None = None,
+    hmmFile: str | None = None,
+    alnDir: str | None = None,
+    tempDir: str | None = None,
+    args: Any | None = None,
+) -> tuple[List[str], str, str]:
     if tempDir:
         tempDir = os.path.abspath(tempDir)
         if not os.path.isdir(tempDir):

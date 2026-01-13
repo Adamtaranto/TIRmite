@@ -1,3 +1,15 @@
+"""
+Legacy TIRmite workflow combining HMM search and pairing.
+
+This module implements the original TIRmite command-line interface:
+- Builds or loads HMM models from alignments or existing HMMs
+- Searches genome with nhmmer
+- Pairs terminal inverted repeats
+- Outputs elements, hits, and GFF3 annotations
+
+Supports multiple input formats and both symmetric and asymmetric pairing.
+"""
+
 import argparse
 import glob
 import logging

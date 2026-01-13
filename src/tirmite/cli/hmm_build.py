@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-HMM building from seed sequences for TIRmite.
+HMM building workflow from seed sequences for TIRmite.
 
-This module builds HMM models from seed sequences by:
-1. Comparing left/right seeds if both provided
-2. BLASTing seeds against target genome(s)
-3. Filtering and processing hits
-4. Extracting and aligning sequences
-5. Building HMM models
+This module implements the seed-based HMM building workflow:
+1. BLAST seed sequences against target genome(s)
+2. Filter and process BLAST hits for quality
+3. Extract and align genomic sequences
+4. Build HMM models from alignments
+
+Supports both symmetric (single seed) and asymmetric (left/right seeds)
+transposon terminus models.
 """
 
 import argparse
@@ -97,7 +99,18 @@ class BlastHit:
 
 def check_dependencies() -> List[str]:
     """
-    Check if required external tools are available."""
+    Check availability of required external command-line tools.
+
+    Returns
+    -------
+    list of str
+        Names of missing tools. Empty list if all tools are available.
+
+    Notes
+    -----
+    Checks for: blastn, makeblastdb, mafft.
+
+    """
     required_tools = ['blastn', 'makeblastdb', 'mafft']
     missing = []
 
@@ -110,9 +123,30 @@ def check_dependencies() -> List[str]:
 
 def parse_blast_output(blast_file: Path) -> List[BlastHit]:
     """
-    Parse BLAST tabular output into BlastHit objects.
+    Parse BLAST tabular output file into BlastHit objects.
 
-    Expected format: qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid
+    Parameters
+    ----------
+    blast_file : Path
+        Path to BLAST tabular output file.
+
+    Returns
+    -------
+    list of BlastHit
+        Parsed hit objects from all valid BLAST alignment records.
+
+    Raises
+    ------
+    HMMBuildError
+        If file cannot be read or parsing fails critically.
+
+    Notes
+    -----
+    Expected BLAST output format:
+    qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid
+
+    Skips comment lines (starting with #) and malformed records.
+
     """
     hits = []
 
@@ -165,17 +199,32 @@ def compare_seeds(
     num_threads: int = 1,  # Add threading parameter
 ) -> List[Tuple[BlastHit, object]]:
     """
-    Compare left and right seeds using BLAST to identify similarity regions.
+    Compare left and right seed sequences using BLAST.
 
-    Args:
-        left_seed: Path to left seed FASTA file
-        right_seed: Path to right seed FASTA file
-        temp_dir: Temporary directory for BLAST output
-        min_length: Minimum hit length threshold (default: 10)
-        min_identity: Minimum sequence identity threshold as percentage (default: 50.0)
+    Parameters
+    ----------
+    left_seed : Path
+        Path to left seed sequence FASTA file.
+    right_seed : Path
+        Path to right seed sequence FASTA file.
+    temp_dir : Path
+        Temporary directory for BLAST output files.
+    min_length : int, default 10
+        Minimum alignment length threshold in base pairs.
+    min_identity : float, default 50.0
+        Minimum sequence identity threshold as percentage (0-100).
+    num_threads : int, default 1
+        Number of CPU threads for BLAST.
 
-    Returns:
-        List of tuples containing (BlastHit, alignment) for hits passing thresholds
+    Returns
+    -------
+    list of tuple
+        List of (BlastHit, alignment) tuples for hits passing thresholds.
+
+    Notes
+    -----
+    Identifies regions of similarity between left and right termini
+    which may represent inverted repeats or conserved motifs.
 
     """
     from Bio import SeqIO

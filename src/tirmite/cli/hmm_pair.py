@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-TIRmite-pair: Pair precomputed nhmmer hits for transposon terminal repeat detection.
+TIRmite-pair: Pair precomputed nhmmer hits for TIR detection.
 
-This module takes precomputed nhmmer results and runs the pairing workflow:
-1. Import nhmmer hits from tabular files
-2. Filter hits by model coverage and e-value
-3. Run pairing algorithms (symmetric or asymmetric)
-4. Output paired elements, individual hits, and GFF annotations
+This module processes precomputed nhmmer search results:
+1. Imports nhmmer hits from tabular files
+2. Filters hits by model coverage and e-value thresholds
+3. Applies pairing algorithms (symmetric or asymmetric)
+4. Outputs paired elements, TIR hits, and GFF3 annotations
+
+Supports both canonical (F,R) and custom strand orientations
+for flexible transposon architecture detection.
 """
 
 import logging

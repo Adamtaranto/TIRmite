@@ -336,7 +336,7 @@ def cleanID(s):
     Examples
     --------
     >>> cleanID("My-Model Name_v1!")
-    'MyModel_Name_v1'
+    'My_Model_Name_v1'
 
     """
     s = re.sub(r'[^\w\s]', '', s)

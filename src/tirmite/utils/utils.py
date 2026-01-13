@@ -18,10 +18,10 @@ import re
 import shutil
 import sys
 import tempfile
-from typing import Optional, Tuple, Union
+from typing import Any, Generator, Optional, Tuple, Union
 
-from Bio import SeqIO
-from pyfaidx import Fasta
+from Bio import SeqIO  # type: ignore[import-not-found]
+from pyfaidx import Fasta  # type: ignore[import-not-found]
 
 
 @contextmanager
@@ -30,7 +30,7 @@ def temporary_directory(
     suffix: Optional[str] = None,
     base_dir: Optional[Union[str, Path]] = None,
     cleanup: bool = True,
-):
+) -> 'Generator[Path, None, None]':
     """
     Context manager for creating and managing temporary directories.
 
@@ -126,7 +126,7 @@ def create_output_directory(output_path: Optional[Union[str, Path]] = None) -> P
     return out_path
 
 
-def validate_input_files(args) -> None:
+def validate_input_files(args: Any) -> None:
     """
     Validate that all required input files exist and are readable.
 
@@ -181,7 +181,7 @@ def validate_input_files(args) -> None:
             logging.warning(f'Optional {file_type} not found: {file_path}')
 
 
-def setup_directories(args) -> Tuple[Path, Path]:
+def setup_directories(args: Any) -> Tuple[Path, Path]:
     """
     Set up output and temporary directories with proper error handling.
 
@@ -280,7 +280,7 @@ def cleanup_temp_directory(temp_dir: Union[str, Path], keep_temp: bool = False) 
 
 
 # Legacy function for backwards compatibility
-def dochecks(args):
+def dochecks(args: Any) -> Tuple[Path, Path]:
     """
     DEPRECATED: Use setup_directories() instead.
 
@@ -305,7 +305,7 @@ def dochecks(args):
     return setup_directories(args)
 
 
-def isfile(path):
+def isfile(path: str) -> None:
     """
     DEPRECATED: Use validate_input_files() instead.
 
@@ -332,7 +332,7 @@ def isfile(path):
         sys.exit(1)
 
 
-def cleanID(s):
+def cleanID(s: str) -> str:
     """
     Remove non-alphanumeric characters and normalize whitespace in string.
 
@@ -357,7 +357,9 @@ def cleanID(s):
     return s
 
 
-def manageTemp(record=None, tempPath=None, scrub=False):
+def manageTemp(
+    record: Any = None, tempPath: Optional[str] = None, scrub: bool = False
+) -> None:
     """
     Write sequence record to temporary file or delete temporary file.
 
@@ -385,12 +387,12 @@ def manageTemp(record=None, tempPath=None, scrub=False):
             os.remove(tempPath)
         except OSError:
             pass
-    else:
+    elif tempPath:
         with open(tempPath, 'w') as f:
             SeqIO.write(record, f, 'fasta')
 
 
-def checkUniqueID(records):
+def checkUniqueID(records: Any) -> None:
     """
     Verify that all sequence IDs in record list are unique.
 

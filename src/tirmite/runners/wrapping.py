@@ -159,7 +159,7 @@ def run_commands_sequential(
     timeout: Optional[int] = None,
     cwd: Optional[Union[str, Path]] = None,
     stop_on_error: bool = True,
-) -> List[subprocess.CompletedProcess]:
+) -> List[Optional[subprocess.CompletedProcess]]:
     """
     Execute multiple commands in sequence with error handling.
 
@@ -187,7 +187,7 @@ def run_commands_sequential(
     CommandError
         If any command fails and stop_on_error is True.
     """
-    results = []
+    results: List[Optional[subprocess.CompletedProcess]] = []
 
     for i, cmd in enumerate(cmds):
         try:
@@ -220,7 +220,7 @@ def run_cmd_in_tempdir(
     tempDir: Optional[Union[str, Path]] = None,
     keeptemp: bool = False,
     timeout: Optional[int] = None,
-) -> List[subprocess.CompletedProcess]:
+) -> List[Optional[subprocess.CompletedProcess]]:
     """
     Execute commands in a temporary directory with automatic cleanup.
 
@@ -458,7 +458,7 @@ def run_cmd(
     )
 
     try:
-        run_cmd_in_tempdir(cmds, verbose, tempDir, keeptemp)
+        run_cmd_in_tempdir(cmds, verbose, tempDir, keeptemp)  # type: ignore[arg-type]
     except CommandError as e:
         # Convert to original Error for backwards compatibility
         raise Error(f'Error running commands: {e.message}') from e
@@ -493,7 +493,7 @@ def _write_script(cmds: List[str], script: str) -> None:
             print(cmd, file=f)
 
 
-def decode(x):
+def decode(x: Union[bytes, str]) -> str:
     """
     DEPRECATED: Modern subprocess uses text=True parameter.
 
@@ -516,9 +516,11 @@ def decode(x):
     )
 
     try:
-        return x.decode()
-    except (AttributeError, UnicodeDecodeError):
+        if isinstance(x, bytes):
+            return x.decode()
         return x
+    except (AttributeError, UnicodeDecodeError):
+        return str(x)
 
 
 # Keep original Error class for backwards compatibility

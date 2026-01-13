@@ -318,7 +318,9 @@ def run_blast_batch(
 
 
 # Deprecated functions kept for backwards compatibility
-def makeBlast(seq=None, outfile=None, pid=60):
+def makeBlast(
+    seq: Optional[str] = None, outfile: Optional[str] = None, pid: float = 60
+) -> None:
     """
     DEPRECATED: Use run_self_blast() instead.
 
@@ -345,12 +347,14 @@ def makeBlast(seq=None, outfile=None, pid=60):
     )
 
     try:
+        if not seq or not outfile:
+            raise ValueError('Both seq and outfile are required')
         run_self_blast(sequence_file=seq, output_file=outfile, perc_identity=pid)
     except Exception as e:
         raise Error(f'BLAST failed: {str(e)}') from e
 
 
-def run_blast(cmds, verbose=False):
+def run_blast(cmds: List[str], verbose: bool = False) -> None:
     """
     DEPRECATED: Use run_blastn() or run_self_blast() instead.
 

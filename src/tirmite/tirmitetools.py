@@ -17,15 +17,21 @@ import glob
 import logging
 from operator import attrgetter
 import os
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from Bio import AlignIO, Seq, SeqIO
-from Bio.SeqRecord import SeqRecord
-import pandas as pd
+from Bio import AlignIO, Seq, SeqIO  # type: ignore[import-not-found]
+from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
+import pandas as pd  # type: ignore[import-untyped]
 
 from tirmite.utils.utils import cleanID
 
 
-def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
+def convertAlign(
+    alnDir: Optional[str] = None,
+    alnFile: Optional[str] = None,
+    inFormat: str = 'fasta',
+    tempDir: Optional[str] = None,
+) -> str:
     """
     Convert input sequence alignments to Stockholm format for HMMER.
 
@@ -64,8 +70,10 @@ def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
     # Get list of alignment files to process
     if alnFile:
         alignments = [alnFile]
-    else:
+    elif alnDir:
         alignments = glob.glob(alnDir)
+    else:
+        raise ValueError('Either alnFile or alnDir must be provided')
     # Do conversion on each
     for infile in alignments:
         # Get basename
@@ -85,7 +93,11 @@ def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
     return alnOutDir
 
 
-def import_nhmmer(infile=None, hitTable=None, prefix=None):
+def import_nhmmer(
+    infile: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    prefix: Optional[str] = None,
+) -> pd.DataFrame:
     """
     Parse nhmmer tabular output file into a pandas DataFrame.
 
@@ -111,39 +123,41 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
     hitEnd are swapped to ensure hitStart < hitEnd in genomic coordinates.
     """
     hitRecords = []
+    if not infile:
+        raise ValueError('infile parameter is required')
     with open(infile, 'r') as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith('#'):
-                li = li.split()
-                if li[11] == '+':
+                li_split = li.split()
+                if li_split[11] == '+':
                     hitRecords.append(
                         {
-                            'target': li[0],
-                            'model': li[2],
-                            'hmmStart': li[4],
-                            'hmmEnd': li[5],
-                            'hitStart': li[6],
-                            'hitEnd': li[7],
-                            'strand': li[11],
-                            'evalue': li[12],
-                            'score': li[13],
-                            'bias': li[14],
+                            'target': li_split[0],
+                            'model': li_split[2],
+                            'hmmStart': li_split[4],
+                            'hmmEnd': li_split[5],
+                            'hitStart': li_split[6],
+                            'hitEnd': li_split[7],
+                            'strand': li_split[11],
+                            'evalue': li_split[12],
+                            'score': li_split[13],
+                            'bias': li_split[14],
                         }
                     )
-                elif li[11] == '-':
+                elif li_split[11] == '-':
                     hitRecords.append(
                         {
-                            'target': li[0],
-                            'model': li[2],
-                            'hmmStart': li[4],
-                            'hmmEnd': li[5],
-                            'hitStart': li[7],
-                            'hitEnd': li[6],
-                            'strand': li[11],
-                            'evalue': li[12],
-                            'score': li[13],
-                            'bias': li[14],
+                            'target': li_split[0],
+                            'model': li_split[2],
+                            'hmmStart': li_split[4],
+                            'hmmEnd': li_split[5],
+                            'hitStart': li_split[7],
+                            'hitEnd': li_split[6],
+                            'strand': li_split[11],
+                            'evalue': li_split[12],
+                            'score': li_split[13],
+                            'bias': li_split[14],
                         }
                     )
     # Convert list of dicts into dataframe
@@ -177,7 +191,11 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
     return df
 
 
-def import_BED(infile=None, hitTable=None, prefix=None):
+def import_BED(
+    infile: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    prefix: Optional[str] = None,
+) -> pd.DataFrame:
     """
     Parse BED format file of TIR hits into a pandas DataFrame.
 
@@ -206,21 +224,23 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     """
     # Format: Chrm, start, end, name, evalue, strand
     hitRecords = []
+    if not infile:
+        raise ValueError('infile parameter is required')
     with open(infile, 'r') as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith('#'):
-                li = li.split()
+                li_split = li.split()
                 hitRecords.append(
                     {
-                        'target': li[0],
-                        'model': li[3],
+                        'target': li_split[0],
+                        'model': li_split[3],
                         'hmmStart': 'NA',
                         'hmmEnd': 'NA',
-                        'hitStart': li[1],
-                        'hitEnd': li[2],
-                        'strand': li[5],
-                        'evalue': li[4],
+                        'hitStart': li_split[1],
+                        'hitEnd': li_split[2],
+                        'strand': li_split[5],
+                        'evalue': li_split[4],
                         'score': 'NA',
                         'bias': 'NA',
                     }
@@ -256,7 +276,11 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     return df
 
 
-def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
+def filterHitsLen(
+    hmmDB: Optional[str] = None,
+    mincov: Optional[float] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
     """
     Filter hit table to remove hits with insufficient model coverage.
 
@@ -280,6 +304,9 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
     Extracts model lengths from HMM files by parsing LENG and NAME fields.
     For each model, calculates minimum acceptable hit length as model_length * mincov.
     """
+    if not hmmDB or not mincov or hitTable is None:
+        raise ValueError('hmmDB, mincov, and hitTable are required parameters')
+
     modelLens = {}
     for hmm in glob.glob(os.path.join(hmmDB, '*.hmm')):
         hmmLen = None
@@ -295,20 +322,22 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
                 modelLens[hmmName] = hmmLen
     for model in modelLens.keys():
         minlen = modelLens[model] * mincov
-        hitTable = hitTable.loc[
+        hitTable = hitTable.loc[  # type: ignore[assignment]
             ~(
                 (hitTable['model'] == model)
                 & (
                     (hitTable['hitEnd'].astype(int) - hitTable['hitStart'].astype(int))
                     + 1
-                    < minlen
+                    < minlen  # type: ignore[operator]
                 )
             )
         ]
     return hitTable
 
 
-def filterHitsEval(maxeval=None, hitTable=None):
+def filterHitsEval(
+    maxeval: Optional[float] = None, hitTable: Optional[pd.DataFrame] = None
+) -> pd.DataFrame:
     """
     Filter hit table to remove hits with e-values exceeding threshold.
 
@@ -325,11 +354,15 @@ def filterHitsEval(maxeval=None, hitTable=None):
     pandas.DataFrame
         Filtered DataFrame containing only hits with e-value < maxeval.
     """
+    if maxeval is None or hitTable is None:
+        raise ValueError('maxeval and hitTable are required parameters')
     hitTable = hitTable.loc[((hitTable['evalue'].astype(float)) < float(maxeval))]
     return hitTable
 
 
-def table2dict(hitTable):
+def table2dict(
+    hitTable: pd.DataFrame,
+) -> Tuple[Dict[str, Dict[str, List[Any]]], Dict[str, Dict[int, Dict[str, Any]]]]:
     """
     Convert pandas DataFrame of hits into nested dictionaries for pairing analysis.
 
@@ -355,8 +388,8 @@ def table2dict(hitTable):
     idx (DataFrame row index), evalue. The idx field links back to the original DataFrame.
     """
     # Set up empty dict
-    hitsDict = {}
-    hitIndex = {}
+    hitsDict: Dict[str, Dict[str, List[Any]]] = {}
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]] = {}
     # Populate keys from dataframe
     for hmm in hitTable.model.unique():
         hitsDict[hmm] = {}
@@ -365,7 +398,8 @@ def table2dict(hitTable):
             hitsDict[hmm][chr] = []
     # Set up named tuple
     hitTup = namedtuple(
-        'Elem', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue']
+        'hitTup',
+        ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue'],  # type: ignore[name-match]
     )
     # Add each record to dicts
     for row in hitTable.iterrows():
@@ -381,7 +415,7 @@ def table2dict(hitTable):
         # Log hit for model on chromosome
         hitsDict[row[1].model][row[1].target].append(record)
         # Populate tracker - FIX: use row[1].model not hmm
-        hitIndex[row[1].model][row[0]] = {
+        hitIndex[row[1].model][row[0]] = {  # type: ignore[index]
             'rec': record,
             'partner': None,
             'candidates': [],
@@ -390,7 +424,11 @@ def table2dict(hitTable):
     return hitsDict, hitIndex
 
 
-def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
+def parseHits(
+    hitsDict: Optional[Dict[str, Dict[str, List[Any]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    maxDist: Optional[int] = None,
+) -> Dict[str, Dict[int, Dict[str, Any]]]:
     """
     Identify potential pairing partners for each hit based on strand and distance.
 
@@ -416,7 +454,7 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
     Candidates are sorted by proximity to the reference hit.
     """
     if not maxDist:
-        maxDist = float('inf')
+        maxDist = float('inf')  # type: ignore[assignment]
     for hmm in hitIndex.keys():
         for UID in hitIndex[hmm].keys():
             ref = hitIndex[hmm][UID]['rec']
@@ -451,7 +489,12 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
     return hitIndex
 
 
-def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
+def isfirstUnpaired(
+    ref: Optional[int] = None,
+    mate: Optional[int] = None,
+    model: Optional[str] = None,
+    index: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+) -> Tuple[Optional[Set[int]], Dict[str, Dict[int, Dict[str, Any]]], Optional[int]]:
     """
     Check for reciprocal best unpaired partner relationship between two hits.
 
@@ -518,7 +561,10 @@ def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
     return found, index, mateFUP
 
 
-def getPairs(hitIndex=None, paired=None):
+def getPairs(
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]]]:
     """
     Identify reciprocal pairs using two-degree candidate matching.
 
@@ -548,7 +594,7 @@ def getPairs(hitIndex=None, paired=None):
     # If pair tracker not given
     if not paired:
         # Create dict of empty lists, keyed by model name
-        paired = {}
+        paired: Dict[str, List[Set[int]]] = {}
         for model in hitIndex.keys():
             paired[model] = []
     # For each HMM model
@@ -582,7 +628,7 @@ def getPairs(hitIndex=None, paired=None):
     return hitIndex, paired
 
 
-def countUnpaired(hitIndex):
+def countUnpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> int:
     """
     Count the total number of unpaired hits across all models.
 
@@ -604,7 +650,7 @@ def countUnpaired(hitIndex):
     return count
 
 
-def listunpaired(hitIndex):
+def listunpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> List[int]:
     """
     Collect indices of all unpaired hits across all models.
 
@@ -626,7 +672,9 @@ def listunpaired(hitIndex):
     return unpaired
 
 
-def iterateGetPairs(hitIndex, stableReps=0):
+def iterateGetPairs(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], stableReps: int = 0
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]], List[int]]:
     """
     Repeatedly apply pairing algorithm until convergence or iteration limit.
 
@@ -679,13 +727,13 @@ def iterateGetPairs(hitIndex, stableReps=0):
 
 # Fix: Do not load fasta into genome!
 def extractTIRs(
-    model=None,
-    hitTable=None,
-    maxeval=0.001,
-    genome=None,
-    padlen=None,
-    genome_descriptions=None,
-):
+    model: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    maxeval: float = 0.001,
+    genome: Any = None,
+    padlen: Optional[int] = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+) -> Tuple[List[SeqRecord], int]:
     """
     Extract TIR sequences from genome for hits of a specific model.
 
@@ -780,14 +828,14 @@ def extractTIRs(
 
 # Fix: Do not load fasta into genome!
 def writeTIRs(
-    outDir=None,
-    hitTable=None,
-    maxeval=0.001,
-    genome=None,
-    prefix=None,
-    padlen=None,
-    genome_descriptions=None,
-):
+    outDir: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    maxeval: float = 0.001,
+    genome: Any = None,
+    prefix: Optional[str] = None,
+    padlen: Optional[int] = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+) -> None:
     """
     Write extracted TIR sequences to FASTA files organized by model.
 
@@ -853,7 +901,7 @@ def writeTIRs(
 # CS10_Chromosome_02_+_88294_88353_modelAlignment:1_60
 
 
-def flipTIRs(x, y):
+def flipTIRs(x: Any, y: Any) -> Tuple[Any, Any]:
     """
     Order two hits by genomic position to determine left and right TIRs.
 
@@ -873,7 +921,12 @@ def flipTIRs(x, y):
     return (left2right[0], left2right[1])
 
 
-def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=None):
+def fetchElements(
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    genome: Any = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+) -> Dict[str, List[Any]]:
     """
     Extract full-length transposon element sequences from paired TIR hits.
 
@@ -940,9 +993,9 @@ def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=N
             # Flat structure - direct access
             return hitIndex[hit_id]['rec']
 
-    TIRelements = {}
+    TIRelements: Dict[str, List[Any]] = {}
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',  # type: ignore[name-match]
         [
             'model',
             'chromosome',
@@ -1027,7 +1080,11 @@ def fetchElements(paired=None, hitIndex=None, genome=None, genome_descriptions=N
     return TIRelements
 
 
-def writeElements(outDir, eleDict=None, prefix=None):
+def writeElements(
+    outDir: str,
+    eleDict: Optional[Dict[str, List[Any]]] = None,
+    prefix: Optional[str] = None,
+) -> None:
     """
     Write extracted element sequences to FASTA files organized by model.
 
@@ -1065,14 +1122,14 @@ def writeElements(outDir, eleDict=None, prefix=None):
 
 
 def writePairedTIRs(
-    outDir=None,
-    paired=None,
-    hitIndex=None,
-    genome=None,
-    prefix=None,
-    padlen=None,
-    genome_descriptions=None,
-):
+    outDir: Optional[str] = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    genome: Any = None,
+    prefix: Optional[str] = None,
+    padlen: Optional[int] = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+) -> None:
     """
     Extract and write left and right TIR sequences from paired hits to FASTA.
 
@@ -1277,7 +1334,9 @@ def writePairedTIRs(
                         SeqIO.write(seq, handle, 'fasta')
 
 
-def fetchUnpaired(hitIndex=None):
+def fetchUnpaired(
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+) -> List[Any]:
     """
     Create GFF3-formatted records for all unpaired (orphan) TIR hits.
 
@@ -1300,7 +1359,7 @@ def fetchUnpaired(hitIndex=None):
     """
     orphans = []
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',  # type: ignore[name-match]
         [
             'model',
             'chromosome',
@@ -1337,13 +1396,13 @@ def fetchUnpaired(hitIndex=None):
 
 
 def gffWrite(
-    outpath=None,
-    featureList=None,
-    writeTIRs=True,
-    unpaired=None,
-    suppressMeta=False,
-    prefix=None,
-):
+    outpath: Optional[str] = None,
+    featureList: Optional[Dict[str, List[Any]]] = None,
+    writeTIRs: Union[bool, str] = True,
+    unpaired: Optional[List[Any]] = None,
+    suppressMeta: bool = False,
+    prefix: Optional[str] = None,
+) -> None:
     """
     Write transposon elements and terminal repeats to GFF3 format file.
 
@@ -1375,7 +1434,7 @@ def gffWrite(
     Features are sorted by model, chromosome, start, end.
     """
     if featureList is None:
-        featureList = []
+        featureList = {}  # type: ignore[assignment]
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1558,8 +1617,12 @@ class PairingConfig:
     """
 
     def __init__(
-        self, orientation='F,R', left_model=None, right_model=None, single_model=None
-    ):
+        self,
+        orientation: str = 'F,R',
+        left_model: Optional[str] = None,
+        right_model: Optional[str] = None,
+        single_model: Optional[str] = None,
+    ) -> None:
         """
         Configure pairing rules for terminal repeat elements.
 
@@ -1579,7 +1642,7 @@ class PairingConfig:
         self.left_model = left_model if self.is_asymmetric else single_model
         self.right_model = right_model if self.is_asymmetric else single_model
 
-    def get_model_pairs(self):
+    def get_model_pairs(self) -> List[Tuple[Optional[str], Optional[str]]]:
         """
         Get model pairs for pairing analysis.
 
@@ -1597,7 +1660,12 @@ class PairingConfig:
             return [(self.left_model, self.left_model)]
 
 
-def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
+def parseHitsGeneral(
+    hitsDict: Optional[Dict[str, Dict[str, List[Any]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    maxDist: Optional[int] = None,
+    config: Any = None,
+) -> Dict[str, Dict[int, Dict[str, Any]]]:
     """
     Populate candidate partners using configurable strand orientations.
 
@@ -1631,7 +1699,7 @@ def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
     logging.debug(f'Is asymmetric: {config.is_asymmetric}')
 
     if not maxDist:
-        maxDist = float('inf')
+        maxDist = float('inf')  # type: ignore[assignment]
         logging.debug('Using infinite maxDist')
     else:
         logging.debug(f'Using maxDist: {maxDist}')
@@ -1814,7 +1882,9 @@ def parseHitsGeneral(hitsDict=None, hitIndex=None, maxDist=None, config=None):
     return hitIndex
 
 
-def _check_distance(ref_hit, candidate, direction, maxDist):
+def _check_distance(
+    ref_hit: Any, candidate: Any, direction: str, maxDist: float
+) -> bool:
     """
     Validate that candidate hit is within distance threshold of reference hit.
 
@@ -1964,8 +2034,14 @@ def _check_distance(ref_hit, candidate, direction, maxDist):
 
 
 def _find_candidates(
-    ref_hit, target_model, target_strand, hitsDict, hitIndex, maxDist, direction
-):
+    ref_hit: Any,
+    target_model: str,
+    target_strand: str,
+    hitsDict: Dict[str, Dict[str, List[Any]]],
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]],
+    maxDist: float,
+    direction: str,
+) -> None:
     """
     Find and store valid candidate partners for a reference hit.
 
@@ -2109,7 +2185,9 @@ def _find_candidates(
         )
 
 
-def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
+def iterateGetPairsAsymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], config: Any, stableReps: int = 0
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]], List[int]]:
     """
     Iterate asymmetric pairing with different left and right HMM models.
 
@@ -2192,7 +2270,11 @@ def iterateGetPairsAsymmetric(hitIndex, config, stableReps=0):
     return hitIndex, paired, unpaired
 
 
-def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
+def getPairsAsymmetric(
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    config: Any = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]]]:
     """
     Perform one round of asymmetric pairing between different models.
 
@@ -2220,7 +2302,7 @@ def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
     import logging
 
     if not paired:
-        paired = {config.left_model: []}
+        paired: Dict[str, List[Set[int]]] = {config.left_model: []}
 
     pairs_found = 0
 
@@ -2281,8 +2363,13 @@ def getPairsAsymmetric(hitIndex=None, config=None, paired=None):
 
 
 def checkAsymmetricReciprocity(
-    left_model, left_id, right_model, right_id, hitIndex, config
-):
+    left_model: str,
+    left_id: int,
+    right_model: str,
+    right_id: int,
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]],
+    config: Any,
+) -> bool:
     """
     Check if asymmetric pair has reciprocal best-match relationship.
 
@@ -2340,7 +2427,9 @@ def checkAsymmetricReciprocity(
     return False  # No valid candidates
 
 
-def iterateGetPairsCustom(hitIndex, config, stableReps=0):
+def iterateGetPairsCustom(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], config: Any, stableReps: int = 0
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]], List[int]]:
     """
     Iterate symmetric pairing with custom strand orientations.
 
@@ -2421,7 +2510,12 @@ def iterateGetPairsCustom(hitIndex, config, stableReps=0):
     return hitIndex, paired, unpaired
 
 
-def getPairsSymmetric(hitIndex=None, model_name=None, config=None, paired=None):
+def getPairsSymmetric(
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    model_name: Optional[str] = None,
+    config: Any = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]]]:
     """
     Perform one round of symmetric pairing within a single model.
 
@@ -2525,7 +2619,13 @@ def getPairsSymmetric(hitIndex=None, model_name=None, config=None, paired=None):
     return hitIndex, paired
 
 
-def checkSymmetricReciprocity(model_name, ref_id, candidate_id, hitIndex, config):
+def checkSymmetricReciprocity(
+    model_name: str,
+    ref_id: int,
+    candidate_id: int,
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]],
+    config: Any,
+) -> bool:
     """
     Check reciprocal best-match for symmetric pairing with orientation constraints.
 
@@ -2587,7 +2687,9 @@ def checkSymmetricReciprocity(model_name, ref_id, candidate_id, hitIndex, config
 
 
 # Update helper functions to include config parameter
-def countUnpairedAsymmetric(hitIndex, config):
+def countUnpairedAsymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], config: Any
+) -> int:
     """
     Count unpaired hits across both left and right asymmetric models.
 
@@ -2612,7 +2714,9 @@ def countUnpairedAsymmetric(hitIndex, config):
     return count
 
 
-def listunpairedAsymmetric(hitIndex, config):
+def listunpairedAsymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], config: Any
+) -> List[int]:
     """
     List all unpaired hit indices for asymmetric models.
 
@@ -2639,7 +2743,9 @@ def listunpairedAsymmetric(hitIndex, config):
     return unpaired
 
 
-def countUnpairedSymmetric(hitIndex, model_name, config):
+def countUnpairedSymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], model_name: str, config: Any
+) -> int:
     """
     Count unpaired hits for symmetric model considering orientation constraints.
 
@@ -2675,7 +2781,9 @@ def countUnpairedSymmetric(hitIndex, model_name, config):
     return count
 
 
-def listunpairedSymmetric(hitIndex, model_name, config):
+def listunpairedSymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], model_name: str, config: Any
+) -> List[int]:
     """
     List unpaired hit indices for symmetric model with orientation constraints.
 

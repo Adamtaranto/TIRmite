@@ -32,6 +32,8 @@ dev = [
     "hatch",
     "isort",
     "ipykernel",
+    "mypy",
+    "pydocstyle",
     "numpydoc-validation",
     "pre-commit",
     "pytest",

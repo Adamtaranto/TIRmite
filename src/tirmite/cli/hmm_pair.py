@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 import sys
 
-from tirmite._version import __version__
+from tirmite._version import __version__  # type: ignore[import-not-found]
 import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (

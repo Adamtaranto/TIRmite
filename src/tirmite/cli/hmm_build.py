@@ -1005,7 +1005,19 @@ def deduplicate_sequences(sequences: List[SeqRecord]) -> List[SeqRecord]:
 
     # Sort sequences to prioritize seeds (seed sequences typically don't have genomic coordinates in their IDs)
     def is_seed_sequence(seq_record):
-        """Check if sequence is likely a seed sequence (no genomic coordinates)."""
+        """
+        Check if sequence is likely a seed sequence (no genomic coordinates).
+
+        Parameters
+        ----------
+        seq_record : Bio.SeqRecord.SeqRecord
+            Sequence record to check.
+
+        Returns
+        -------
+        bool
+            True if likely a seed sequence, False otherwise.
+        """
         seq_id = seq_record.id.lower()
         # Seed sequences typically don't have chromosome coordinates or chain info
         return not any(
@@ -1118,7 +1130,17 @@ def run_mafft_alignment(
 def calculate_pairwise_identity(alignment_file: Path) -> pd.DataFrame:
     """
     Calculate pairwise identity matrix from alignment.
-"""
+
+    Parameters
+    ----------
+    alignment_file : Path
+        Path to alignment file in FASTA format.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Pairwise identity matrix with sequence IDs as index and columns.
+    """
     try:
         # Use SeqIO.parse instead of Align.read to get SeqRecord objects
         alignment_records = list(SeqIO.parse(alignment_file, 'fasta'))
@@ -1162,7 +1184,21 @@ def build_hmm_from_alignment(
 ) -> Path:
     """
     Build HMM from multiple sequence alignment.
-"""
+
+    Parameters
+    ----------
+    alignment_file : Path
+        Path to multiple sequence alignment file.
+    model_name : str
+        Name for the HMM model.
+    output_dir : Path
+        Directory to write HMM output file.
+
+    Returns
+    -------
+    Path
+        Path to created HMM file.
+    """
     clean_model_name = cleanID(model_name)
 
     try:
@@ -1189,11 +1225,15 @@ def clean_hmm_name(name: str) -> str:
     """
     Clean model name for HMM compatibility with strict validation.
 
-    Args:
-        name: Raw model name
+    Parameters
+    ----------
+    name : str
+        Raw model name to clean.
 
-    Returns:
-        Cleaned name suitable for HMM models
+    Returns
+    -------
+    str
+        Cleaned name suitable for HMM models.
     """
     if not name:
         return 'unnamed_model'
@@ -1233,7 +1273,21 @@ def build_hmm_from_alignment_pyhmmer(
 ) -> Path:
     """
     Build HMM from multiple sequence alignment using pyhmmer.
-"""
+
+    Parameters
+    ----------
+    alignment_file : Path
+        Path to multiple sequence alignment file.
+    model_name : str
+        Name for the HMM model.
+    output_dir : Path
+        Directory to write HMM output file.
+
+    Returns
+    -------
+    Path
+        Path to created HMM file.
+    """
     # Clean the model name with stricter rules
     clean_model_name = clean_hmm_name(model_name)
     output_hmm = output_dir / f'{clean_model_name}.hmm'
@@ -1389,7 +1443,19 @@ def build_hmm_from_alignment_pyhmmer(
 def save_all_blast_hits(all_hits: List[BlastHit], output_file: Path) -> None:
     """
     Save all BLAST hits in tab-delimited format 6.
-"""
+
+    Parameters
+    ----------
+    all_hits : list of BlastHit
+        List of BLAST hit objects to save.
+    output_file : Path
+        Path to output file.
+
+    Returns
+    -------
+    None
+        No return value. Writes hits to file.
+    """
     with open(output_file, 'w') as f:
         # Write header
         f.write('# BLAST tabular output format 6\n')
@@ -1424,8 +1490,36 @@ def process_seed_sequences(
     """
     Process a seed file against genomes to build HMM.
 
-    Returns:
-        Tuple of (hmm_file, alignment_file, blast_hits_file, flanked_alignment_file)
+    Parameters
+    ----------
+    seed_file : Path
+        Path to seed sequence file in FASTA format.
+    model_name : str
+        Name for the HMM model.
+    genome_files : list of Path
+        List of genome files to search against.
+    temp_dir : Path
+        Directory for temporary files.
+    output_dir : Path
+        Directory for output files.
+    min_coverage : float
+        Minimum coverage threshold (0.0 to 1.0).
+    min_identity : float
+        Minimum percent identity threshold (0.0 to 100.0).
+    max_gap : int, default 500
+        Maximum gap for chaining fragmented hits.
+    save_blast_hits : bool, default False
+        If True, save all BLAST hits to file.
+    flank_size : int, optional
+        Size of flanking sequence to extract.
+    threads : int, default 1
+        Number of CPU threads for BLAST.
+
+    Returns
+    -------
+    tuple
+        (hmm_file, alignment_file, blast_hits_file, flanked_alignment_file)
+        where blast_hits_file and flanked_alignment_file may be None.
     """
     logging.info(f'Processing {model_name} seed: {seed_file.name}')
 
@@ -1580,8 +1674,37 @@ def process_asymmetric_seeds(
     """
     Process asymmetric left and right seeds together to avoid filtering conflicts.
 
-    Returns:
-        Tuple of (left_hmm_file, right_hmm_file, left_alignment_file, right_alignment_file)
+    Parameters
+    ----------
+    left_seed : Path
+        Path to left seed sequence file.
+    right_seed : Path
+        Path to right seed sequence file.
+    model_name : str
+        Base name for the models.
+    genome_files : list of Path
+        List of genome files to search against.
+    temp_dir : Path
+        Directory for temporary files.
+    output_dir : Path
+        Directory for output files.
+    min_coverage : float
+        Minimum coverage threshold (0.0 to 1.0).
+    min_identity : float
+        Minimum percent identity threshold (0.0 to 100.0).
+    max_gap : int, default 500
+        Maximum gap for resolving asymmetric conflicts.
+    save_blast_hits : bool, default False
+        If True, save all BLAST hits to file.
+    flank_size : int, optional
+        Size of flanking sequence to extract.
+    threads : int, default 1
+        Number of CPU threads for BLAST.
+
+    Returns
+    -------
+    tuple
+        (left_hmm_file, right_hmm_file, left_alignment_file, right_alignment_file).
     """
     logging.info(f'Processing asymmetric seeds for {model_name}')
 
@@ -1829,7 +1952,21 @@ def resolve_asymmetric_conflicts(
 ) -> Tuple[List[BlastHit], List[BlastHit]]:
     """
     Resolve conflicts between left and right seed hits.
-    Prioritize longer, higher-identity hits.
+
+    Parameters
+    ----------
+    left_hits : list of BlastHit
+        BLAST hits from left seed.
+    right_hits : list of BlastHit
+        BLAST hits from right seed.
+    max_gap : int
+        Maximum gap for conflict resolution.
+
+    Returns
+    -------
+    tuple
+        (filtered_left_hits, filtered_right_hits) with conflicts resolved,
+        prioritizing longer and higher-identity hits.
     """
     # Group hits by chromosome
     left_by_chrom = {}
@@ -1914,7 +2051,21 @@ def resolve_asymmetric_conflicts(
 def hits_overlap(hit1: BlastHit, hit2: BlastHit, min_overlap: int = 50) -> bool:
     """
     Check if two hits overlap significantly.
-"""
+
+    Parameters
+    ----------
+    hit1 : BlastHit
+        First BLAST hit.
+    hit2 : BlastHit
+        Second BLAST hit.
+    min_overlap : int, default 50
+        Minimum overlap in base pairs to consider significant.
+
+    Returns
+    -------
+    bool
+        True if hits overlap by at least min_overlap bases, False otherwise.
+    """
     if hit1.subject_id != hit2.subject_id:
         return False
 
@@ -1936,8 +2087,23 @@ def hits_overlap(hit1: BlastHit, hit2: BlastHit, min_overlap: int = 50) -> bool:
 
 def validate_coverage(value):
     """
-    Custom type validator for coverage.
-"""
+    Custom type validator for coverage argument.
+
+    Parameters
+    ----------
+    value : str
+        Coverage value to validate.
+
+    Returns
+    -------
+    float
+        Validated coverage value.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If value is not a float between 0.0 and 1.0.
+    """
     try:
         fval = float(value)
         if not (0.0 <= fval <= 1.0):
@@ -1953,8 +2119,23 @@ def validate_coverage(value):
 
 def validate_identity(value):
     """
-    Custom type validator for identity.
-"""
+    Custom type validator for identity argument.
+
+    Parameters
+    ----------
+    value : str
+        Identity value to validate.
+
+    Returns
+    -------
+    float
+        Validated identity value.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If value is not a float between 0.0 and 100.0.
+    """
     try:
         fval = float(value)
         if not (0.0 <= fval <= 100.0):
@@ -1970,8 +2151,23 @@ def validate_identity(value):
 
 def validate_threads(value):
     """
-    Custom type validator for threads.
-"""
+    Custom type validator for threads argument.
+
+    Parameters
+    ----------
+    value : str
+        Thread count value to validate.
+
+    Returns
+    -------
+    int
+        Validated thread count.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If value is not an integer >= 1.
+    """
     try:
         ival = int(value)
         if ival < 1:
@@ -1986,7 +2182,17 @@ def validate_threads(value):
 def add_seed_parser(subparsers):
     """
     Add seed subcommand parser.
-"""
+
+    Parameters
+    ----------
+    subparsers : argparse._SubParsersAction
+        Subparser object to add seed command to.
+
+    Returns
+    -------
+    None
+        Modifies subparsers in place.
+    """
     parser = subparsers.add_parser(
         'seed',
         help='Build HMM models from seed sequences',
@@ -2079,7 +2285,17 @@ def add_seed_parser(subparsers):
 def main(args=None):
     """
     Main function for HMM building workflow.
-"""
+
+    Parameters
+    ----------
+    args : argparse.Namespace, optional
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    int
+        Exit code (0 for success, 1 for error).
+    """
     # Check available CPU threads
     max_threads = os.cpu_count() or 1
     if args.threads > max_threads:

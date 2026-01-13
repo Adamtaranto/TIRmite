@@ -283,7 +283,16 @@ def cleanup_temp_directory(temp_dir: Union[str, Path], keep_temp: bool = False) 
 def dochecks(args):
     """
     DEPRECATED: Use setup_directories() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Command-line arguments.
+
+    Returns
+    -------
+    tuple
+        (outdir, tempdir) paths as strings.
     """
     import warnings
 
@@ -299,6 +308,16 @@ def dochecks(args):
 def isfile(path):
     """
     DEPRECATED: Use validate_input_files() instead.
+
+    Parameters
+    ----------
+    path : str
+        File path to check.
+
+    Returns
+    -------
+    None
+        No return value. Raises SystemExit if file not found.
     """
     import warnings
 

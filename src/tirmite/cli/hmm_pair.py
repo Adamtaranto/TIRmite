@@ -122,12 +122,17 @@ def calculate_hit_coverage(hitTable, model_lengths):
     """
     Calculate coverage for hits based on model lengths.
 
-    Args:
-        hitTable: DataFrame with hits
-        model_lengths: Dict of {model_name: model_length}
+    Parameters
+    ----------
+    hitTable : pandas.DataFrame
+        DataFrame with hits containing model, hitStart, hitEnd columns.
+    model_lengths : dict
+        Dictionary mapping model names to their lengths.
 
-    Returns:
-        DataFrame with coverage column added
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with coverage column added.
     """
     hitTable = hitTable.copy()
     coverage_values = []
@@ -153,12 +158,17 @@ def filter_hits_coverage(hitTable, mincov):
     """
     Filter hits by coverage threshold.
 
-    Args:
-        hitTable: DataFrame with coverage column
-        mincov: Minimum coverage threshold
+    Parameters
+    ----------
+    hitTable : pandas.DataFrame
+        DataFrame with coverage column.
+    mincov : float
+        Minimum coverage threshold (0.0 to 1.0).
 
-    Returns:
-        Filtered DataFrame
+    Returns
+    -------
+    pandas.DataFrame
+        Filtered DataFrame containing only hits with coverage >= mincov.
     """
     return hitTable[hitTable['coverage'] >= mincov]
 
@@ -166,7 +176,17 @@ def filter_hits_coverage(hitTable, mincov):
 def extract_model_name_from_path(model_path):
     """
     Extract model name from HMM file path by reading the HMM file.
-"""
+
+    Parameters
+    ----------
+    model_path : str or Path
+        Path to HMM file.
+
+    Returns
+    -------
+    str or None
+        Model name from NAME field, filename stem if not found, or None if no path.
+    """
     if not model_path:
         return None
 
@@ -185,7 +205,17 @@ def extract_model_name_from_path(model_path):
 def add_pair_parser(subparsers):
     """
     Add pair subcommand parser.
-"""
+
+    Parameters
+    ----------
+    subparsers : argparse._SubParsersAction
+        Subparser object to add pair command to.
+
+    Returns
+    -------
+    None
+        Modifies subparsers in place.
+    """
     parser = subparsers.add_parser(
         'pair',
         help='Pair precomputed nhmmer hits',
@@ -364,7 +394,24 @@ def add_pair_parser(subparsers):
 def validate_arguments(args):
     """
     Validate argument combinations and file existence.
-"""
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    None
+        No return value.
+
+    Raises
+    ------
+    ValueError
+        If argument combinations are invalid.
+    FileNotFoundError
+        If required files don't exist.
+    """
     # Check asymmetric pairing requirements
     if args.leftNhmmer and not args.rightNhmmer:
         raise ValueError('--leftNhmmer requires --rightNhmmer')
@@ -408,7 +455,17 @@ def validate_arguments(args):
 def main(args=None):
     """
     Main entry point for tirmite-pair.
-"""
+
+    Parameters
+    ----------
+    args : argparse.Namespace, optional
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    int
+        Exit code (0 for success, 1 for error).
+    """
     try:
         # Validate arguments
         try:

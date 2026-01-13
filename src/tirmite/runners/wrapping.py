@@ -24,7 +24,18 @@ from typing import List, Optional, Union
 class CommandError(Exception):
     """
     Custom exception for command execution errors.
-"""
+
+    Parameters
+    ----------
+    message : str
+        Error message.
+    cmd : str
+        Command that failed.
+    returncode : int
+        Exit code from failed command.
+    output : str, default ''
+        Command output (stdout/stderr).
+    """
 
     def __init__(self, message: str, cmd: str, returncode: int, output: str = ''):
         self.message = message
@@ -385,7 +396,18 @@ def run_script_file(
 def syscall(cmd: str, verbose: bool = False) -> None:
     """
     DEPRECATED: Use run_command() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    cmd : str
+        Command to execute.
+    verbose : bool, default False
+        Print verbose output.
+
+    Returns
+    -------
+    None
+        No return value. Legacy function for backwards compatibility.
     """
     import warnings
 
@@ -410,7 +432,22 @@ def run_cmd(
 ) -> None:
     """
     DEPRECATED: Use run_cmd_in_tempdir() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    cmds : list of str
+        Commands to execute.
+    verbose : bool, default False
+        Print verbose output.
+    tempDir : str, optional
+        Temporary directory path.
+    keeptemp : bool, default False
+        Keep temporary directory after execution.
+
+    Returns
+    -------
+    None
+        No return value. Legacy function for backwards compatibility.
     """
     import warnings
 
@@ -430,7 +467,18 @@ def run_cmd(
 def _write_script(cmds: List[str], script: str) -> None:
     """
     DEPRECATED: Use write_script_file() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    cmds : list of str
+        Commands to write to script.
+    script : str
+        Path to script file.
+
+    Returns
+    -------
+    None
+        No return value. Legacy function for backwards compatibility.
     """
     import warnings
 
@@ -448,7 +496,16 @@ def _write_script(cmds: List[str], script: str) -> None:
 def decode(x):
     """
     DEPRECATED: Modern subprocess uses text=True parameter.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    x : bytes or str
+        Value to decode.
+
+    Returns
+    -------
+    str
+        Decoded string.
     """
     import warnings
 

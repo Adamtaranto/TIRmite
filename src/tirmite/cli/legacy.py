@@ -656,8 +656,18 @@ def add_legacy_parser(subparsers):
 
 def main(args=None):
     """
-    Do the work.
-"""
+    Main entry point for legacy TIRmite workflow.
+
+    Parameters
+    ----------
+    args : argparse.Namespace, optional
+        Parsed command-line arguments. If None, parses from sys.argv.
+
+    Returns
+    -------
+    int
+        Exit code (0 for success, 1 for error).
+    """
     # Get cmd line args
     if args is None:
         args = mainArgs()

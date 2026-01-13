@@ -321,7 +321,20 @@ def run_blast_batch(
 def makeBlast(seq=None, outfile=None, pid=60):
     """
     DEPRECATED: Use run_self_blast() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    seq : str, optional
+        Path to sequence file.
+    outfile : str, optional
+        Path to output file.
+    pid : int, default 60
+        Percent identity threshold.
+
+    Returns
+    -------
+    None
+        No return value. Legacy function for backwards compatibility.
     """
     import warnings
 
@@ -340,7 +353,18 @@ def makeBlast(seq=None, outfile=None, pid=60):
 def run_blast(cmds, verbose=False):
     """
     DEPRECATED: Use run_blastn() or run_self_blast() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    cmds : list
+        BLAST command arguments.
+    verbose : bool, default False
+        Print verbose output.
+
+    Returns
+    -------
+    None
+        No return value. Legacy function for backwards compatibility.
     """
     import warnings
 

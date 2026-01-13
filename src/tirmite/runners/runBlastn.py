@@ -318,7 +318,9 @@ def run_blast_batch(
 
 
 # Deprecated functions kept for backwards compatibility
-def makeBlast(seq: Optional[str] = None, outfile: Optional[str] = None, pid: float = 60) -> None:
+def makeBlast(
+    seq: Optional[str] = None, outfile: Optional[str] = None, pid: float = 60
+) -> None:
     """
     DEPRECATED: Use run_self_blast() instead.
 
@@ -346,7 +348,7 @@ def makeBlast(seq: Optional[str] = None, outfile: Optional[str] = None, pid: flo
 
     try:
         if not seq or not outfile:
-            raise ValueError("Both seq and outfile are required")
+            raise ValueError('Both seq and outfile are required')
         run_self_blast(sequence_file=seq, output_file=outfile, perc_identity=pid)
     except Exception as e:
         raise Error(f'BLAST failed: {str(e)}') from e

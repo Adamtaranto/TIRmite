@@ -24,7 +24,12 @@ from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
 import pandas as pd  # type: ignore[import-untyped]
-from pyhmmer.easel import Alphabet, DigitalMSA, MSAFile, SequenceFile  # type: ignore[import-not-found]
+from pyhmmer.easel import (  # type: ignore[import-not-found]
+    Alphabet,
+    DigitalMSA,
+    MSAFile,
+    SequenceFile,
+)
 from pyhmmer.plan7 import Background, Builder  # type: ignore[import-not-found]
 
 from tirmite.runners.hmmer_wrappers import build_hmmbuild_command

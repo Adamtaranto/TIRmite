@@ -357,7 +357,9 @@ def cleanID(s: str) -> str:
     return s
 
 
-def manageTemp(record: Any = None, tempPath: Optional[str] = None, scrub: bool = False) -> None:
+def manageTemp(
+    record: Any = None, tempPath: Optional[str] = None, scrub: bool = False
+) -> None:
     """
     Write sequence record to temporary file or delete temporary file.
 

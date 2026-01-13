@@ -318,7 +318,7 @@ def process_hmmer_workflow(
 
     if hmm_dir and hmm_file:
         raise ValueError('hmm_dir and hmm_file are mutually exclusive')
-    
+
     if not genome_path:
         raise ValueError('genome_path is required')
 
@@ -433,7 +433,9 @@ def process_hmmer_workflow(
             logging.info(f'Building {len(build_commands)} HMM models...')
             try:
                 run_commands_sequential(
-                    cmds=build_commands, verbose=verbose, stop_on_error=True  # type: ignore[arg-type]
+                    cmds=build_commands,
+                    verbose=verbose,
+                    stop_on_error=True,  # type: ignore[arg-type]
                 )
                 logging.info('HMM building completed successfully')
             except Exception as e:
@@ -464,7 +466,9 @@ def process_hmmer_workflow(
                 evalue=default_search_params['evalue'],
                 cores=default_search_params['cores'],
                 nobias=bool(default_search_params['nobias']),
-                matrix_file=default_search_params['matrix'] if isinstance(default_search_params.get('matrix'), (str, Path)) else None,  # type: ignore[arg-type]
+                matrix_file=default_search_params['matrix']
+                if isinstance(default_search_params.get('matrix'), (str, Path))
+                else None,  # type: ignore[arg-type]
             )
 
             # Store commands for execution
@@ -486,14 +490,16 @@ def process_hmmer_workflow(
         logging.info(f'Executing {len(search_commands)} HMMER commands...')
         try:
             run_commands_sequential(
-                cmds=search_commands, verbose=verbose, stop_on_error=True  # type: ignore[arg-type]
+                cmds=search_commands,
+                verbose=verbose,
+                stop_on_error=True,  # type: ignore[arg-type]
             )
             logging.info('HMMER search completed successfully')
         except Exception as e:
             logging.error(f'HMMER search failed: {e}')
             raise
-    
+
     if results_dir is None:
-        raise ValueError("No results directory created - no HMM files were processed")
+        raise ValueError('No results directory created - no HMM files were processed')
 
     return results_dir, hmm_db_path

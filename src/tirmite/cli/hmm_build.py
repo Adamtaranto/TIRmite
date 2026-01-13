@@ -742,7 +742,6 @@ def chain_fragmented_hits(
 
 
 def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
-
     chains: List[List[BlastHit]], genome_index, model_name: str
 ) -> List[SeqRecord]:
     """
@@ -848,7 +847,6 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
 
 
 def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
-
     chains: List[List[BlastHit]], genome_index, model_name: str, flank_size: int
 ) -> List[SeqRecord]:
     """

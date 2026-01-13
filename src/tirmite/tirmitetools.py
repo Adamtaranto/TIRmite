@@ -453,8 +453,8 @@ def parseHits(
     For reverse strand (-) hits, searches for upstream forward strand (+) partners.
     Candidates are sorted by proximity to the reference hit.
     """
-    assert hitsDict is not None, "hitsDict cannot be None"
-    assert hitIndex is not None, "hitIndex cannot be None"
+    assert hitsDict is not None, 'hitsDict cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
     if not maxDist:
         maxDist = float('inf')  # type: ignore[assignment]
     for hmm in hitIndex.keys():
@@ -526,10 +526,10 @@ def isfirstUnpaired(
     Searches mate's candidate list for ref. If ref is mate's first unpaired
     candidate, they form a reciprocal pair and are marked as partners.
     """
-    assert ref is not None, "ref cannot be None"
-    assert mate is not None, "mate cannot be None"
-    assert model is not None, "model cannot be None"
-    assert index is not None, "index cannot be None"
+    assert ref is not None, 'ref cannot be None'
+    assert mate is not None, 'mate cannot be None'
+    assert model is not None, 'model cannot be None'
+    assert index is not None, 'index cannot be None'
     # Init result trackers
     found = None
     mateFUP = None
@@ -597,7 +597,7 @@ def getPairs(
     This allows pairing in cases where direct reciprocity is blocked by
     competing candidates.
     """
-    assert hitIndex is not None, "hitIndex cannot be None"
+    assert hitIndex is not None, 'hitIndex cannot be None'
     # If pair tracker not given
     if not paired:
         # Create dict of empty lists, keyed by model name
@@ -775,9 +775,9 @@ def extractTIRs(
     Padded flanking sequence is shown in lowercase letters.
     Uses 0-based indexing for pyfaidx extraction.
     """
-    assert model is not None, "model cannot be None"
-    assert hitTable is not None, "hitTable cannot be None"
-    assert genome is not None, "genome cannot be None"
+    assert model is not None, 'model cannot be None'
+    assert hitTable is not None, 'hitTable cannot be None'
+    assert genome is not None, 'genome cannot be None'
     hitcount = 0
     seqList = []
 
@@ -879,8 +879,8 @@ def writeTIRs(
     Creates one FASTA file per model with filename format:
     {prefix}{model}_hits_{count}.fasta
     """
-    assert hitTable is not None, "hitTable cannot be None"
-    assert genome is not None, "genome cannot be None"
+    assert hitTable is not None, 'hitTable cannot be None'
+    assert genome is not None, 'genome cannot be None'
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -969,9 +969,9 @@ def fetchElements(
     Handles both symmetric (same model) and asymmetric (different models) pairing.
     Element IDs have format: Element_{counter}.
     """
-    assert paired is not None, "paired cannot be None"
-    assert hitIndex is not None, "hitIndex cannot be None"
-    assert genome is not None, "genome cannot be None"
+    assert paired is not None, 'paired cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert genome is not None, 'genome cannot be None'
     # Check if hitIndex is nested or flat
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
 
@@ -1124,7 +1124,7 @@ def writeElements(
     Only creates files for models that have at least one element.
     Output filename format: {prefix}{model}_elements.fasta
     """
-    assert eleDict is not None, "eleDict cannot be None"
+    assert eleDict is not None, 'eleDict cannot be None'
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1180,10 +1180,10 @@ def writePairedTIRs(
     {model}_{counter}_L (left TIR) and {model}_{counter}_R (right TIR).
     Filename format: {prefix}{model}_paired_term_hits_{count}.fasta
     """
-    assert outDir is not None, "outDir cannot be None"
-    assert paired is not None, "paired cannot be None"
-    assert hitIndex is not None, "hitIndex cannot be None"
-    assert genome is not None, "genome cannot be None"
+    assert outDir is not None, 'outDir cannot be None'
+    assert paired is not None, 'paired cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert genome is not None, 'genome cannot be None'
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1379,7 +1379,7 @@ def fetchUnpaired(
     Unpaired hits are marked with type 'orphan_term' to distinguish them from
     paired terminal repeats in GFF3 output.
     """
-    assert hitIndex is not None, "hitIndex cannot be None"
+    assert hitIndex is not None, 'hitIndex cannot be None'
     orphans = []
     gffTup = namedtuple(
         'gffTup',  # type: ignore[name-match]
@@ -1715,9 +1715,9 @@ def parseHitsGeneral(
     within the specified distance constraint. Supports all strand combinations:
     F,R (canonical), R,F, F,F, and R,R orientations.
     """
-    assert hitsDict is not None, "hitsDict cannot be None"
-    assert hitIndex is not None, "hitIndex cannot be None"
-    assert config is not None, "config cannot be None"
+    assert hitsDict is not None, 'hitsDict cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert config is not None, 'config cannot be None'
     logging.debug('=== ENTERING parseHitsGeneral ===')
     logging.debug(
         f'Config: orientation={config.orientation}, left_strand={config.left_strand}, right_strand={config.right_strand}'
@@ -2326,8 +2326,8 @@ def getPairsAsymmetric(
     Checks reciprocal best-match relationship between left and right model hits.
     Only pairs hits that are each other's closest valid unpaired partners.
     """
-    assert hitIndex is not None, "hitIndex cannot be None"
-    assert config is not None, "config cannot be None"
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert config is not None, 'config cannot be None'
     import logging
 
     if not paired:
@@ -2381,7 +2381,9 @@ def getPairsAsymmetric(
                             )
 
                             # Add to paired list (store under left model)
-                            paired_dict[config.left_model].append({leftID, candidate.idx})
+                            paired_dict[config.left_model].append(
+                                {leftID, candidate.idx}
+                            )
                             pairs_found += 1
 
                             logging.debug(
@@ -2574,9 +2576,9 @@ def getPairsSymmetric(
     Each hit must have complementary role (left or right) based on strand
     to form a valid symmetric pair.
     """
-    assert hitIndex is not None, "hitIndex cannot be None"
-    assert model_name is not None, "model_name cannot be None"
-    assert config is not None, "config cannot be None"
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert model_name is not None, 'model_name cannot be None'
+    assert config is not None, 'config cannot be None'
     import logging
 
     if model_name not in hitIndex:

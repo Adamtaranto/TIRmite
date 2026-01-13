@@ -1,3 +1,15 @@
+"""
+BLAST wrappers for sequence alignment in TIR identification.
+
+Provides subprocess-based BLAST execution with:
+- Safety-focused command construction (avoids shell=True)
+- Proper error handling and timeouts
+- Batch processing capabilities
+- Self-alignment support for TIR detection
+
+All functions use Path objects and avoid shell injection vulnerabilities.
+"""
+
 import logging
 from pathlib import Path
 import subprocess

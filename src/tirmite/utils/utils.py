@@ -1,3 +1,14 @@
+"""
+Utility functions for TIRmite workflow management.
+
+Provides tools for:
+- Temporary directory management
+- Input/output file validation
+- Genome indexing and description extraction
+- Directory setup and cleanup
+- Legacy compatibility functions
+"""
+
 from collections import Counter
 from contextlib import contextmanager
 import logging

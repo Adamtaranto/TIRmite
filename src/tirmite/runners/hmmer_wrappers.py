@@ -1,3 +1,15 @@
+"""
+HMMER workflow wrappers for HMM building and genome searching.
+
+Provides command builders and workflow orchestration for:
+- hmmbuild: Building HMMs from multiple sequence alignments
+- hmmpress: Indexing HMM databases
+- nhmmer: Searching HMMs against genome sequences
+
+Functions construct subprocess-safe command lists and handle
+temporary file management.
+"""
+
 import logging
 from pathlib import Path
 import re
@@ -9,12 +21,12 @@ from tirmite.runners.wrapping import run_commands_sequential
 
 def cleanID(sequence_id: str) -> str:
     """
-    Remove non-alphanumeric characters from string and replace whitespace with underscores.
+    Remove non-alphanumeric characters and normalize whitespace in string.
 
     Parameters
     ----------
     sequence_id : str
-        Input string to clean.
+        Input string to clean (typically a model or sequence name).
 
     Returns
     -------

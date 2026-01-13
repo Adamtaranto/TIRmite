@@ -1,3 +1,16 @@
+"""
+Command execution wrappers with proper error handling.
+
+Provides safe subprocess execution tools:
+- Single and sequential command execution
+- Temporary directory management
+- Script file generation and execution
+- Legacy compatibility functions
+
+Emphasizes security by avoiding shell=True where possible
+and using list-form commands.
+"""
+
 import logging
 import os
 from pathlib import Path

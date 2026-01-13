@@ -1,3 +1,17 @@
+"""
+TIRmite core tools for transposon terminal repeat detection and pairing.
+
+This module implements the core algorithms for:
+- Parsing nhmmer search results
+- Filtering hits by coverage and e-value
+- Pairing terminal inverted repeats
+- Extracting and writing transposon sequences
+- Supporting both symmetric and asymmetric pairing modes
+
+The pairing algorithms use reciprocal best-match approaches with
+configurable strand orientations and distance constraints.
+"""
+
 from collections import namedtuple
 import glob
 import logging

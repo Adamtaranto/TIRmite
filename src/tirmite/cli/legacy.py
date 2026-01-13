@@ -672,7 +672,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     # Get cmd line args
     if args is None:
         args = mainArgs()
-    assert args is not None, "Failed to parse arguments"
+    assert args is not None, 'Failed to parse arguments'
 
     # TODO: Remove use of verbose option
     # Manually add args.verbose and set to True

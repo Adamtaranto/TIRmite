@@ -17,7 +17,7 @@ import logging
 import os
 from pathlib import Path
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
 import tirmite.tirmitetools as tirmite
@@ -204,7 +204,24 @@ def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
     return Path(model_path).stem
 
 
-def add_pair_parser(subparsers: Any) -> None:
+def create_pair_parser() -> argparse.ArgumentParser:
+    """
+    Create standalone argument parser for pair command.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Configured argument parser for pair workflow options.
+    """
+    parser = argparse.ArgumentParser(
+        prog='tirmite-pair',
+        description='Pair precomputed nhmmer hits for transposon detection',
+    )
+    _configure_pair_parser(parser)
+    return parser
+
+
+def add_pair_parser(subparsers: Any) -> argparse.ArgumentParser:
     """
     Add pair subcommand parser.
 
@@ -215,14 +232,35 @@ def add_pair_parser(subparsers: Any) -> None:
 
     Returns
     -------
-    None
-        Modifies subparsers in place.
+    argparse.ArgumentParser
+        The configured pair subcommand parser.
     """
-    parser = subparsers.add_parser(
-        'pair',
-        help='Pair precomputed nhmmer hits',
-        description='Pair precomputed nhmmer hits for transposon detection',
+    parser = cast(
+        argparse.ArgumentParser,
+        subparsers.add_parser(
+            'pair',
+            help='Pair precomputed nhmmer hits',
+            description='Pair precomputed nhmmer hits for transposon detection',
+        ),
     )
+    _configure_pair_parser(parser)
+    return parser
+
+
+def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
+    """
+    Configure parser with pair command arguments.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        Parser to configure.
+
+    Returns
+    -------
+    None
+        Modifies parser in place.
+    """
 
     parser.add_argument(
         '--version',
@@ -390,8 +428,6 @@ def add_pair_parser(subparsers: Any) -> None:
         help='Preserve temporary directory.',
     )
 
-    return parser
-
 
 def validate_arguments(args: Any) -> None:
     """
@@ -461,13 +497,21 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     Parameters
     ----------
     args : argparse.Namespace, optional
-        Parsed command-line arguments.
+        Parsed command-line arguments. If None, parses from sys.argv.
 
     Returns
     -------
     int
         Exit code (0 for success, 1 for error).
     """
+    # Parse arguments if not provided
+    if args is None:
+        parser = create_pair_parser()
+        args = parser.parse_args()
+    
+    # Mypy assertion: args is guaranteed non-None after parsing
+    assert args is not None
+    
     try:
         # Validate arguments
         try:
@@ -640,7 +684,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if args.nopairing:
             logging.info('Pairing disabled. Analysis complete.')
             cleanup_temp_directory(tempDir, args.keep_temp)
-            return
+            return 0
 
         # Run pairing
         logging.info('Searching for candidate pairings...')
@@ -735,6 +779,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Log completion message with logfile location if enabled
         if 'logfile_path' in locals() and logfile_path and args.logfile:
             logging.info(f'Log file saved to: {logfile_path}')
+    
+    return 0
 
 
 if __name__ == '__main__':

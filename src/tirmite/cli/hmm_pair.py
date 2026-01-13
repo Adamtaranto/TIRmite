@@ -26,13 +26,22 @@ from tirmite.utils.utils import (
 
 def get_hmm_model_length(hmm_file_path):
     """
-    Extract model length from HMM file.
+    Extract HMM model lengths from HMM file by parsing LENG fields.
 
-    Args:
-        hmm_file_path: Path to HMM file
+    Parameters
+    ----------
+    hmm_file_path : str or Path
+        Path to HMM file containing one or more models.
 
-    Returns:
-        dict: {model_name: model_length}
+    Returns
+    -------
+    dict
+        Dictionary mapping model names to their lengths (in alignment columns).
+
+    Notes
+    -----
+    Parses HMM file format looking for NAME and LENG lines.
+    Handles multi-model HMM files, extracting length for each named model.
 
     """
     model_lengths = {}
@@ -59,15 +68,22 @@ def get_hmm_model_length(hmm_file_path):
 
 def load_model_lengths_file(lengths_file):
     """
-    Load model lengths from tab-delimited file.
+    Load model lengths from tab-delimited text file.
 
-    Format: model_name<TAB>model_length
+    Parameters
+    ----------
+    lengths_file : str or Path
+        Path to tab-delimited file with format: model_name<TAB>model_length
 
-    Args:
-        lengths_file: Path to tab-delimited file
+    Returns
+    -------
+    dict
+        Dictionary mapping model names to integer lengths.
 
-    Returns:
-        dict: {model_name: model_length}
+    Notes
+    -----
+    Skips comment lines (starting with #) and blank lines.
+    Logs warnings for malformed lines but continues parsing.
 
     """
     model_lengths = {}

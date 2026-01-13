@@ -10,7 +10,20 @@ from tirmite._version import __version__
 
 def create_parser():
     """
-    Create the main argument parser with subcommands.
+    Create the main argument parser with subcommand structure.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Configured argument parser with legacy, seed, and pair subcommands.
+
+    Notes
+    -----
+    Subcommands available:
+    - legacy: Original TIRmite workflow (HMM search + pairing)
+    - seed: Build HMM models from seed sequences
+    - pair: Pair precomputed nhmmer hits
+
     """
     parser = argparse.ArgumentParser(
         prog='tirmite',
@@ -50,7 +63,19 @@ Examples:
 
 def main():
     """
-    The main CLI entry point."""
+    Main CLI entry point for TIRmite.
+
+    Returns
+    -------
+    int
+        Exit code from subcommand execution or 1 if no subcommand specified.
+
+    Notes
+    -----
+    Parses command-line arguments and dispatches to appropriate subcommand handler.
+    Prints help message if run without arguments.
+
+    """
     parser = create_parser()
 
     # Parse arguments

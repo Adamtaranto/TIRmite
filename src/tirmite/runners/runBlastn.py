@@ -14,10 +14,16 @@ class BlastError(Exception):
 
 def check_blast_available() -> bool:
     """
-    Check if blastn is available in PATH.
+    Check if blastn executable is available in system PATH.
 
-    Returns:
-        bool: True if blastn is found, False otherwise
+    Returns
+    -------
+    bool
+        True if blastn is found and executable, False otherwise.
+
+    Notes
+    -----
+    Tests blastn availability by running 'blastn -version' with a 10-second timeout.
 
     """
     try:
@@ -41,25 +47,44 @@ def run_blastn(
     num_threads: int = 1,
 ) -> subprocess.CompletedProcess:
     """
-    Run blastn with specified parameters using subprocess best practices.
+    Execute blastn with specified parameters using subprocess.
 
-    Args:
-        query: Path to query sequence file
-        subject: Path to subject sequence file
-        output: Path to output file
-        word_size: Word size for blastn (default: 4)
-        perc_identity: Minimum percent identity (default: 60.0)
-        outfmt: Output format string (default: tabular with specific fields)
-        additional_args: Additional command line arguments
-        verbose: Print command and output if True
-        num_threads: Number of CPU threads to use (default: 1)
+    Parameters
+    ----------
+    query : str or Path
+        Path to query sequence file (FASTA format).
+    subject : str or Path
+        Path to subject/database sequence file (FASTA format).
+    output : str or Path
+        Path to output file for BLAST results.
+    word_size : int, default 4
+        Word size for initial matches (smaller values increase sensitivity).
+    perc_identity : float, default 60.0
+        Minimum percent identity threshold for reporting alignments.
+    outfmt : str, default '6 qstart qend sstart send length positive pident qlen slen qframe sframe qseqid sseqid'
+        Output format string for tabular results.
+    additional_args : list of str, optional
+        Additional command-line arguments to pass to blastn.
+    verbose : bool, default False
+        If True, logs command and output to console.
+    num_threads : int, default 1
+        Number of CPU threads for BLAST to use.
 
-    Returns:
-        subprocess.CompletedProcess: Result of the blastn command
+    Returns
+    -------
+    subprocess.CompletedProcess
+        Result object containing return code, stdout, and stderr.
 
-    Raises:
-        BlastError: If blastn fails or is not available
-        FileNotFoundError: If input files don't exist
+    Raises
+    ------
+    FileNotFoundError
+        If query or subject files don't exist.
+    BlastError
+        If blastn is not available, execution fails, or output file not created.
+
+    Notes
+    -----
+    Uses 5-minute timeout for BLAST execution. Creates output directory if needed.
 
     """
     # Validate inputs
@@ -151,20 +176,30 @@ def run_self_blast(
     num_threads: int = 1,  # Add threading support
 ) -> subprocess.CompletedProcess:
     """
-    Run blastn with sequence file as both query and subject (self-alignment).
+    Perform self-alignment by running blastn with sequence as both query and subject.
 
-    This is a convenience wrapper for the common case of self-alignment
-    used in TIR identification.
+    Parameters
+    ----------
+    sequence_file : str or Path
+        Path to sequence file for self-alignment (FASTA format).
+    output_file : str or Path
+        Path to output file for BLAST results.
+    perc_identity : float, default 60.0
+        Minimum percent identity threshold for reporting alignments.
+    verbose : bool, default False
+        If True, logs command and output to console.
+    num_threads : int, default 1
+        Number of CPU threads for BLAST to use.
 
-    Args:
-        sequence_file: Path to sequence file for self-alignment
-        output_file: Path to output file
-        perc_identity: Minimum percent identity (default: 60.0)
-        verbose: Print command and output if True
-        num_threads: Number of CPU threads to use (default: 1)
+    Returns
+    -------
+    subprocess.CompletedProcess
+        Result object from blastn execution.
 
-    Returns:
-        subprocess.CompletedProcess: Result of the blastn command
+    Notes
+    -----
+    Convenience wrapper for run_blastn() with query and subject set to same file.
+    Commonly used for TIR identification through self-complementarity detection.
 
     """
     return run_blastn(
@@ -185,17 +220,31 @@ def run_blast_batch(
     max_workers: int = 1,
 ) -> List[subprocess.CompletedProcess]:
     """
-    Run BLAST on multiple sequence files.
+    Run BLAST self-alignment on multiple sequence files sequentially or in parallel.
 
-    Args:
-        sequence_files: List of sequence files for self-alignment
-        output_dir: Directory to write output files
-        perc_identity: Minimum percent identity (default: 60.0)
-        verbose: Print commands and output if True
-        max_workers: Number of parallel processes (default: 1 for sequential)
+    Parameters
+    ----------
+    sequence_files : list of str or Path
+        List of sequence files for self-alignment (FASTA format).
+    output_dir : str or Path
+        Directory to write BLAST output files.
+    perc_identity : float, default 60.0
+        Minimum percent identity threshold for all alignments.
+    verbose : bool, default False
+        If True, logs progress and commands.
+    max_workers : int, default 1
+        Number of parallel worker threads. If 1, runs sequentially.
 
-    Returns:
-        List of subprocess.CompletedProcess results
+    Returns
+    -------
+    list of subprocess.CompletedProcess
+        Results from all BLAST executions. Failed runs have None in list.
+
+    Notes
+    -----
+    Output files named {input_stem}_blast.tab in output_dir.
+    Failed BLAST runs are logged but don't stop batch processing.
+    For parallel execution (max_workers > 1), uses ThreadPoolExecutor.
 
     """
     output_path = Path(output_dir)

@@ -309,8 +309,24 @@ def isfile(path):
 
 def cleanID(s):
     """
-    Remove non alphanumeric characters from string.
-    Replace whitespace with underscores.
+    Remove non-alphanumeric characters and normalize whitespace in string.
+
+    Parameters
+    ----------
+    s : str
+        Input string to clean.
+
+    Returns
+    -------
+    str
+        Cleaned string with only alphanumeric characters and underscores.
+        Whitespace sequences replaced with single underscores.
+
+    Examples
+    --------
+    >>> cleanID("My-Model Name_v1!")
+    'MyModel_Name_v1'
+
     """
     s = re.sub(r'[^\w\s]', '', s)
     s = re.sub(r'\s+', '_', s)
@@ -319,9 +335,26 @@ def cleanID(s):
 
 def manageTemp(record=None, tempPath=None, scrub=False):
     """
-    Create single sequence fasta files or scrub temp files.
+    Write sequence record to temporary file or delete temporary file.
 
-    Note: Consider using temporary_directory() context manager instead.
+    Parameters
+    ----------
+    record : Bio.SeqRecord.SeqRecord, optional
+        Sequence record to write to file. Required if scrub is False.
+    tempPath : str, optional
+        Path to temporary file for writing or deletion.
+    scrub : bool, default False
+        If True, deletes file at tempPath. If False, writes record to tempPath.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    This is a legacy function. Consider using temporary_directory()
+    context manager for more robust temporary file handling.
+
     """
     if scrub and tempPath:
         try:
@@ -335,7 +368,23 @@ def manageTemp(record=None, tempPath=None, scrub=False):
 
 def checkUniqueID(records):
     """
-    Check that IDs for input elements are unique."""
+    Verify that all sequence IDs in record list are unique.
+
+    Parameters
+    ----------
+    records : list of Bio.SeqRecord.SeqRecord
+        List of sequence records to check.
+
+    Returns
+    -------
+    None
+
+    Raises
+    ------
+    SystemExit
+        If duplicate IDs are found, prints duplicate IDs and exits with code 1.
+
+    """
     seqIDs = [records[x].id for x in range(len(records))]
     IDcounts = Counter(seqIDs)
     duplicates = [k for k, v in IDcounts.items() if v > 1]
@@ -349,10 +398,29 @@ def checkUniqueID(records):
 
 def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
     """
-    Index genome using pyfaidx and extract sequence descriptions.
+    Index genome FASTA file and extract sequence descriptions.
 
-    Returns:
-        Tuple of (genome_index, descriptions_dict)
+    Parameters
+    ----------
+    genomePath : str or Path
+        Path to genome FASTA file to index.
+
+    Returns
+    -------
+    genome : pyfaidx.Fasta
+        Indexed genome object allowing efficient random access to sequences.
+    descriptions : dict
+        Dictionary mapping sequence IDs to their description strings.
+
+    Raises
+    ------
+    FileNotFoundError
+        If genome file doesn't exist at specified path.
+
+    Notes
+    -----
+    Creates a .fai index file alongside the genome FASTA for rapid sequence access.
+    Descriptions are parsed from FASTA headers (text after first whitespace).
 
     """
     genome_path = Path(genomePath)
@@ -374,13 +442,24 @@ def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
 
 def extract_genome_descriptions(genome_path: Union[str, Path]) -> dict:
     """
-    Extract sequence descriptions from genome FASTA file.
+    Parse sequence descriptions from genome FASTA file headers.
 
-    Args:
-        genome_path: Path to genome FASTA file
+    Parameters
+    ----------
+    genome_path : str or Path
+        Path to genome FASTA file.
 
-    Returns:
-        Dict mapping sequence ID to description
+    Returns
+    -------
+    dict
+        Dictionary mapping sequence IDs to description strings.
+        Returns empty dict if parsing fails.
+
+    Notes
+    -----
+    Extracts text following the sequence ID in FASTA headers.
+    Header format: >sequence_id description text
+    If no description present, maps to empty string.
 
     """
     descriptions = {}

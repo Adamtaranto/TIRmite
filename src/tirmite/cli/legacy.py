@@ -510,7 +510,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     # Get cmd line args
     if args is None:
         args = mainArgs()
-    
+
     # Mypy assertion: args is guaranteed non-None after parsing
     assert args is not None
 
@@ -987,7 +987,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     finally:
         # Always clean up temporary directory
         cleanup_temp_directory(tempDir, args.keep_temp)
-    
+
     return 0
 
 

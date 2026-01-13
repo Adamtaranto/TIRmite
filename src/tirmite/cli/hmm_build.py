@@ -2340,10 +2340,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     if args is None:
         parser = create_seed_parser()
         args = parser.parse_args()
-    
+
     # Mypy assertion: args is guaranteed non-None after parsing
     assert args is not None
-    
+
     # Check available CPU threads
     max_threads = os.cpu_count() or 1
     if args.threads > max_threads:

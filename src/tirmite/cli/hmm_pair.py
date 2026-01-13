@@ -508,10 +508,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     if args is None:
         parser = create_pair_parser()
         args = parser.parse_args()
-    
+
     # Mypy assertion: args is guaranteed non-None after parsing
     assert args is not None
-    
+
     try:
         # Validate arguments
         try:
@@ -779,7 +779,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Log completion message with logfile location if enabled
         if 'logfile_path' in locals() and logfile_path and args.logfile:
             logging.info(f'Log file saved to: {logfile_path}')
-    
+
     return 0
 
 

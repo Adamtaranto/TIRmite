@@ -80,7 +80,7 @@ select = [
     "W", # pycodestyle warning rules
     "B", # flake8-bugbear rules
     "I", # isort rules
-    "D", # pydocstyle rules
+    #"D", # pydocstyle rules
 ]
 ignore = [
     "C901", # max-complexity-10
@@ -88,6 +88,9 @@ ignore = [
     #"I001", # isort-imports
     "B905", # `zip()` without an explicit `strict=` parameter
 ]
+
+# Don't auto-fix docstring issues - they're too fragile
+unfixable = ["D"]
 
 [tool.ruff.format]
 indent-style = "space"

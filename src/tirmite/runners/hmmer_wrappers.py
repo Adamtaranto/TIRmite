@@ -1,3 +1,15 @@
+"""
+HMMER workflow wrappers for HMM building and genome searching.
+
+Provides command builders and workflow orchestration for:
+- hmmbuild: Building HMMs from multiple sequence alignments
+- hmmpress: Indexing HMM databases
+- nhmmer: Searching HMMs against genome sequences
+
+Functions construct subprocess-safe command lists and handle
+temporary file management.
+"""
+
 import logging
 from pathlib import Path
 import re
@@ -9,12 +21,12 @@ from tirmite.runners.wrapping import run_commands_sequential
 
 def cleanID(sequence_id: str) -> str:
     """
-    Remove non-alphanumeric characters from string and replace whitespace with underscores.
+    Remove non-alphanumeric characters and normalize whitespace in string.
 
     Parameters
     ----------
     sequence_id : str
-        Input string to clean.
+        Input string to clean (typically a model or sequence name).
 
     Returns
     -------
@@ -25,7 +37,6 @@ def cleanID(sequence_id: str) -> str:
     --------
     >>> cleanID("My Model-Name 1")
     'My_Model_Name_1'
-
     """
     # Remove non-alphanumeric characters except whitespace
     cleaned = re.sub(r'[^\w\s]', '', sequence_id)
@@ -67,7 +78,6 @@ def build_hmmbuild_command(
     ------
     FileNotFoundError
         If input alignment file doesn't exist.
-
     """
     # Clean model name for filesystem safety
     clean_model_name = cleanID(model_name)
@@ -128,7 +138,6 @@ def build_hmmpress_command(
     ------
     FileNotFoundError
         If HMM file doesn't exist.
-
     """
     hmm_path = Path(hmm_file)
 
@@ -188,7 +197,6 @@ def build_nhmmer_command(
     ------
     FileNotFoundError
         If model or genome files don't exist.
-
     """
     # Convert to Path objects
     model_path = Path(model_path)
@@ -274,10 +282,10 @@ def process_hmmer_workflow(
         Path to target genome sequence file.
     executable_paths : dict, optional
         Dictionary mapping tool names to executable paths.
-        Keys: 'hmmbuild', 'hmmpress', 'nhmmer'
+        Keys: 'hmmbuild', 'hmmpress', 'nhmmer'.
     search_params : dict, optional
         Dictionary of search parameters for nhmmer.
-        Keys: 'evalue', 'cores', 'nobias', 'matrix'
+        Keys: 'evalue', 'cores', 'nobias', 'matrix'.
     verbose : bool, default False
         Enable verbose logging of commands.
 
@@ -301,7 +309,6 @@ def process_hmmer_workflow(
     ...     genome_path='genome.fasta',
     ...     search_params={'evalue': 1e-3, 'cores': 4}
     ... )
-
     """
     # Validate inputs - now includes left_model and right_model
     if not any([hmm_dir, hmm_file, alignment_dir, left_model, right_model]):

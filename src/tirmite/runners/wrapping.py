@@ -1,3 +1,16 @@
+"""
+Command execution wrappers with proper error handling.
+
+Provides safe subprocess execution tools:
+- Single and sequential command execution
+- Temporary directory management
+- Script file generation and execution
+- Legacy compatibility functions
+
+Emphasizes security by avoiding shell=True where possible
+and using list-form commands.
+"""
+
 import logging
 import os
 from pathlib import Path
@@ -10,7 +23,19 @@ from typing import List, Optional, Union
 
 class CommandError(Exception):
     """
-    Custom exception for command execution errors."""
+    Custom exception for command execution errors.
+
+    Parameters
+    ----------
+    message : str
+        Error message.
+    cmd : str
+        Command that failed.
+    returncode : int
+        Exit code from failed command.
+    output : str, default ''
+        Command output (stdout/stderr).
+    """
 
     def __init__(self, message: str, cmd: str, returncode: int, output: str = ''):
         self.message = message
@@ -22,15 +47,17 @@ class CommandError(Exception):
 
 def cleanID(s: str) -> str:
     """
-    Remove non alphanumeric characters from string.
-    Replace whitespace with underscores.
+    Remove non-alphanumeric characters and normalize whitespace in string.
 
-    Args:
-        s: Input string to clean
+    Parameters
+    ----------
+    s : str
+        Input string to clean.
 
-    Returns:
-        str: Cleaned string with only alphanumeric chars and underscores
-
+    Returns
+    -------
+    str
+        Cleaned string with only alphanumeric characters and underscores.
     """
     s = re.sub(r'[^\w\s]', '', s)
     s = re.sub(r'\s+', '_', s)
@@ -45,21 +72,34 @@ def run_command(
     shell: bool = False,
 ) -> subprocess.CompletedProcess:
     """
-    Execute a command using subprocess with proper error handling.
+    Execute a system command with proper error handling and logging.
 
-    Args:
-        cmd: Command to execute (string or list of arguments)
-        verbose: Print command and output if True
-        timeout: Command timeout in seconds (None for no timeout)
-        cwd: Working directory for command execution
-        shell: Whether to use shell execution (discouraged for security)
+    Parameters
+    ----------
+    cmd : str or list of str
+        Command to execute as string (requires shell=True) or list of arguments.
+    verbose : bool, default False
+        If True, logs command and output.
+    timeout : int, optional
+        Command timeout in seconds. None for no timeout.
+    cwd : str or Path, optional
+        Working directory for command execution.
+    shell : bool, default False
+        If True, executes command through shell (security risk with untrusted input).
 
-    Returns:
-        subprocess.CompletedProcess: Result of command execution
+    Returns
+    -------
+    subprocess.CompletedProcess
+        Result object containing return code, stdout, and stderr.
 
-    Raises:
-        CommandError: If command fails or times out
+    Raises
+    ------
+    CommandError
+        If command fails (non-zero exit) or times out.
 
+    Notes
+    -----
+    Prefer shell=False for security. Use list form of cmd when possible.
     """
     if verbose:
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(cmd)
@@ -121,21 +161,31 @@ def run_commands_sequential(
     stop_on_error: bool = True,
 ) -> List[subprocess.CompletedProcess]:
     """
-    Execute multiple commands sequentially.
+    Execute multiple commands in sequence with error handling.
 
-    Args:
-        cmds: List of commands to execute
-        verbose: Print commands and output if True
-        timeout: Timeout per command in seconds
-        cwd: Working directory for command execution
-        stop_on_error: Stop execution if a command fails
+    Parameters
+    ----------
+    cmds : list of str or list of list of str
+        List of commands to execute sequentially.
+    verbose : bool, default True
+        If True, logs progress and command output.
+    timeout : int, optional
+        Timeout in seconds applied to each command individually.
+    cwd : str or Path, optional
+        Working directory for all command executions.
+    stop_on_error : bool, default True
+        If True, stops execution on first failed command and raises error.
+        If False, logs errors and continues with remaining commands.
 
-    Returns:
-        List of subprocess.CompletedProcess results
+    Returns
+    -------
+    list of subprocess.CompletedProcess or None
+        Results from each command. Failed commands have None if stop_on_error=False.
 
-    Raises:
-        CommandError: If any command fails and stop_on_error is True
-
+    Raises
+    ------
+    CommandError
+        If any command fails and stop_on_error is True.
     """
     results = []
 
@@ -174,21 +224,34 @@ def run_cmd_in_tempdir(
     """
     Execute commands in a temporary directory with automatic cleanup.
 
-    This is the modern replacement for the original run_cmd function.
+    Parameters
+    ----------
+    cmds : list of str or list of list of str
+        List of commands to execute in temporary directory.
+    verbose : bool, default False
+        If True, logs commands, output, and temp directory location.
+    tempDir : str or Path, optional
+        Parent directory for creating temporary directory. Uses cwd if None.
+    keeptemp : bool, default False
+        If True, preserves temporary directory after execution.
+    timeout : int, optional
+        Timeout in seconds applied to each command.
 
-    Args:
-        cmds: List of commands to execute
-        verbose: Print commands and output if True
-        tempDir: Parent directory for temporary directory (default: current dir)
-        keeptemp: Keep temporary directory after execution
-        timeout: Timeout per command in seconds
+    Returns
+    -------
+    list of subprocess.CompletedProcess
+        Results from all command executions.
 
-    Returns:
-        List of subprocess.CompletedProcess results
+    Raises
+    ------
+    CommandError
+        If any command fails.
 
-    Raises:
-        CommandError: If any command fails
-
+    Notes
+    -----
+    Modern replacement for legacy run_cmd() function.
+    Always returns to original directory even if commands fail.
+    Temporary directory named with 'tirmite_tmp_' prefix.
     """
     if tempDir is None:
         tempDir = os.getcwd()
@@ -237,17 +300,29 @@ def write_script_file(
     executable: bool = True,
 ) -> Path:
     """
-    Write commands to a script file with proper headers and permissions.
+    Write commands to an executable shell script file.
 
-    Args:
-        cmds: List of commands to write
-        script_path: Path for the script file
-        shell: Shell interpreter (default: 'bash')
-        executable: Make script executable
+    Parameters
+    ----------
+    cmds : list of str
+        List of command strings to write to script.
+    script_path : str or Path
+        Path for output script file.
+    shell : str, default 'bash'
+        Shell interpreter to use in shebang line.
+    executable : bool, default True
+        If True, sets file permissions to make script executable (chmod 755).
 
-    Returns:
-        Path: Path to created script file
+    Returns
+    -------
+    Path
+        Path object for the created script file.
 
+    Notes
+    -----
+    Adds shebang and error handling directives:
+    - #!/bin/{shell}
+    - set -euo pipefail (exit on error, undefined vars, pipe failures)
     """
     script_path = Path(script_path)
 
@@ -277,17 +352,32 @@ def run_script_file(
     cwd: Optional[Union[str, Path]] = None,
 ) -> subprocess.CompletedProcess:
     """
-    Execute a script file.
+    Execute a shell script file.
 
-    Args:
-        script_path: Path to script file
-        verbose: Print command and output if True
-        timeout: Script timeout in seconds
-        cwd: Working directory for script execution
+    Parameters
+    ----------
+    script_path : str or Path
+        Path to script file to execute.
+    verbose : bool, default False
+        If True, logs command and output.
+    timeout : int, optional
+        Script timeout in seconds. None for no timeout.
+    cwd : str or Path, optional
+        Working directory for script execution.
 
-    Returns:
-        subprocess.CompletedProcess: Result of script execution
+    Returns
+    -------
+    subprocess.CompletedProcess
+        Result object from script execution.
 
+    Raises
+    ------
+    FileNotFoundError
+        If script file doesn't exist.
+
+    Notes
+    -----
+    Automatically sets execute permissions (chmod 755) before running.
     """
     script_path = Path(script_path)
 
@@ -306,7 +396,18 @@ def run_script_file(
 def syscall(cmd: str, verbose: bool = False) -> None:
     """
     DEPRECATED: Use run_command() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    cmd : str
+        Command to execute.
+    verbose : bool, default False
+        Print verbose output.
+
+    Returns
+    -------
+    None
+        No return value. Legacy function for backwards compatibility.
     """
     import warnings
 
@@ -331,7 +432,22 @@ def run_cmd(
 ) -> None:
     """
     DEPRECATED: Use run_cmd_in_tempdir() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    cmds : list of str
+        Commands to execute.
+    verbose : bool, default False
+        Print verbose output.
+    tempDir : str, optional
+        Temporary directory path.
+    keeptemp : bool, default False
+        Keep temporary directory after execution.
+
+    Returns
+    -------
+    None
+        No return value. Legacy function for backwards compatibility.
     """
     import warnings
 
@@ -351,7 +467,18 @@ def run_cmd(
 def _write_script(cmds: List[str], script: str) -> None:
     """
     DEPRECATED: Use write_script_file() instead.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    cmds : list of str
+        Commands to write to script.
+    script : str
+        Path to script file.
+
+    Returns
+    -------
+    None
+        No return value. Legacy function for backwards compatibility.
     """
     import warnings
 
@@ -369,7 +496,16 @@ def _write_script(cmds: List[str], script: str) -> None:
 def decode(x):
     """
     DEPRECATED: Modern subprocess uses text=True parameter.
-    Legacy function maintained for backwards compatibility.
+
+    Parameters
+    ----------
+    x : bytes or str
+        Value to decode.
+
+    Returns
+    -------
+    str
+        Decoded string.
     """
     import warnings
 
@@ -387,4 +523,6 @@ def decode(x):
 
 # Keep original Error class for backwards compatibility
 class Error(Exception):
+    """Legacy exception class for backwards compatibility."""
+
     pass

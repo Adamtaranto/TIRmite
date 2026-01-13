@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-TIRmite-pair: Pair precomputed nhmmer hits for transposon terminal repeat detection.
+TIRmite-pair: Pair precomputed nhmmer hits for TIR detection.
 
-This module takes precomputed nhmmer results and runs the pairing workflow:
-1. Import nhmmer hits from tabular files
-2. Filter hits by model coverage and e-value
-3. Run pairing algorithms (symmetric or asymmetric)
-4. Output paired elements, individual hits, and GFF annotations
+This module processes precomputed nhmmer search results:
+1. Imports nhmmer hits from tabular files
+2. Filters hits by model coverage and e-value thresholds
+3. Applies pairing algorithms (symmetric or asymmetric)
+4. Outputs paired elements, TIR hits, and GFF3 annotations
+
+Supports both canonical (F,R) and custom strand orientations
+for flexible transposon architecture detection.
 """
 
 import logging
@@ -26,14 +29,22 @@ from tirmite.utils.utils import (
 
 def get_hmm_model_length(hmm_file_path):
     """
-    Extract model length from HMM file.
+    Extract HMM model lengths from HMM file by parsing LENG fields.
 
-    Args:
-        hmm_file_path: Path to HMM file
+    Parameters
+    ----------
+    hmm_file_path : str or Path
+        Path to HMM file containing one or more models.
 
-    Returns:
-        dict: {model_name: model_length}
+    Returns
+    -------
+    dict
+        Dictionary mapping model names to their lengths (in alignment columns).
 
+    Notes
+    -----
+    Parses HMM file format looking for NAME and LENG lines.
+    Handles multi-model HMM files, extracting length for each named model.
     """
     model_lengths = {}
 
@@ -59,16 +70,22 @@ def get_hmm_model_length(hmm_file_path):
 
 def load_model_lengths_file(lengths_file):
     """
-    Load model lengths from tab-delimited file.
+    Load model lengths from tab-delimited text file.
 
-    Format: model_name<TAB>model_length
+    Parameters
+    ----------
+    lengths_file : str or Path
+        Path to tab-delimited file with format: model_name<TAB>model_length.
 
-    Args:
-        lengths_file: Path to tab-delimited file
+    Returns
+    -------
+    dict
+        Dictionary mapping model names to integer lengths.
 
-    Returns:
-        dict: {model_name: model_length}
-
+    Notes
+    -----
+    Skips comment lines (starting with #) and blank lines.
+    Logs warnings for malformed lines but continues parsing.
     """
     model_lengths = {}
 
@@ -105,13 +122,17 @@ def calculate_hit_coverage(hitTable, model_lengths):
     """
     Calculate coverage for hits based on model lengths.
 
-    Args:
-        hitTable: DataFrame with hits
-        model_lengths: Dict of {model_name: model_length}
+    Parameters
+    ----------
+    hitTable : pandas.DataFrame
+        DataFrame with hits containing model, hitStart, hitEnd columns.
+    model_lengths : dict
+        Dictionary mapping model names to their lengths.
 
-    Returns:
-        DataFrame with coverage column added
-
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame with coverage column added.
     """
     hitTable = hitTable.copy()
     coverage_values = []
@@ -137,20 +158,35 @@ def filter_hits_coverage(hitTable, mincov):
     """
     Filter hits by coverage threshold.
 
-    Args:
-        hitTable: DataFrame with coverage column
-        mincov: Minimum coverage threshold
+    Parameters
+    ----------
+    hitTable : pandas.DataFrame
+        DataFrame with coverage column.
+    mincov : float
+        Minimum coverage threshold (0.0 to 1.0).
 
-    Returns:
-        Filtered DataFrame
-
+    Returns
+    -------
+    pandas.DataFrame
+        Filtered DataFrame containing only hits with coverage >= mincov.
     """
     return hitTable[hitTable['coverage'] >= mincov]
 
 
 def extract_model_name_from_path(model_path):
     """
-    Extract model name from HMM file path by reading the HMM file."""
+    Extract model name from HMM file path by reading the HMM file.
+
+    Parameters
+    ----------
+    model_path : str or Path
+        Path to HMM file.
+
+    Returns
+    -------
+    str or None
+        Model name from NAME field, filename stem if not found, or None if no path.
+    """
     if not model_path:
         return None
 
@@ -168,7 +204,18 @@ def extract_model_name_from_path(model_path):
 
 def add_pair_parser(subparsers):
     """
-    Add pair subcommand parser."""
+    Add pair subcommand parser.
+
+    Parameters
+    ----------
+    subparsers : argparse._SubParsersAction
+        Subparser object to add pair command to.
+
+    Returns
+    -------
+    None
+        Modifies subparsers in place.
+    """
     parser = subparsers.add_parser(
         'pair',
         help='Pair precomputed nhmmer hits',
@@ -346,7 +393,25 @@ def add_pair_parser(subparsers):
 
 def validate_arguments(args):
     """
-    Validate argument combinations and file existence."""
+    Validate argument combinations and file existence.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    None
+        No return value.
+
+    Raises
+    ------
+    ValueError
+        If argument combinations are invalid.
+    FileNotFoundError
+        If required files don't exist.
+    """
     # Check asymmetric pairing requirements
     if args.leftNhmmer and not args.rightNhmmer:
         raise ValueError('--leftNhmmer requires --rightNhmmer')
@@ -389,7 +454,18 @@ def validate_arguments(args):
 
 def main(args=None):
     """
-    Main entry point for tirmite-pair."""
+    Main entry point for tirmite-pair.
+
+    Parameters
+    ----------
+    args : argparse.Namespace, optional
+        Parsed command-line arguments.
+
+    Returns
+    -------
+    int
+        Exit code (0 for success, 1 for error).
+    """
     try:
         # Validate arguments
         try:

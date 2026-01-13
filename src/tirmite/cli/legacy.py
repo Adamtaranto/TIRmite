@@ -1,3 +1,15 @@
+"""
+Legacy TIRmite workflow combining HMM search and pairing.
+
+This module implements the original TIRmite command-line interface:
+- Builds or loads HMM models from alignments or existing HMMs
+- Searches genome with nhmmer
+- Pairs terminal inverted repeats
+- Outputs elements, hits, and GFF3 annotations
+
+Supports multiple input formats and both symmetric and asymmetric pairing.
+"""
+
 import argparse
 import glob
 import logging
@@ -19,7 +31,17 @@ from tirmite.utils.utils import (
 
 def mainArgs():
     """
-    Parse command line arguments.
+    Parse command-line arguments for legacy TIRmite workflow.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        Configured argument parser for legacy workflow options.
+
+    Notes
+    -----
+    Supports multiple input sources: HMM files, HMM directories, alignments,
+    or BED files. Includes options for pairing, filtering, and output control.
     """
     parser = argparse.ArgumentParser(
         description='Map HMM models of transposon termini to genomic sequences for annotation \
@@ -230,6 +252,23 @@ def mainArgs():
 
 
 def missing_tool(tool_name):
+    """
+    Check if command-line tool is available in system PATH.
+
+    Parameters
+    ----------
+    tool_name : str
+        Name of executable to check for.
+
+    Returns
+    -------
+    list of str
+        List containing tool_name if not found, empty list if found.
+
+    Notes
+    -----
+    Uses shutil.which() to search PATH for executable.
+    """
     path = shutil.which(tool_name)
     if path is None:
         return [tool_name]
@@ -239,16 +278,27 @@ def missing_tool(tool_name):
 
 def validate_pairbed_compatibility(hitTable, config, args):
     """
-    Validate that BED file contents are compatible with pairing configuration.
+    Validate BED file contents match pairing configuration requirements.
 
-    Args:
-        hitTable: DataFrame of hits from BED file
-        config: PairingConfig object with orientation and model settings
-        args: Command line arguments
+    Parameters
+    ----------
+    hitTable : pandas.DataFrame
+        DataFrame of hits loaded from BED file.
+    config : PairingConfig
+        Configuration specifying required models and orientation.
+    args : argparse.Namespace
+        Command-line arguments.
 
-    Returns:
-        bool: True if compatible, False otherwise
+    Returns
+    -------
+    bool
+        True if BED file contains required models and compatible strands,
+        False otherwise.
 
+    Notes
+    -----
+    For asymmetric pairing, checks presence of both left and right models.
+    For symmetric pairing, verifies specified model exists in BED file.
     """
     logging.info('Validating BED file compatibility with pairing configuration...')
 
@@ -343,7 +393,24 @@ def validate_pairbed_compatibility(hitTable, config, args):
 # Extract model names from file paths for validation
 def extract_model_name_from_path(model_path):
     """
-    Extract model name from HMM file path by reading the HMM file."""
+    Extract HMM model name from file path by parsing HMM file header.
+
+    Parameters
+    ----------
+    model_path : str or Path
+        Path to HMM file.
+
+    Returns
+    -------
+    str or None
+        Model name extracted from NAME field in HMM file.
+        Falls back to filename stem if NAME not found or file unreadable.
+        Returns None if model_path is None.
+
+    Notes
+    -----
+    Reads HMM file looking for 'NAME  ' line which specifies model name.
+    """
     if not model_path:
         return None
 
@@ -361,7 +428,23 @@ def extract_model_name_from_path(model_path):
 
 def add_legacy_parser(subparsers):
     """
-    Add legacy subcommand parser."""
+    Add legacy workflow subcommand to argument parser.
+
+    Parameters
+    ----------
+    subparsers : argparse._SubParsersAction
+        Subparser object to add legacy command to.
+
+    Returns
+    -------
+    None
+        Modifies subparsers in place by adding 'legacy' subcommand.
+
+    Notes
+    -----
+    Configures full argument specification for original TIRmite workflow
+    including HMM search and pairing with various filtering options.
+    """
     parser = subparsers.add_parser(
         'legacy',
         help='Original TIRmite workflow (HMM search + pairing)',
@@ -573,7 +656,18 @@ def add_legacy_parser(subparsers):
 
 def main(args=None):
     """
-    Do the work."""
+    Main entry point for legacy TIRmite workflow.
+
+    Parameters
+    ----------
+    args : argparse.Namespace, optional
+        Parsed command-line arguments. If None, parses from sys.argv.
+
+    Returns
+    -------
+    int
+        Exit code (0 for success, 1 for error).
+    """
     # Get cmd line args
     if args is None:
         args = mainArgs()

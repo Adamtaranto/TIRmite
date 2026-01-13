@@ -1,7 +1,7 @@
 import logging
+from pathlib import Path
 import re
 import shutil
-from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 from tirmite.runners.wrapping import run_commands_sequential

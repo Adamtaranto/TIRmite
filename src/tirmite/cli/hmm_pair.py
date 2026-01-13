@@ -11,11 +11,11 @@ This module takes precomputed nhmmer results and runs the pairing workflow:
 
 import logging
 import os
-import sys
 from pathlib import Path
+import sys
 
-import tirmite.tirmitetools as tirmite
 from tirmite._version import __version__
+import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,

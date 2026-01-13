@@ -1,12 +1,12 @@
+from collections import Counter
+from contextlib import contextmanager
 import logging
 import os
+from pathlib import Path
 import re
 import shutil
 import sys
 import tempfile
-from collections import Counter
-from contextlib import contextmanager
-from pathlib import Path
 from typing import Optional, Tuple, Union
 
 from Bio import SeqIO

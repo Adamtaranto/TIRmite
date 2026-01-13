@@ -1,12 +1,12 @@
+from collections import namedtuple
 import glob
 import logging
-import os
-from collections import namedtuple
 from operator import attrgetter
+import os
 
-import pandas as pd
 from Bio import AlignIO, Seq, SeqIO
 from Bio.SeqRecord import SeqRecord
+import pandas as pd
 
 from tirmite.utils.utils import cleanID
 

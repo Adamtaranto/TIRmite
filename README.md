@@ -1,4 +1,4 @@
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![PyPI version](https://badge.fury.io/py/TIRmite.svg)](https://badge.fury.io/py/TIRmite)
 [![codecov](https://codecov.io/gh/Adamtaranto/TIRmite/graph/badge.svg?token=DFEEPKDFZ0)](https://codecov.io/gh/Adamtaranto/TIRmite)
 [![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](http://bioconda.github.io/recipes/tirmite/README.html)
@@ -10,51 +10,42 @@
 
 # TIRmite
 
-Build and map profile Hidden Markov Models for Terminal Inverted Repeat
-families (TIR-pHMMs) to genomic sequences for annotation of MITES and complete
-DNA-Transposons with variable internal sequence composition.  
+Autonomous examples of transposons, belonging to many [distinct superfamilies, share two features](https://doi.org/10.1266/ggs.18-00024 "Yes yes, except when they don't. Don't @ me, nerds."): A gene or genes encoding the mode of transposition; and terminal sequence features that are recognised by said gene products as the element boundaries.
 
-If you have a draft TE model (i.e. from RepeatModeler or EDTA) and want to identify the TIR's to use with TIRmite - we recommend using [*tSplit*](https://github.com/Adamtaranto/TE-splitter/) a tool for extraction of terminal repeats from complete transposons.
+Proper classification of transposons and grouping into families relies on both phylogeny of conserved sequences and conservation of transposition mechanism.
+
+However, not all TE instances are created equal — inhabiting the nulear soup of their host genome, where your brother's transposase is as good as your own, non-autonomous variants lacking their own functional hardware proliferate.
+
+MITEs are a classic example of this - derived from autonomous DNA elements with Terminal Inverted Repeats, they are Miniature Inverted-repeat Transposable Elements, sometimes little more than a pair of TIRs.
+
+When non-autonomous structural variants of a TE vastly outnumber their parent element, and include forms that capture novel genes (or other full transposons!), it becomes difficult to correctly cluster related elements based on the limited signal present in terminal sequences (TIRs, LTRs, etc).
+
+**TIRmite** employs profile Hidden Markov Models (HMMs) to model natural variation in transposon termini and recover divergent and degraded hits that are often missed by sequence-based aligners like BLAST.
+
+An iterative pairing algorithm is then used to annotate cryptic transposon variants with variable internal sequence compositions.
 
 # Table of contents
 
 * [About TIRmite](#about-tirmite)
-* [Algorithm overview](#algorithm-overview)
 * [Options and usage](#options-and-usage)
   * [Installing TIRmite](#installing-tirmite)
   * [Example usage](#example-usage)
   * [Standard options](#standard-options)
-  * [Custom DNA matrices](#custom-dna-matrices)
+* [Algorithm overview](#algorithm-overview)
+* [Contributing](#contributing)
 * [Issues](#issues)
 * [License](#license)
 
 ## About TIRmite
 
-TIRmite will use profile-HMM models of Terminal Inverted Repeats (TIRs) for 
-genome-wide annotation of TIR families. These can be provided by the user or
-built from aligned TIRs oriented as 5' outer edge --> 3' inner edge.
+TIRmite will use profile-HMM models of Transposon Terminal Repeats for genome-wide annotation of transposon families. You can search for TE families with symmetrical termini (i.e. TIRs or LTRs) or asymmetrical elements with different conserved features at either end (i.e. Helitrons, Helentrons, and Starship elements).
 
 Three classes of output are produced:
 
-  1. All significant TIR hit sequences written to fasta (per query HMM).
-  2. Candidate elements comprised of paired TIRs are written to fasta (per query HMM).
-  3. Genomic annotations of candidate elements and, optionally, TIR hits
+  1. All significant termini hit sequences are written to fasta (per query HMM).
+  2. Candidate elements comprised of paired termini are written to fasta (per query HMM).
+  3. Genomic annotations of candidate elements and, optionally, HMM hits
   (paired and unpaired) are written as a single GFF3 file.
-
-## Algorithm overview
-
-  1. Use nhmmer genome with TIR-pHMM.
-  2. Import all hits below *--maxeval* threshold.
-  3. For each significant TIR match identify candidate partners, where:  
-    * Is on the same sequence.  
-    * Hit is in complementary orientation.  
-    * Distance is <= *--maxdist*.  
-    * Hit length is >= model length \* *--mincov*.  
-  4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
-  5. Pair reciprocal top candidate hits.
-  6. For unpaired hits, find first unpaired candidate partner and check for reciprocity.
-  7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
-  8. Iterate steps 6-7 until all TIRs are paired OR number of iterations without new pairing exceeds *--stableReps*.
 
 ## Options and usage
 
@@ -64,14 +55,11 @@ TIRmite requires Python >= v3.8
 
 Dependencies:
 
-* TIR-pHMM build and search
-  * [HMMER3](http://hmmer.org)
-* Extract terminal repeats from predicted TEs
-  * [pymummer](https://github.com/sanger-pathogens/pymummer) version >= 0.10.3 with wrapper for nucmer option *--diagfactor*.
-  * [MUMmer](https://github.com/mummer4/mummer)
-  * [BLAST+](ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/) (Optional)
+* [HMMER3](http://hmmer.org)
+* [mafft](https://mafft.cbrc.jp/alignment/software/)
+* [BLAST+](ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/) (Optional)
 
-You can create a Conda environment with these dependencies using the YAML files in this repo.
+You can create a Conda environment with these dependencies using the `environment.yml` file in this repo.
 
 ```bash
 conda env create -f environment.yml
@@ -79,32 +67,24 @@ conda env create -f environment.yml
 conda activate tirmite
 ```
 
-Installation options:  
+Installation options:
 
-pip install the latest development version directly from this repo.
+1) `pip install` the latest development version directly from this repo.
 
 ```bash
-% pip install git+https://github.com/Adamtaranto/TIRmite.git
+pip install git+https://github.com/Adamtaranto/TIRmite.git
 ```
 
-Install latest release from PyPi.
+2) Install latest release from PyPi.
 
 ```bash
-% pip install tirmite
+pip install tirmite
 ```
 
-Install from Bioconda.
+3) Install latest release (with dependencies) from Bioconda.
 
 ```bash
-% conda install -c bioconda tirmite
-```
-
-Clone from this repository and install as a local Python package.
-
-Do this if you want to edit the code.
-
-```bash
-git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite && pip install -e '.[dev]'
+conda install -c bioconda tirmite
 ```
 
 Test installation.
@@ -112,7 +92,7 @@ Test installation.
 ```bash
 # Print version number and exit.
 % tirmite --version
-tirmite 1.2.0
+tirmite 1.3.0
 
 # Get usage information
 % tirmite --help
@@ -120,21 +100,72 @@ tirmite 1.2.0
 
 ### Example usage
 
-Report all hits and valid pairings of TIR_A in target.fasta (interval <= 10000, hits cover > 40% len of hmm model), and write GFF3 annotation file.
+First, you will need to build a pHMM of your element's terminal sequence/s.
+
+If you have a draft TE model (i.e. from RepeatModeler or EDTA) and want to identify the TIR's or LTR's to use with TIRmite - I recommend using [*tSplit*](https://github.com/Adamtaranto/TE-splitter/) a tool for extraction of terminal repeats from complete transposons.
+
+
+1) Extract single TIR from sample element:
 
 ```bash
-% tirmite --genome target.fasta --hmmFile TIR_A.hmm --gffOut TIR_elements_in_Target.gff3 --maxdist 10000 --mincov 0.4
+# Uses BLASTn to detect TIRs of min 40% identity and min 10 bp length
+tsplit TIR -i TIR_element.fa -d tsplit_results --minid 0.4 --method blastn --minterm 10 --splitmode external
 ```
 
-If you don't have a HMM of your TIR, TIRmite can create one for you using an aligned sample of your TIR with `--alnFile`.
+2) Build a pHMM from the seed:
 
-To skip HMM search and run the pairing algorithm on a custom set of TIR hits (i.e. from blastn), you can provide hits in BED format with `--pairbed`.
+```bash
+GENOME="genome.fa" # Path to fasta containing one or more genomes to search for matches to seed sequence.
+
+tirmite seed --left-seed tsplit_results/TIR_element_tsplit_output.fasta --model-name MY_TIR --outdir MY_TIR_HMM --genome $GENOME --max-gap 10 --save-blast-hits --threads 8
+
+# Note: Setting `--flank-size 10` will output additional flanking bases outside the TIR, conservation in the flank accross many independent insertions may indicate your seed was truncated. Always check and adjust seed as required.
+```
+
+3) Use `nhmmer` to locate hits to the TIR-pHMM in a target genome.
+
+```bash
+HMMFILE="MY_TIR_HMM/MY_TIR.hmm"
+NHMMERFILE="MY_TIR_nhmmer_hits.tab"
+nhmmer --dna --cpu 8 --tblout $NHMMERFILE $HMMFILE $GENOME
+```
+
+**Custom DNA Matrices**
+
+Note: nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores.
+Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4)
+
+4) Use `tirmite pair` to identify valid TIR pairs. Outputs hits, elements, and annotations.
+
+```bash
+tirmite pair --genome $GENOME  --nhmmerFile $NHMMERFILE --hmmFile $HMMFILE --orientation F,R --mincov 0.4 --report all  --maxdist 20000 --stableReps 2 --outdir MY_TIR_PAIRING_OUTPUT --padlen 20 --maxeval 0.001 --gffOut --logfile
+```
+
+#### Legacy mode
+
+TIRmite `legacy` mode will take a TIR-pHMM and target genome fasta as input and run the full standard workflow, reporting all hits, valid pairings, and write GFF3 annotation file.
+
+Note: This usage will be phased out in a later release in favour of custom workflows.
+
+```bash
+# Use HMM search to pull more divergent TIR hits from your query genome.
+# TIR hits are paired in Fwd/Rev orientation
+# Fwd/Rev pairs must be within 20Kbp of each other
+# Hits must cover >= 40% of the TIR-pHMM
+tirmite legacy --genome $GENOME --hmmFile $HMMFILE--orientation F,R \
+--outdir results \
+--stableReps 2 \
+--report all \
+--gffOut --maxdist 20000 --mincov 0.4
+```
+
+If you don't have a HMM of your TIR, `tirmite legacy` can create one for you using an aligned sample of your TIR provided with `--alnFile`.
 
 TIRs should always be oriented 5\`- 3\` with the lefthand TIR.
 
 In this example the two TIRs should be oriented to begin with "GA".
 
-5\` **GA\>\>\>\>\>\>\>** ATGC <<<<<<<TC 3\`  
+5\` **GA\>\>\>\>\>\>\>** ATGC <<<<<<<TC 3\`
 3\` CT>>>>>>>>  TACG <<<<<<<AG 5\`
 
 ### Standard options
@@ -142,85 +173,67 @@ In this example the two TIRs should be oriented to begin with "GA".
 Run `tirmite --help` to view the program's most commonly used options:
 
 ```code
-tirmite [-h] [--version] --genome GENOME [--hmmDir HMMDIR]
-               [--hmmFile HMMFILE] [--alnDir ALNDIR] [--alnFile ALNFILE]
-               [--alnFormat {clustal,fasta,nexus,phylip,stockholm}]
-               [--pairbed PAIRBED] [--stableReps STABLEREPS] [--outdir OUTDIR]
-               [--prefix PREFIX] [--nopairing] [--gffOut]
-               [--reportTIR {None,all,paired,unpaired}] [--padlen PADLEN]
-               [--keeptemp] [-v] [--cores CORES] [--maxeval MAXEVAL]
-               [--maxdist MAXDIST] [--nobias] [--matrix MATRIX]
-               [--mincov MINCOV] [--hmmpress HMMPRESS] [--nhmmer NHMMER]
-               [--hmmbuild HMMBUILD]
+tirmite --help
+usage: tirmite [-h] [--version] COMMAND ...
 
-Info: 
-  -h, --help            Show this help message and exit
-  --version             Show program's version number and exit
-  
-Input options:
-  --genome              Path to target genome that will be queried with HMMs.
-                          Note: Sequence names must be unique. (required)
-  --hmmDir              Directory containing pre-prepared TIR-pHMMs.
-  --hmmFile             Path to single TIR-pHMM file. Incompatible with "--hmmDir".
-  --alnDir              Path to directory containing only TIR alignments to be
-                          converted to HMM.
-  --alnFile             Provide a single TIR alignment to be converted to HMM.
-                          Incompatible with "--alnDir".
-  --alnFormat           Alignments provided with "--alnDir" or "--alnFile" are
-                          all in this format.
-                          Choices=["clustal","fasta","nexus","phylip", "stockholm"]
-  --pairbed             If set TIRmite will preform pairing on TIRs from
-                          custom bedfile only.
+TIRmite: Transposon Terminal Repeat detection suite
 
-Pairing heuristics:
-  --stableReps          Number of times to iterate pairing procedure when no
-                         additional pairs are found AND remaining unpaired hits > 0.
-                         (Default = 0)
+positional arguments:
+  COMMAND     Available subcommands
+    legacy    Original TIRmite workflow (HMM search + pairing)
+    seed      Build HMM models from seed sequences
+    pair      Pair precomputed nhmmer hits
 
-Output and housekeeping:
-  --outdir OUTDIR       All output files will be written to this directory.
-  --prefix PREFIX       Add prefix to all TIRs and Paired elements detected in
-                          this run. Useful when running same TIR-pHMM against
-                          many genomes.
-                          (Default = None)
-  --nopairing           If set, only report TIR-pHMM hits. Do not attempt
-                          pairing.
-                          (Default = False)
-  --gffOut              If set report features as prefix.gff3. File saved to
-                          outdir.
-                          (Default = False)
-  --reportTIR           Options for reporting TIRs in GFF annotation file.
-                          Choices=[None,'all','paired','unpaired']
-                          (Default = 'all')
-  --padlen              Extract x bases either side of TIR when writing TIRs to fasta.
-                          (Default = None)
-  --keeptemp            If set do not delete temp file directory.
-                          (Default = False)
-  -v, --verbose         Set syscall reporting to verbose.
-  
-HMMER options:
-  --cores               Set number of cores available to hmmer software.
-  --maxeval             Maximum e-value allowed for valid hit.
-                          (Default = 0.001)
-  --maxdist             Maximum distance allowed between TIR candidates to
-                          consider valid pairing.
-                          (Default = None)
-  --nobias              Turn OFF bias correction of scores in nhmmer.
-                          (Default = False)
-  --matrix              Use custom DNA substitution matrix with nhmmer.
-  --mincov              Minimum valid hit length as prop of model length.
-                          (Default = 0.5)
+options:
+  -h, --help  show this help message and exit
+  --version   show program's version number and exit
 
-Non-standard HMMER paths:
-  --hmmpress            Set location of hmmpress if not in PATH.
-  --nhmmer              Set location of nhmmer if not in PATH.
-  --hmmbuild            Set location of hmmbuild if not in PATH.
+Available subcommands:
+  legacy    Original TIRmite workflow (HMM search + pairing)
+  seed      Build HMM models from seed sequences
+  pair      Pair precomputed nhmmer hits
+
+Examples:
+  tirmite legacy --genome genome.fa --hmmFile model.hmm
+  tirmite seed --left-seed left.fa --model-name myTE --genome genome.fa
+  tirmite pair --genome genome.fa --nhmmerFile hits.out --hmmFile model.hmm
 ```
 
-### Custom DNA Matrices
+## Algorithm overview
 
-nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores.
-Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4)
+  1. Use nhmmer to query genome with termini HMMs.
+  2. Import all hits under *--maxeval* threshold.
+  3. For each significant terminus match, identify candidate partners, where:
+    - Hit is on the same sequence.
+    - Hit is in coreect relative orientation.
+    - Distance is <= *--maxdist*.
+    - Hit length is >= (model length * *--mincov* prop)
+  4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
+  5. Pair reciprocal top candidate hits.
+  6. For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.
+  7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
+  8. Iterate steps 6-7 until all termini hits are paired OR number of iterations without new pairing exceeds *--stableReps*.
+
+## Contributing
+
+If you would like to add a new feature or fix a bug, please see our [contribution guidelines](https://github.com/Adamtaranto/TIRmite?tab=contributing-ov-file#readme).
+
+- Open an issue
+- Fork the repo
+- Follow the dev env setup instructions below
+
+```bash
+# Clone this repo (or your own fork)
+git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite
+# Install custom conda env
+conda env create -f environment.yml
+# Activate conda env
+conda activate tirmite
+# Install an editable copy of the package
+pip install -e '.[dev]'
+# Enable pre-commit checks
+pre-commit install
+```
 
 ## Issues
 
@@ -228,4 +241,9 @@ Submit feedback to the [Issue Tracker](https://github.com/Adamtaranto/TIRmite/is
 
 ## License
 
-Software provided under MIT license.
+Software provided under GPL-3 license.
+
+## Star History
+
+[![Star History
+Chart](https://api.star-history.com/svg?repos=adamtaranto/tirmite&type=Date)](https://star-history.com/#adamtaranto/tirmite&Date)

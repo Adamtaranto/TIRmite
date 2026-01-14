@@ -1,17 +1,63 @@
+"""
+TIRmite core tools for transposon terminal repeat detection and pairing.
+
+This module implements the core algorithms for:
+- Parsing nhmmer search results
+- Filtering hits by coverage and e-value
+- Pairing terminal inverted repeats
+- Extracting and writing transposon sequences
+- Supporting both symmetric and asymmetric pairing modes
+
+The pairing algorithms use reciprocal best-match approaches with
+configurable strand orientations and distance constraints.
+"""
+
 from collections import namedtuple
 import glob
+import logging
 from operator import attrgetter
 import os
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from Bio import AlignIO, SeqIO
-import pandas as pd
+from Bio import AlignIO, Seq, SeqIO  # type: ignore[import-not-found]
+from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
+import pandas as pd  # type: ignore[import-untyped]
 
-from tirmite.utils import cleanID
+from tirmite.utils.utils import cleanID
 
 
-def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
+def convertAlign(
+    alnDir: Optional[str] = None,
+    alnFile: Optional[str] = None,
+    inFormat: str = 'fasta',
+    tempDir: Optional[str] = None,
+) -> str:
     """
-    Convert input alignments into Stockholm format.
+    Convert input sequence alignments to Stockholm format for HMMER.
+
+    Parameters
+    ----------
+    alnDir : str, optional
+        Glob pattern to match multiple alignment files (e.g., "path/*.fasta").
+        Mutually exclusive with alnFile.
+    alnFile : str, optional
+        Path to a single alignment file to convert.
+        Mutually exclusive with alnDir.
+    inFormat : str, default 'fasta'
+        Format of input alignment files (e.g., 'fasta', 'clustal', 'phylip').
+    tempDir : str, optional
+        Base directory for creating temporary alignment output directory.
+        If None, uses current working directory.
+
+    Returns
+    -------
+    str
+        Path to directory containing converted Stockholm format alignments.
+
+    Notes
+    -----
+    Creates a 'temp_aln' subdirectory in tempDir (or cwd) to store output files.
+    Each alignment file is converted and saved with a .stockholm extension.
     """
     # Construct out model path
     if tempDir:
@@ -24,8 +70,10 @@ def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
     # Get list of alignment files to process
     if alnFile:
         alignments = [alnFile]
-    else:
+    elif alnDir:
         alignments = glob.glob(alnDir)
+    else:
+        raise ValueError('Either alnFile or alnDir must be provided')
     # Do conversion on each
     for infile in alignments:
         # Get basename
@@ -45,44 +93,71 @@ def convertAlign(alnDir=None, alnFile=None, inFormat='fasta', tempDir=None):
     return alnOutDir
 
 
-def import_nhmmer(infile=None, hitTable=None, prefix=None):
+def import_nhmmer(
+    infile: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    prefix: Optional[str] = None,
+) -> pd.DataFrame:
     """
-    Read nhmmer tab files to pandas dataframe.
+    Parse nhmmer tabular output file into a pandas DataFrame.
+
+    Parameters
+    ----------
+    infile : str
+        Path to nhmmer tabular output file containing hit records.
+    hitTable : pandas.DataFrame, optional
+        Existing DataFrame of hits to concatenate with new hits.
+    prefix : str, optional
+        Prefix to add to model names (currently unused but reserved for future use).
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing parsed hit records with columns:
+        model, target, hitStart, hitEnd, strand, evalue, score, bias,
+        hmmStart, hmmEnd. Sorted by model, target, hitStart, hitEnd, strand.
+
+    Notes
+    -----
+    Handles strand orientation: for reverse strand hits (-), hitStart and
+    hitEnd are swapped to ensure hitStart < hitEnd in genomic coordinates.
     """
-    hitRecords = list()
+    hitRecords = []
+    if not infile:
+        raise ValueError('infile parameter is required')
     with open(infile, 'r') as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith('#'):
-                li = li.split()
-                if li[11] == '+':
+                li_split = li.split()
+                if li_split[11] == '+':
                     hitRecords.append(
                         {
-                            'target': li[0],
-                            'model': li[2],
-                            'hmmStart': li[4],
-                            'hmmEnd': li[5],
-                            'hitStart': li[6],
-                            'hitEnd': li[7],
-                            'strand': li[11],
-                            'evalue': li[12],
-                            'score': li[13],
-                            'bias': li[14],
+                            'target': li_split[0],
+                            'model': li_split[2],
+                            'hmmStart': li_split[4],
+                            'hmmEnd': li_split[5],
+                            'hitStart': li_split[6],
+                            'hitEnd': li_split[7],
+                            'strand': li_split[11],
+                            'evalue': li_split[12],
+                            'score': li_split[13],
+                            'bias': li_split[14],
                         }
                     )
-                elif li[11] == '-':
+                elif li_split[11] == '-':
                     hitRecords.append(
                         {
-                            'target': li[0],
-                            'model': li[2],
-                            'hmmStart': li[4],
-                            'hmmEnd': li[5],
-                            'hitStart': li[7],
-                            'hitEnd': li[6],
-                            'strand': li[11],
-                            'evalue': li[12],
-                            'score': li[13],
-                            'bias': li[14],
+                            'target': li_split[0],
+                            'model': li_split[2],
+                            'hmmStart': li_split[4],
+                            'hmmEnd': li_split[5],
+                            'hitStart': li_split[7],
+                            'hitEnd': li_split[6],
+                            'strand': li_split[11],
+                            'evalue': li_split[12],
+                            'score': li_split[13],
+                            'bias': li_split[14],
                         }
                     )
     # Convert list of dicts into dataframe
@@ -116,27 +191,56 @@ def import_nhmmer(infile=None, hitTable=None, prefix=None):
     return df
 
 
-def import_BED(infile=None, hitTable=None, prefix=None):
+def import_BED(
+    infile: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    prefix: Optional[str] = None,
+) -> pd.DataFrame:
     """
-    Read TIR bedfile to pandas dataframe.
+    Parse BED format file of TIR hits into a pandas DataFrame.
+
+    Parameters
+    ----------
+    infile : str
+        Path to BED format file with TIR hit coordinates.
+    hitTable : pandas.DataFrame, optional
+        Existing DataFrame of hits to concatenate with new hits.
+    prefix : str, optional
+        Prefix to add to model names (currently unused but reserved for future use).
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing parsed hit records with columns:
+        model, target, hitStart, hitEnd, strand, evalue, score, bias,
+        hmmStart, hmmEnd. Score and bias set to 'NA' for BED format.
+        Sorted by model, target, hitStart, hitEnd, strand.
+
+    Notes
+    -----
+    Expected BED format: chromosome, start, end, name, evalue, strand.
+    Since BED format lacks HMM alignment coordinates, hmmStart and hmmEnd
+    are set to 'NA'.
     """
     # Format: Chrm, start, end, name, evalue, strand
-    hitRecords = list()
+    hitRecords = []
+    if not infile:
+        raise ValueError('infile parameter is required')
     with open(infile, 'r') as f:
         for line in f.readlines():
             li = line.strip()
             if not li.startswith('#'):
-                li = li.split()
+                li_split = li.split()
                 hitRecords.append(
                     {
-                        'target': li[0],
-                        'model': li[3],
+                        'target': li_split[0],
+                        'model': li_split[3],
                         'hmmStart': 'NA',
                         'hmmEnd': 'NA',
-                        'hitStart': li[1],
-                        'hitEnd': li[2],
-                        'strand': li[5],
-                        'evalue': li[4],
+                        'hitStart': li_split[1],
+                        'hitEnd': li_split[2],
+                        'strand': li_split[5],
+                        'evalue': li_split[4],
                         'score': 'NA',
                         'bias': 'NA',
                     }
@@ -172,8 +276,38 @@ def import_BED(infile=None, hitTable=None, prefix=None):
     return df
 
 
-def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
-    modelLens = dict()
+def filterHitsLen(
+    hmmDB: Optional[str] = None,
+    mincov: Optional[float] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """
+    Filter hit table to remove hits with insufficient model coverage.
+
+    Parameters
+    ----------
+    hmmDB : str
+        Path to directory containing HMM files (.hmm extension).
+    mincov : float
+        Minimum coverage threshold as a fraction of model length (0.0 to 1.0).
+        Hits shorter than (model_length * mincov) will be removed.
+    hitTable : pandas.DataFrame
+        DataFrame of hits to filter, must contain 'model', 'hitStart', 'hitEnd' columns.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Filtered DataFrame with short hits removed.
+
+    Notes
+    -----
+    Extracts model lengths from HMM files by parsing LENG and NAME fields.
+    For each model, calculates minimum acceptable hit length as model_length * mincov.
+    """
+    if not hmmDB or not mincov or hitTable is None:
+        raise ValueError('hmmDB, mincov, and hitTable are required parameters')
+
+    modelLens = {}
     for hmm in glob.glob(os.path.join(hmmDB, '*.hmm')):
         hmmLen = None
         hmmName = None
@@ -188,44 +322,84 @@ def filterHitsLen(hmmDB=None, mincov=None, hitTable=None):
                 modelLens[hmmName] = hmmLen
     for model in modelLens.keys():
         minlen = modelLens[model] * mincov
-        hitTable = hitTable.loc[
+        hitTable = hitTable.loc[  # type: ignore[assignment]
             ~(
                 (hitTable['model'] == model)
                 & (
                     (hitTable['hitEnd'].astype(int) - hitTable['hitStart'].astype(int))
                     + 1
-                    < minlen
+                    < minlen  # type: ignore[operator]
                 )
             )
         ]
     return hitTable
 
 
-def filterHitsEval(maxeval=None, hitTable=None):
+def filterHitsEval(
+    maxeval: Optional[float] = None, hitTable: Optional[pd.DataFrame] = None
+) -> pd.DataFrame:
     """
-    Filter hitTable df to remove hits with e-value in excess of --maxeval.
+    Filter hit table to remove hits with e-values exceeding threshold.
+
+    Parameters
+    ----------
+    maxeval : float
+        Maximum acceptable e-value threshold. Hits with e-values greater than
+        this value will be removed.
+    hitTable : pandas.DataFrame
+        DataFrame of hits to filter, must contain 'evalue' column.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Filtered DataFrame containing only hits with e-value < maxeval.
     """
+    if maxeval is None or hitTable is None:
+        raise ValueError('maxeval and hitTable are required parameters')
     hitTable = hitTable.loc[((hitTable['evalue'].astype(float)) < float(maxeval))]
     return hitTable
 
 
-def table2dict(hitTable):
+def table2dict(
+    hitTable: pd.DataFrame,
+) -> Tuple[Dict[str, Dict[str, List[Any]]], Dict[str, Dict[int, Dict[str, Any]]]]:
     """
-    Convert pandas dataframe of nhmmer hits into dict[model][chrom]
-    and index[model] = [hitlist].withCandidates and pairing status.
+    Convert pandas DataFrame of hits into nested dictionaries for pairing analysis.
+
+    Parameters
+    ----------
+    hitTable : pandas.DataFrame
+        DataFrame containing hit records with columns: model, target, hitStart,
+        hitEnd, strand, evalue, hmmStart, hmmEnd.
+
+    Returns
+    -------
+    hitsDict : dict
+        Nested dictionary structure: hitsDict[model][chromosome] = [list of hit records]
+        where hit records are namedtuples containing hit information.
+    hitIndex : dict
+        Nested dictionary structure: hitIndex[model][row_index] = {rec, partner, candidates}
+        where 'rec' is the hit record namedtuple, 'partner' tracks pairing status,
+        and 'candidates' is list of potential pairing partners.
+
+    Notes
+    -----
+    Creates namedtuple 'Elem' with fields: model, target, hitStart, hitEnd, strand,
+    idx (DataFrame row index), evalue. The idx field links back to the original DataFrame.
     """
     # Set up empty dict
-    hitsDict = dict()
-    hitIndex = dict()
+    hitsDict: Dict[str, Dict[str, List[Any]]] = {}
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]] = {}
     # Populate keys from dataframe
     for hmm in hitTable.model.unique():
-        hitsDict[hmm] = dict()
-        hitIndex[hmm] = dict()
+        hitsDict[hmm] = {}
+        hitIndex[hmm] = {}
         for chr in hitTable[hitTable['model'] == hmm].target.unique():
-            hitsDict[hmm][chr] = list()
+            hitsDict[hmm][chr] = []
     # Set up named tuple
     hitTup = namedtuple(
-        'Elem', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue']
+        'hitTup',
+        ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue'],  # type: ignore[name-match]
     )
     # Add each record to dicts
     for row in hitTable.iterrows():
@@ -240,18 +414,49 @@ def table2dict(hitTable):
         )
         # Log hit for model on chromosome
         hitsDict[row[1].model][row[1].target].append(record)
-        # Populate tracker
-        hitIndex[hmm][row[0]] = {'rec': record, 'partner': None, 'candidates': list()}
+        # Populate tracker - FIX: use row[1].model not hmm
+        hitIndex[row[1].model][row[0]] = {  # type: ignore[index]
+            'rec': record,
+            'partner': None,
+            'candidates': [],
+        }
     # Return master rec object and pairing tracker
     return hitsDict, hitIndex
 
 
-def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
+def parseHits(
+    hitsDict: Optional[Dict[str, Dict[str, List[Any]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    maxDist: Optional[int] = None,
+) -> Dict[str, Dict[int, Dict[str, Any]]]:
     """
-    Populate hitIndex with pairing candidates
+    Identify potential pairing partners for each hit based on strand and distance.
+
+    Parameters
+    ----------
+    hitsDict : dict
+        Nested dictionary of hits: hitsDict[model][chromosome] = [hit_records].
+    hitIndex : dict
+        Nested dictionary tracking pairing: hitIndex[model][idx] = {rec, partner, candidates}.
+    maxDist : int, optional
+        Maximum distance in base pairs between paired TIR elements.
+        If None, uses infinite distance (no distance constraint).
+
+    Returns
+    -------
+    dict
+        Updated hitIndex with populated 'candidates' lists for each hit.
+
+    Notes
+    -----
+    For forward strand (+) hits, searches for downstream reverse strand (-) partners.
+    For reverse strand (-) hits, searches for upstream forward strand (+) partners.
+    Candidates are sorted by proximity to the reference hit.
     """
+    assert hitsDict is not None, 'hitsDict cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
     if not maxDist:
-        maxDist = float('inf')
+        maxDist = float('inf')  # type: ignore[assignment]
     for hmm in hitIndex.keys():
         for UID in hitIndex[hmm].keys():
             ref = hitIndex[hmm][UID]['rec']
@@ -286,47 +491,121 @@ def parseHits(hitsDict=None, hitIndex=None, maxDist=None):
     return hitIndex
 
 
-def isfirstUnpaired(ref=None, mate=None, model=None, index=None):
+def isfirstUnpaired(
+    ref: Optional[int] = None,
+    mate: Optional[int] = None,
+    model: Optional[str] = None,
+    index: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+) -> Tuple[Optional[Set[int]], Dict[str, Dict[int, Dict[str, Any]]], Optional[int]]:
     """
-    Provided with a hitID (ref) and the ID of its nearest unpaired
-    candidate partner (mate), check if ref is also the nearest unpaired
-    partner to mate.
+    Check for reciprocal best unpaired partner relationship between two hits.
+
+    Parameters
+    ----------
+    ref : int
+        Index (DataFrame row number) of reference hit to check.
+    mate : int
+        Index of potential partner hit.
+    model : str
+        Name of HMM model for these hits.
+    index : dict
+        Hit index dictionary: index[model][idx] = {rec, partner, candidates}.
+
+    Returns
+    -------
+    found : set or None
+        If reciprocal match found, returns set {ref, mate}. Otherwise None.
+    index : dict
+        Updated index with partner assignments if match found.
+    mateFUP : int or None
+        If no reciprocal match, returns the index of mate's first unpaired
+        candidate (for second-degree reciprocity checking).
+
+    Notes
+    -----
+    Searches mate's candidate list for ref. If ref is mate's first unpaired
+    candidate, they form a reciprocal pair and are marked as partners.
     """
+    assert ref is not None, 'ref cannot be None'
+    assert mate is not None, 'mate cannot be None'
+    assert model is not None, 'model cannot be None'
+    assert index is not None, 'index cannot be None'
     # Init result trackers
     found = None
     mateFUP = None
+
     # Scan candidate partners of 'mate' looking for ref
     for matePartner in index[model][mate]['candidates']:
-        # If unpaired candidate is ref
-        if not index[model][matePartner.idx]['partner'] and matePartner.idx == ref:
-            found = set([matePartner.idx, mate])
+        # Get the model that this candidate belongs to
+        candidate_model = matePartner.model
+        candidate_idx = matePartner.idx
+
+        # Check if this candidate is unpaired and matches our ref
+        if (
+            candidate_model in index
+            and candidate_idx in index[candidate_model]
+            and not index[candidate_model][candidate_idx]['partner']
+            and candidate_idx == ref
+        ):
+            found = {candidate_idx, mate}
             index[model][ref]['partner'] = mate
-            index[model][mate]['partner'] = ref
-            # return
+            index[candidate_model][mate]['partner'] = ref
             return found, index, mateFUP
+
         # If first unpaired candidate partner for mate is not ref
-        elif not index[model][matePartner.idx]['partner']:
-            # Return none and unchanged index
-            mateFUP = matePartner.idx
+        elif (
+            candidate_model in index
+            and candidate_idx in index[candidate_model]
+            and not index[candidate_model][candidate_idx]['partner']
+        ):
+            mateFUP = candidate_idx
             return found, index, mateFUP
         else:
             continue
+
     # If mate candidates include no unpaired reps, return unchanged index
-    # and blank 'found' and 'mateFUP' variables.
     return found, index, mateFUP
 
 
-def getPairs(hitIndex=None, paired=None):
+def getPairs(
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]]]:
     """
-    Loop over all hit for all models and search for reciprocity within
-    2 degrees of the top unpaired candidate for each unpaired hit.
+    Identify reciprocal pairs using two-degree candidate matching.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
+    paired : dict, optional
+        Existing dictionary of paired hits: paired[model] = [list of pair sets].
+        If None, creates new empty dictionary.
+
+    Returns
+    -------
+    hitIndex : dict
+        Updated index with new partner assignments.
+    paired : dict
+        Updated dictionary with newly identified pairs added to each model's list.
+
+    Notes
+    -----
+    Implements multi-degree reciprocity checking:
+    1. First-degree: Check if hit A and candidate B are each other's best match.
+    2. Second-degree: If not, check if B's best match C is reciprocal with B.
+    This allows pairing in cases where direct reciprocity is blocked by
+    competing candidates.
     """
+    assert hitIndex is not None, 'hitIndex cannot be None'
     # If pair tracker not given
     if not paired:
         # Create dict of empty lists, keyed by model name
-        paired = dict()
+        paired_dict: Dict[str, List[Set[int]]] = {}
         for model in hitIndex.keys():
-            paired[model] = list()
+            paired_dict[model] = []
+    else:
+        paired_dict = paired
     # For each HMM model
     for model in hitIndex.keys():
         # Ask each hit in genome
@@ -345,7 +624,7 @@ def getPairs(hitIndex=None, paired=None):
                         if found:
                             # If current hit is also the best return match of
                             # our candidate, store as pair.
-                            paired[model].append(found)
+                            paired_dict[model].append(found)
                         elif mateFUP:
                             # Else if not a return match, check candidate's
                             # first outbound match for reciprocity.
@@ -354,13 +633,23 @@ def getPairs(hitIndex=None, paired=None):
                             )
                             if found:
                                 # Store if found.
-                                paired[model].append(found)
-    return hitIndex, paired
+                                paired_dict[model].append(found)
+    return hitIndex, paired_dict
 
 
-def countUnpaired(hitIndex):
+def countUnpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> int:
     """
-    How many hits are still unpaired across all models.
+    Count the total number of unpaired hits across all models.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
+
+    Returns
+    -------
+    int
+        Total count of hits without assigned partners.
     """
     count = 0
     for model in hitIndex.keys():
@@ -370,11 +659,21 @@ def countUnpaired(hitIndex):
     return count
 
 
-def listunpaired(hitIndex):
+def listunpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> List[int]:
     """
-    Return list of all unpaired hit IDs.
+    Collect indices of all unpaired hits across all models.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
+
+    Returns
+    -------
+    list of int
+        List of DataFrame indices for all hits without assigned partners.
     """
-    unpaired = list()
+    unpaired = []
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
             if not hitIndex[model][hitID]['partner']:
@@ -382,10 +681,34 @@ def listunpaired(hitIndex):
     return unpaired
 
 
-def iterateGetPairs(hitIndex, stableReps=0):
+def iterateGetPairs(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], stableReps: int = 0
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]], List[int]]:
     """
-    Iterate pairing procedure for all models until no unpaired hits remain or
-    number of reps without change is exceeded.
+    Repeatedly apply pairing algorithm until convergence or iteration limit.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
+    stableReps : int, default 0
+        Maximum number of iterations to continue after no new pairs are found.
+        If 0, stops immediately when no new pairs are found.
+
+    Returns
+    -------
+    hitIndex : dict
+        Updated index with final partner assignments.
+    paired : dict
+        Dictionary of all identified pairs: paired[model] = [list of pair sets].
+    unpaired : list of int
+        List of DataFrame indices for hits that remain unpaired.
+
+    Notes
+    -----
+    Iterates pairing until either all hits are paired or the unpaired count
+    remains stable for 'stableReps' consecutive iterations. This allows
+    pairing to progress through complex candidate competition scenarios.
     """
     # Init stable repeat counter
     reps = 0
@@ -412,60 +735,152 @@ def iterateGetPairs(hitIndex, stableReps=0):
 
 
 # Fix: Do not load fasta into genome!
-def extractTIRs(model=None, hitTable=None, maxeval=0.001, genome=None, padlen=None):
+def extractTIRs(
+    model: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    maxeval: float = 0.001,
+    genome: Any = None,
+    padlen: Optional[int] = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+) -> Tuple[List[SeqRecord], int]:
     """
-    For significant hits in model, compose seqrecords.
+    Extract TIR sequences from genome for hits of a specific model.
+
+    Parameters
+    ----------
+    model : str
+        Name of HMM model to extract hits for.
+    hitTable : pandas.DataFrame
+        DataFrame containing all hits with columns: model, target, hitStart, hitEnd,
+        strand, evalue, hmmStart, hmmEnd.
+    maxeval : float, default 0.001
+        Maximum e-value threshold for extracting hits.
+    genome : pyfaidx.Fasta
+        Indexed genome object for sequence extraction.
+    padlen : int, optional
+        Number of flanking bases to extract on each side of hit (shown in lowercase).
+    genome_descriptions : dict, optional
+        Dictionary mapping sequence IDs to their descriptions.
+
+    Returns
+    -------
+    seqList : list of Bio.SeqRecord.SeqRecord
+        List of SeqRecord objects containing extracted TIR sequences.
+    hitcount : int
+        Number of hits extracted that passed e-value threshold.
+
+    Notes
+    -----
+    Reverse complement is applied for hits on the negative strand.
+    Padded flanking sequence is shown in lowercase letters.
+    Uses 0-based indexing for pyfaidx extraction.
     """
-    # Note: Padding not yet enabled for TIR extraction.
+    assert model is not None, 'model cannot be None'
+    assert hitTable is not None, 'hitTable cannot be None'
+    assert genome is not None, 'genome cannot be None'
     hitcount = 0
-    seqList = list()
+    seqList = []
+
     for index, row in hitTable[hitTable['model'] == model].iterrows():
         if float(row['evalue']) <= maxeval:
             hitcount += 1
+
+            # Extract sequence using pyfaidx (0-based indexing)
+            chrom = genome[row['target']]
+            start = int(row['hitStart']) - 1  # Convert to 0-based
+            end = int(row['hitEnd'])  # End is exclusive in slicing
+
             if padlen:
-                hitrecord = (
-                    genome[row['target']][
-                        int(row['hitStart']) - 1 - padlen : int(row['hitStart']) - 1
-                    ].lower()
-                    + genome[row['target']][
-                        int(row['hitStart']) - 1 : int(row['hitEnd'])
-                    ]
-                    + genome[row['target']][
-                        int(row['hitEnd']) : int(row['hitEnd']) + padlen
-                    ].lower()
-                )
+                # Extract with padding
+                pad_start = max(0, start - padlen)
+                pad_end = min(len(chrom), end + padlen)
+
+                # Build sequence with padding in lowercase
+                seq_parts = []
+                if start > pad_start:
+                    seq_parts.append(str(chrom[pad_start:start]).lower())
+                seq_parts.append(str(chrom[start:end]))
+                if end < pad_end:
+                    seq_parts.append(str(chrom[end:pad_end]).lower())
+
+                hit_seq_str = ''.join(seq_parts)
             else:
-                hitrecord = genome[row['target']][
-                    int(row['hitStart']) - 1 : int(row['hitEnd'])
-                ]
+                hit_seq_str = str(chrom[start:end])
+
+            # Create SeqRecord
+            hitrecord = SeqRecord(Seq.Seq(hit_seq_str))
             hitrecord.id = model + '_' + str(index)
+
             if row['strand'] == '-':
                 hitrecord = hitrecord.reverse_complement(id=hitrecord.id + '_rc')
+
             hitrecord.name = hitrecord.id
-            hitrecord.description = '_'.join(
+
+            # Build description with genome description
+            coord_info = '_'.join(
                 [
                     '[' + str(row['target']) + ':' + str(row['strand']),
                     str(row['hitStart']),
-                    str(row['hitEnd']) + ' modelAlignment:' + row['hmmStart'],
-                    row['hmmEnd'] + ' E-value:' + str(row['evalue']) + ']',
+                    str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
+                    str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
                 ]
             )
-            # Append record to list
+
+            # Add genome description if available
+            if genome_descriptions and row['target'] in genome_descriptions:
+                genome_desc = genome_descriptions[row['target']]
+                hitrecord.description = f'{coord_info} {genome_desc}'
+            else:
+                hitrecord.description = coord_info
+
             seqList.append(hitrecord)
-        else:
-            continue
-    # Return seqrecord list and total hit count for model
+
     return seqList, hitcount
 
 
 # Fix: Do not load fasta into genome!
 def writeTIRs(
-    outDir=None, hitTable=None, maxeval=0.001, genome=None, prefix=None, padlen=None
-):
+    outDir: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    maxeval: float = 0.001,
+    genome: Any = None,
+    prefix: Optional[str] = None,
+    padlen: Optional[int] = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+) -> None:
     """
-    Write all hits per Model to a multifasta in the outdir
+    Write extracted TIR sequences to FASTA files organized by model.
+
+    Parameters
+    ----------
+    outDir : str, optional
+        Output directory for FASTA files. If None, uses current directory.
+    hitTable : pandas.DataFrame
+        DataFrame containing all hits with columns: model, target, hitStart, hitEnd,
+        strand, evalue, hmmStart, hmmEnd.
+    maxeval : float, default 0.001
+        Maximum e-value threshold for extracting hits.
+    genome : pyfaidx.Fasta
+        Indexed genome object for sequence extraction.
+    prefix : str, optional
+        Prefix to add to output filenames and sequence IDs.
+    padlen : int, optional
+        Number of flanking bases to extract on each side of hit (shown in lowercase).
+    genome_descriptions : dict, optional
+        Dictionary mapping sequence IDs to their descriptions.
+
+    Returns
+    -------
+    None
+        Writes FASTA files to disk but returns nothing.
+
+    Notes
+    -----
+    Creates one FASTA file per model with filename format:
+    {prefix}{model}_hits_{count}.fasta
     """
-    # Note: Padding not yet enabled for TIR extraction.
+    assert hitTable is not None, 'hitTable cannot be None'
+    assert genome is not None, 'genome cannot be None'
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -476,6 +891,7 @@ def writeTIRs(
             os.makedirs(outDir)
     else:
         outDir = os.getcwd()
+
     for model in hitTable['model'].unique():
         # List of TIR seqrecords, and count of hits
         seqList, hitcount = extractTIRs(
@@ -484,6 +900,7 @@ def writeTIRs(
             maxeval=maxeval,
             genome=genome,
             padlen=padlen,
+            genome_descriptions=genome_descriptions,  # Pass descriptions
         )
         outfile = os.path.join(
             outDir, prefix + model + '_hits_' + str(hitcount) + '.fasta'
@@ -498,23 +915,104 @@ def writeTIRs(
 # CS10_Chromosome_02_+_88294_88353_modelAlignment:1_60
 
 
-def flipTIRs(x, y):
+def flipTIRs(x: Any, y: Any) -> Tuple[Any, Any]:
     """
-    Sort hits into left and right TIRs.
+    Order two hits by genomic position to determine left and right TIRs.
+
+    Parameters
+    ----------
+    x : namedtuple
+        First hit record with hitStart and hitEnd attributes.
+    y : namedtuple
+        Second hit record with hitStart and hitEnd attributes.
+
+    Returns
+    -------
+    tuple
+        (left_hit, right_hit) ordered by genomic coordinates (hitStart, then hitEnd).
     """
     left2right = sorted([x, y], key=attrgetter('hitStart', 'hitEnd'))
     return (left2right[0], left2right[1])
 
 
-# Fix: Do not load fasta into genome!
-def fetchElements(paired=None, hitIndex=None, genome=None):
+def fetchElements(
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    genome: Any = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+) -> Dict[str, List[Any]]:
     """
-    Extract complete sequence of paired elements,
-    asign names and child TIRs for use in seq and GFF reporting.
+    Extract full-length transposon element sequences from paired TIR hits.
+
+    Parameters
+    ----------
+    paired : dict
+        Dictionary of paired hits: paired[model] = [list of pair sets {id1, id2}].
+    hitIndex : dict
+        Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
+        Supports both nested (model-keyed) and flat structures.
+    genome : pyfaidx.Fasta
+        Indexed genome object for sequence extraction.
+    genome_descriptions : dict, optional
+        Dictionary mapping sequence IDs to their descriptions.
+
+    Returns
+    -------
+    dict
+        Dictionary of element records keyed by model: TIRelements[model] = [element_records].
+        Each element record is a namedtuple with fields: model, chromosome, start, end,
+        strand, type, id, leftHit, rightHit, seq, evalue.
+
+    Notes
+    -----
+    Extracts sequence from leftHit.hitStart to rightHit.hitEnd.
+    Handles both symmetric (same model) and asymmetric (different models) pairing.
+    Element IDs have format: Element_{counter}.
     """
-    TIRelements = dict()
+    assert paired is not None, 'paired cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert genome is not None, 'genome cannot be None'
+    # Check if hitIndex is nested or flat
+    is_nested = isinstance(next(iter(hitIndex.values())), dict)
+
+    def get_hit_record(hit_id: int) -> Any:
+        """
+        Retrieve hit record from either nested or flat hitIndex structure.
+
+        Parameters
+        ----------
+        hit_id : int
+            Index of the hit record to retrieve.
+
+        Returns
+        -------
+        namedtuple
+            Hit record namedtuple with fields: model, target, hitStart, hitEnd,
+            strand, idx, evalue.
+
+        Raises
+        ------
+        KeyError
+            If hit_id is not found in any model within the hitIndex.
+
+        Notes
+        -----
+        Handles both nested (model-keyed) and flat hitIndex structures for
+        backward compatibility.
+        """
+        if is_nested:
+            # Search through all models to find the hit
+            for _model_name, model_hits in hitIndex.items():
+                if hit_id in model_hits:
+                    return model_hits[hit_id]['rec']
+            raise KeyError(f'Hit ID {hit_id} not found in any model')
+        else:
+            # Flat structure - direct access
+            return hitIndex[hit_id]['rec']  # type: ignore[index]
+
+    TIRelements: Dict[str, List[Any]] = {}
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',  # type: ignore[name-match]
         [
             'model',
             'chromosome',
@@ -529,209 +1027,362 @@ def fetchElements(paired=None, hitIndex=None, genome=None):
             'evalue',
         ],
     )
-    for model in paired.keys():
-        TIRelements[model] = list()
-        model_counter = 0
-        for x, y in paired[model]:
-            model_counter += 1
-            x = hitIndex[model][x]['rec']
-            y = hitIndex[model][y]['rec']
-            leftHit, rightHit = flipTIRs(x, y)
-            eleID = model + '_Element_' + str(model_counter)
-            eleSeq = genome[leftHit.target][
-                int(leftHit.hitStart) - 1 : int(rightHit.hitEnd)
-            ]
-            eleSeq.id = eleID
-            eleSeq.name = eleID
-            eleSeq.description = (
-                '_'.join(
-                    [
-                        '[' + leftHit.target + ':' + str(leftHit.hitStart),
-                        str(rightHit.hitEnd),
-                    ]
-                )
-                + ' len='
-                + str(rightHit.hitEnd - leftHit.hitStart)
-                + ']'
-            )
 
-            TIRelement = gffTup(
-                model,
-                leftHit.target,
-                leftHit.hitStart,
-                rightHit.hitEnd,
-                leftHit.strand,
-                'TIR_Element',
-                eleID,
-                leftHit,
-                rightHit,
-                eleSeq,
-                'NA',
-            )
-            TIRelements[model].append(TIRelement)
-    # Return list of element info tuples
+    # Only process models that actually have pairs
+    for model in paired.keys():
+        if len(paired[model]) > 0:
+            TIRelements[model] = []
+            model_counter = 0
+
+            for pair in paired[model]:
+                model_counter += 1
+                # Convert set to list for indexing
+                hit_ids = list(pair)
+                x_id, y_id = hit_ids[0], hit_ids[1]
+
+                # Get hit records using helper function
+                x = get_hit_record(x_id)
+                y = get_hit_record(y_id)
+
+                leftHit, rightHit = flipTIRs(x, y)
+
+                # Fix: Use a simpler element ID that doesn't duplicate model name
+                eleID = f'Element_{model_counter}'  # Simplified ID
+
+                # Extract element sequence using pyfaidx (0-based indexing)
+                chrom = genome[leftHit.target]
+                start = int(leftHit.hitStart) - 1  # Convert to 0-based
+                end = int(rightHit.hitEnd)  # End is exclusive in slicing
+
+                ele_seq_str = str(chrom[start:end])
+                eleSeq = SeqRecord(Seq.Seq(ele_seq_str))
+                eleSeq.id = eleID
+                eleSeq.name = eleID
+
+                # Build description with genome description
+                coord_info = (
+                    '_'.join(
+                        [
+                            '[' + leftHit.target + ':' + str(leftHit.hitStart),
+                            str(rightHit.hitEnd),
+                        ]
+                    )
+                    + ' len='
+                    + str(rightHit.hitEnd - leftHit.hitStart)
+                    + ']'
+                )
+
+                # Add genome description if available
+                if genome_descriptions and leftHit.target in genome_descriptions:
+                    genome_desc = genome_descriptions[leftHit.target]
+                    eleSeq.description = f'{coord_info} {genome_desc}'
+                else:
+                    eleSeq.description = coord_info
+
+                TIRelement = gffTup(
+                    model,  # This is the pairing model (left model for asymmetric)
+                    leftHit.target,
+                    leftHit.hitStart,
+                    rightHit.hitEnd,
+                    leftHit.strand,
+                    'Element',
+                    eleID,
+                    leftHit,
+                    rightHit,
+                    eleSeq,
+                    'NA',
+                )
+                TIRelements[model].append(TIRelement)
+
     return TIRelements
 
 
-# Fix: Do not load fasta into genome!
-# Probably fine, but could just store coords in eledict (from fetchElements)
-# and fetch from index at time of writing.
-def writeElements(outDir, eleDict=None, prefix=None):
+def writeElements(
+    outDir: str,
+    eleDict: Optional[Dict[str, List[Any]]] = None,
+    prefix: Optional[str] = None,
+) -> None:
     """
-    Takes dict of extracted sequences keyed by model.
-    Writes to fasta by model.
+    Write extracted element sequences to FASTA files organized by model.
+
+    Parameters
+    ----------
+    outDir : str
+        Output directory for element FASTA files.
+    eleDict : dict, optional
+        Dictionary of element records keyed by model: eleDict[model] = [element_records].
+    prefix : str, optional
+        Prefix to add to output filenames and sequence IDs.
+
+    Returns
+    -------
+    None
+        Writes FASTA files to disk but returns nothing.
+
+    Notes
+    -----
+    Only creates files for models that have at least one element.
+    Output filename format: {prefix}{model}_elements.fasta
     """
+    assert eleDict is not None, 'eleDict cannot be None'
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
         prefix = ''
+
     for model in eleDict.keys():
-        outfile = os.path.join(outDir, prefix + model + '_elements.fasta')
-        with open(outfile, 'w') as handle:
-            for element in eleDict[model]:
-                element.seq.id = prefix + str(element.seq.id)
-                SeqIO.write(element.seq, handle, 'fasta')
+        if len(eleDict[model]) > 0:  # Only write files for models with actual elements
+            outfile = os.path.join(outDir, prefix + model + '_elements.fasta')
+            with open(outfile, 'w') as handle:
+                for element in eleDict[model]:
+                    element.seq.id = prefix + str(element.seq.id)
+                    SeqIO.write(element.seq, handle, 'fasta')
 
 
-# Fix: Do not load fasta into genome!
 def writePairedTIRs(
-    outDir=None, paired=None, hitIndex=None, genome=None, prefix=None, padlen=None
-):
+    outDir: Optional[str] = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    genome: Any = None,
+    prefix: Optional[str] = None,
+    padlen: Optional[int] = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+) -> None:
     """
-    Extract TIR sequence of paired hits, write to fasta.
+    Extract and write left and right TIR sequences from paired hits to FASTA.
+
+    Parameters
+    ----------
+    outDir : str, optional
+        Output directory for TIR FASTA files.
+    paired : dict
+        Dictionary of paired hits: paired[model] = [list of pair sets {id1, id2}].
+    hitIndex : dict
+        Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
+        Supports both nested (model-keyed) and flat structures.
+    genome : pyfaidx.Fasta
+        Indexed genome object for sequence extraction.
+    prefix : str, optional
+        Prefix to add to output filenames and sequence IDs.
+    padlen : int, optional
+        Number of flanking bases to extract on each side (shown in lowercase).
+    genome_descriptions : dict, optional
+        Dictionary mapping sequence IDs to their descriptions.
+
+    Returns
+    -------
+    None
+        Writes FASTA files to disk but returns nothing.
+
+    Notes
+    -----
+    Right TIRs are reverse complemented. Outputs two sequences per pair:
+    {model}_{counter}_L (left TIR) and {model}_{counter}_R (right TIR).
+    Filename format: {prefix}{model}_paired_term_hits_{count}.fasta
     """
-    # Note: Sequence padding not yet enabled for paired TIRs
-    TIRpairs = dict()
-    gffTup = namedtuple(
-        'gffElem',
-        [
-            'model',
-            'chromosome',
-            'start',
-            'end',
-            'strand',
-            'type',
-            'id',
-            'leftHit',
-            'rightHit',
-            'seq',
-            'evalue',
-        ],
-    )
-    for model in paired.keys():
-        TIRpairs[model] = list()
-        model_counter = 0
-        for x, y in paired[model]:
-            model_counter += 1
-            x = hitIndex[model][x]['rec']
-            y = hitIndex[model][y]['rec']
-            leftHit, rightHit = flipTIRs(x, y)
-            eleID = model + '_TIRpair_' + str(model_counter)
-            # If padlen set, extract hit with x bases either side
-            if padlen:
-                eleSeqLeft = (
-                    genome[leftHit.target][
-                        int(leftHit.hitStart) - 1 - padlen : int(leftHit.hitStart) - 1
-                    ].lower()
-                    + genome[leftHit.target][
-                        int(leftHit.hitStart) - 1 : int(leftHit.hitEnd)
-                    ]
-                    + genome[leftHit.target][
-                        int(leftHit.hitEnd) : int(leftHit.hitEnd) + padlen
-                    ].lower()
-                )
-                eleSeqRight = (
-                    genome[leftHit.target][
-                        int(rightHit.hitStart) - 1 - padlen : int(rightHit.hitStart) - 1
-                    ].lower()
-                    + genome[leftHit.target][
-                        int(rightHit.hitStart) - 1 : int(rightHit.hitEnd)
-                    ]
-                    + genome[leftHit.target][
-                        int(rightHit.hitEnd) : int(rightHit.hitEnd) + padlen
-                    ].lower()
-                )
-            else:
-                eleSeqLeft = genome[leftHit.target][
-                    int(leftHit.hitStart) - 1 : int(leftHit.hitEnd)
-                ]
-                eleSeqRight = genome[leftHit.target][
-                    int(rightHit.hitStart) - 1 : int(rightHit.hitEnd)
-                ]
-            eleSeqRight = eleSeqRight.reverse_complement()
-            eleSeqLeft.id = eleID + '_L'
-            eleSeqLeft.name = eleID + '_L'
-            eleSeqLeft.description = (
-                '_'.join(
-                    [
-                        '[' + leftHit.target + ':' + str(leftHit.hitStart),
-                        str(leftHit.hitEnd),
-                    ]
-                )
-                + ']'
-            )
-            eleSeqRight.id = eleID + '_R'
-            eleSeqRight.name = eleID + '_R'
-            eleSeqRight.description = (
-                '_'.join(
-                    [
-                        '[' + leftHit.target + ':' + str(rightHit.hitEnd),
-                        str(rightHit.hitStart),
-                    ]
-                )
-                + ']'
-            )
-            TIRleft = gffTup(
-                model,
-                leftHit.target,
-                leftHit.hitStart,
-                leftHit.hitEnd,
-                leftHit.strand,
-                'TIR',
-                eleSeqLeft.id,
-                leftHit,
-                rightHit,
-                eleSeqLeft,
-                'NA',
-            )
-            TIRright = gffTup(
-                model,
-                leftHit.target,
-                rightHit.hitStart,
-                rightHit.hitEnd,
-                leftHit.strand,
-                'TIR',
-                eleSeqRight.id,
-                leftHit,
-                rightHit,
-                eleSeqRight,
-                'NA',
-            )
-            TIRpairs[model].append(TIRleft)
-            TIRpairs[model].append(TIRright)
+    assert outDir is not None, 'outDir cannot be None'
+    assert paired is not None, 'paired cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert genome is not None, 'genome cannot be None'
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
         prefix = ''
-    for model in TIRpairs.keys():
-        outfile = os.path.join(
-            outDir,
-            prefix + model + '_paired_TIR_hits_' + str(model_counter * 2) + '.fasta',
-        )
-        with open(outfile, 'w') as handle:
-            for element in TIRpairs[model]:
-                element.seq.id = prefix + str(element.seq.id)
-                SeqIO.write(element.seq, handle, 'fasta')
+
+    # Check if hitIndex is nested (new format) or flat (old format)
+    is_nested = isinstance(next(iter(hitIndex.values())), dict)
+
+    def get_hit_record(hit_id: int) -> Any:
+        """
+        Retrieve hit record from either nested or flat hitIndex structure.
+
+        Parameters
+        ----------
+        hit_id : int
+            Index of the hit record to retrieve.
+
+        Returns
+        -------
+        namedtuple
+            Hit record namedtuple with fields: model, target, hitStart, hitEnd,
+            strand, idx, evalue.
+
+        Raises
+        ------
+        KeyError
+            If hit_id is not found in any model within the hitIndex.
+
+        Notes
+        -----
+        Handles both nested (model-keyed) and flat hitIndex structures for
+        backward compatibility.
+        """
+        if is_nested:
+            # Search through all models to find the hit
+            for _model_name, model_hits in hitIndex.items():
+                if hit_id in model_hits:
+                    return model_hits[hit_id]['rec']
+            raise KeyError(f'Hit ID {hit_id} not found in any model')
+        else:
+            # Flat structure - direct access
+            return hitIndex[hit_id]['rec']  # type: ignore[index]
+
+    # Only process models that actually have pairs
+    for model in paired.keys():
+        if len(paired[model]) > 0:  # Only write files for models with actual pairs
+            model_counter = 0
+            seqList = []  # Just collect sequences for FASTA output
+
+            for pair in paired[model]:
+                model_counter += 1
+                # Convert set to list for indexing
+                hit_ids = list(pair)
+                x_id, y_id = hit_ids[0], hit_ids[1]
+
+                # Get hit records using helper function
+                x = get_hit_record(x_id)
+                y = get_hit_record(y_id)
+
+                leftHit, rightHit = flipTIRs(x, y)
+                eleID = f'{model}_{model_counter}'
+
+                # Extract left TIR sequence using pyfaidx
+                chrom = genome[leftHit.target]
+                left_start = int(leftHit.hitStart) - 1  # Convert to 0-based
+                left_end = int(leftHit.hitEnd)
+
+                # Extract right TIR sequence using pyfaidx
+                right_start = int(rightHit.hitStart) - 1  # Convert to 0-based
+                right_end = int(rightHit.hitEnd)
+
+                if padlen:
+                    # Extract with padding for left TIR
+                    left_pad_start = max(0, left_start - padlen)
+                    left_pad_end = min(len(chrom), left_end + padlen)
+
+                    left_seq_parts = []
+                    if left_start > left_pad_start:
+                        left_seq_parts.append(
+                            str(chrom[left_pad_start:left_start]).lower()
+                        )
+                    left_seq_parts.append(str(chrom[left_start:left_end]))
+                    if left_end < left_pad_end:
+                        left_seq_parts.append(str(chrom[left_end:left_pad_end]).lower())
+
+                    left_seq_str = ''.join(left_seq_parts)
+
+                    # Extract with padding for right TIR
+                    right_pad_start = max(0, right_start - padlen)
+                    right_pad_end = min(len(chrom), right_end + padlen)
+
+                    right_seq_parts = []
+                    if right_start > right_pad_start:
+                        right_seq_parts.append(
+                            str(chrom[right_pad_start:right_start]).lower()
+                        )
+                    right_seq_parts.append(str(chrom[right_start:right_end]))
+                    if right_end < right_pad_end:
+                        right_seq_parts.append(
+                            str(chrom[right_end:right_pad_end]).lower()
+                        )
+
+                    right_seq_str = ''.join(right_seq_parts)
+                else:
+                    left_seq_str = str(chrom[left_start:left_end])
+                    right_seq_str = str(chrom[right_start:right_end])
+
+                # Create SeqRecords for FASTA output only
+                eleSeqLeft = SeqRecord(Seq.Seq(left_seq_str))
+                eleSeqRight = SeqRecord(Seq.Seq(right_seq_str))
+                eleSeqRight = eleSeqRight.reverse_complement()
+
+                eleSeqLeft.id = eleID + '_L'
+                eleSeqLeft.name = eleID + '_L'
+
+                # Build left description with genome description
+                left_coord = (
+                    '_'.join(
+                        [
+                            '[' + leftHit.target + ':' + str(leftHit.hitStart),
+                            str(leftHit.hitEnd),
+                        ]
+                    )
+                    + ']'
+                )
+
+                if genome_descriptions and leftHit.target in genome_descriptions:
+                    genome_desc = genome_descriptions[leftHit.target]
+                    eleSeqLeft.description = f'{left_coord} {genome_desc}'
+                else:
+                    eleSeqLeft.description = left_coord
+
+                eleSeqRight.id = eleID + '_R'
+                eleSeqRight.name = eleID + '_R'
+
+                # Build right description with genome description
+                right_coord = (
+                    '_'.join(
+                        [
+                            '[' + leftHit.target + ':' + str(rightHit.hitEnd),
+                            str(rightHit.hitStart),
+                        ]
+                    )
+                    + ']'
+                )
+
+                if genome_descriptions and leftHit.target in genome_descriptions:
+                    genome_desc = genome_descriptions[leftHit.target]
+                    eleSeqRight.description = f'{right_coord} {genome_desc}'
+                else:
+                    eleSeqRight.description = right_coord
+
+                # Add to sequence list for FASTA output
+                seqList.append(eleSeqLeft)
+                seqList.append(eleSeqRight)
+
+            # Write FASTA file for this model only if we have sequences
+            if seqList:
+                outfile = os.path.join(
+                    outDir,
+                    prefix
+                    + model
+                    + '_paired_term_hits_'
+                    + str(len(seqList))
+                    + '.fasta',
+                )
+                with open(outfile, 'w') as handle:
+                    for seq in seqList:
+                        seq.id = prefix + str(seq.id)
+                        SeqIO.write(seq, handle, 'fasta')
 
 
-def fetchUnpaired(hitIndex=None):
+def fetchUnpaired(
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+) -> List[Any]:
     """
-    Take list of unpaired hit IDs from listunpaired(),
-    Compose TIR gff3 record.
+    Create GFF3-formatted records for all unpaired (orphan) TIR hits.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
+
+    Returns
+    -------
+    list
+        List of namedtuples representing orphan TIR features. Each tuple has fields:
+        model, chromosome, start, end, strand, type ('orphan_term'), id, leftHit,
+        rightHit, seq, evalue.
+
+    Notes
+    -----
+    Unpaired hits are marked with type 'orphan_term' to distinguish them from
+    paired terminal repeats in GFF3 output.
     """
-    orphans = list()
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    orphans = []
     gffTup = namedtuple(
-        'gffElem',
+        'gffTup',  # type: ignore[name-match]
         [
             'model',
             'chromosome',
@@ -756,7 +1407,7 @@ def fetchUnpaired(hitIndex=None):
                     x.hitStart,
                     x.hitEnd,
                     x.strand,
-                    'orphan_TIR',
+                    'orphan_term',
                     x.idx,
                     None,
                     None,
@@ -768,17 +1419,45 @@ def fetchUnpaired(hitIndex=None):
 
 
 def gffWrite(
-    outpath=None,
-    featureList=list(),
-    writeTIRs=True,
-    unpaired=None,
-    suppressMeta=False,
-    prefix=None,
-):
+    outpath: Optional[str] = None,
+    featureList: Optional[Dict[str, List[Any]]] = None,
+    writeTIRs: Union[bool, str] = True,
+    unpaired: Optional[List[Any]] = None,
+    suppressMeta: bool = False,
+    prefix: Optional[str] = None,
+) -> None:
     """
-    Write predicted paired-TIR features (i.e. MITEs) from fetchElements()
-    as GFF3. Optionally, write child TIRS and orphan TIRs to GFF3 also.
+    Write transposon elements and terminal repeats to GFF3 format file.
+
+    Parameters
+    ----------
+    outpath : str, optional
+        Path to output GFF3 file. If None, uses 'tirmite_features.gff3' in cwd.
+    featureList : dict, optional
+        Dictionary of element records keyed by model.
+    writeTIRs : bool or str, default True
+        Controls TIR output: True/'all' (all TIRs), 'paired' (only from elements),
+        'unpaired' (only orphans), False (no TIRs).
+    unpaired : list, optional
+        List of orphan TIR records from fetchUnpaired().
+    suppressMeta : bool, default False
+        If True, suppresses metadata headers (currently unused).
+    prefix : str, optional
+        Prefix to add to feature IDs.
+
+    Returns
+    -------
+    None
+        Writes GFF3 file to disk but returns nothing.
+
+    Notes
+    -----
+    Output includes element features with optional child TIR features.
+    Elements have type 'Element', paired TIRs 'paired_term', orphans 'orphan_term'.
+    Features are sorted by model, chromosome, start, end.
     """
+    if featureList is None:
+        featureList = {}  # type: ignore[assignment]
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -787,16 +1466,16 @@ def gffWrite(
     if not outpath:
         outpath = os.path.join(os.getcwd(), 'tirmite_features.gff3')
     # Unpack element dict to list
-    allfeatures = list()
+    all_features = []
     for model in featureList.keys():
         for record in featureList[model]:
-            allfeatures.append(record)
+            all_features.append(record)
     # Add list of unpaired TIRs to main featureList if provided.
     if unpaired:
-        allfeatures = allfeatures + unpaired
+        all_features = all_features + unpaired
     # Sort features
-    sortedFeatures = sorted(
-        allfeatures, key=attrgetter('model', 'chromosome', 'start', 'end')
+    sorted_features = sorted(
+        all_features, key=attrgetter('model', 'chromosome', 'start', 'end')
     )
     # Open GFF handle
     with open(outpath, 'w') as file:
@@ -819,114 +1498,81 @@ def gffWrite(
             + '\n'
         )
         # Format features for GFF3
-        for x in sortedFeatures:
-            if x.type == 'orphan_TIR' and writeTIRs in ['all', 'unpaired']:
+        for feature in sorted_features:
+            if feature.type == 'orphan_term' and writeTIRs in ['all', 'unpaired']:
                 file.write(
-                    '\t'.join(
-                        [
-                            str(x.chromosome),
-                            'tirmite',
-                            x.type,
-                            str(x.start),
-                            str(x.end),
-                            '.',
-                            x.strand,
-                            '.',
-                            'ID='
-                            + prefix
-                            + str(x.model)
-                            + '_'
-                            + str(x.id)
-                            + ';model='
-                            + str(x.model)
-                            + ';evalue='
-                            + str(x.evalue)
-                            + ';',
-                        ]
-                    )
-                    + '\n'
+                    f'{feature.chromosome}\t'
+                    f'tirmite\t'
+                    f'{feature.type}\t'
+                    f'{feature.start}\t'
+                    f'{feature.end}\t'
+                    f'.\t'
+                    f'{feature.strand}\t'
+                    f'.\t'
+                    f'ID={prefix}{feature.model}_{feature.id};'
+                    f'model={feature.model};'
+                    f'evalue={feature.evalue};\n'
                 )
-            if x.type == 'TIR_Element':
+            if feature.type == 'Element':
                 # Write Element line
+                # Fix: Create proper element ID with prefix
+                element_id = f'{prefix}{feature.model}_{feature.id}'
                 file.write(
-                    '\t'.join(
-                        [
-                            str(x.chromosome),
-                            'tirmite',
-                            x.type,
-                            str(x.start),
-                            str(x.end),
-                            '.',
-                            x.strand,
-                            '.',
-                            'ID=' + prefix + str(x.id) + ';model=' + str(x.model) + ';',
-                        ]
-                    )
-                    + '\n'
+                    f'{feature.chromosome}\t'
+                    f'tirmite\t'
+                    f'{feature.type}\t'
+                    f'{feature.start}\t'
+                    f'{feature.end}\t'
+                    f'.\t'
+                    f'{feature.strand}\t'
+                    f'.\t'
+                    f'ID={prefix}{element_id};model={feature.model};\n'
                 )
                 if writeTIRs in ['all', 'paired']:
                     # Write left TIR line as child
-                    l = x.leftHit
+                    left_hit = feature.leftHit
+                    # Fix: Use the actual hit's model name, not the element's model
+                    left_model = left_hit.model
                     file.write(
-                        '\t'.join(
-                            [
-                                str(l.target),
-                                'tirmite',
-                                'paired_TIR',
-                                str(l.hitStart),
-                                str(l.hitEnd),
-                                '.',
-                                l.strand,
-                                '.',
-                                'ID='
-                                + prefix
-                                + str(x.model)
-                                + '_'
-                                + str(l.idx)
-                                + ';model='
-                                + str(x.model)
-                                + ';Parent='
-                                + str(x.id)
-                                + ';evalue='
-                                + str(l.evalue)
-                                + ';',
-                            ]
+                        (
+                            f'{left_hit.target}\t'
+                            f'tirmite\t'
+                            f'paired_term\t'
+                            f'{left_hit.hitStart}\t'
+                            f'{left_hit.hitEnd}\t'
+                            f'.\t'
+                            f'{left_hit.strand}\t'
+                            f'.\t'
+                            f'ID={prefix}{left_model}_{left_hit.idx};'
+                            f'model={left_model};'
+                            f'Parent={element_id};'
+                            f'evalue={left_hit.evalue};\n'
                         )
-                        + '\n'
                     )
-                    # Write right TIR line as child on neg strand
-                    r = x.rightHit
+                    # Write right TIR line as child
+                    right_hit = feature.rightHit
+                    # Fix: Use the actual hit's model name, not the element's model
+                    right_model = right_hit.model
                     file.write(
-                        '\t'.join(
-                            [
-                                str(r.target),
-                                'tirmite',
-                                'paired_TIR',
-                                str(r.hitStart),
-                                str(r.hitEnd),
-                                '.',
-                                r.strand,
-                                '.',
-                                'ID='
-                                + prefix
-                                + str(x.model)
-                                + '_'
-                                + str(r.idx)
-                                + ';model='
-                                + str(x.model)
-                                + ';Parent='
-                                + str(x.id)
-                                + ';evalue='
-                                + str(r.evalue)
-                                + ';',
-                            ]
+                        (
+                            f'{right_hit.target}\t'
+                            f'tirmite\t'
+                            f'paired_term\t'
+                            f'{right_hit.hitStart}\t'
+                            f'{right_hit.hitEnd}\t'
+                            f'.\t'
+                            f'{right_hit.strand}\t'
+                            f'.\t'
+                            f'ID={prefix}{right_model}_{right_hit.idx};'
+                            f'model={right_model};'
+                            f'Parent={element_id};'
+                            f'evalue={right_hit.evalue};\n'
                         )
-                        + '\n'
                     )
 
 
 # gffTup fields: 'model', 'chromosome', 'start', 'end', 'strand', 'type', 'id', 'score','bias', 'evalue', 'leftHit' , 'rightHit', 'eleSeq'
-# Types: "TIR_Element", "orphan_TIR"
+# Types: "Element", "orphan_term"
 
 
 """
@@ -950,3 +1596,1267 @@ def gffWrite(
 #coord.qry_coords()
 #coord.ref_coords()
 """
+
+
+# New configuration class to manage pairing rules
+class PairingConfig:
+    """
+    Configuration for terminal repeat element pairing rules.
+
+    Manages orientation and model selection for symmetric or asymmetric
+    transposon terminal repeat pairing.
+
+    Parameters
+    ----------
+    orientation : str, default 'F,R'
+        Comma-separated pair of orientation codes: F=Forward(+), R=Reverse(-).
+        Examples: 'F,R' (forward-reverse), 'F,F' (both forward), 'R,R' (both reverse).
+    left_model : str, optional
+        HMM model name for left terminus. Used for asymmetric pairing.
+    right_model : str, optional
+        HMM model name for right terminus. Used for asymmetric pairing.
+    single_model : str, optional
+        HMM model name when using same model for both termini (symmetric pairing).
+
+    Attributes
+    ----------
+    orientation : list of str
+        Parsed orientation codes as list [left_orient, right_orient].
+    left_strand : str
+        Strand symbol for left terminus: '+' or '-'.
+    right_strand : str
+        Strand symbol for right terminus: '+' or '-'.
+    is_asymmetric : bool
+        True if using different models for left and right termini.
+    left_model : str
+        Model name for left terminus.
+    right_model : str
+        Model name for right terminus.
+
+    Methods
+    -------
+    get_model_pairs()
+        Returns list of (left_model, right_model) tuples for pairing analysis.
+    """
+
+    def __init__(
+        self,
+        orientation: str = 'F,R',
+        left_model: Optional[str] = None,
+        right_model: Optional[str] = None,
+        single_model: Optional[str] = None,
+    ) -> None:
+        """
+        Configure pairing rules for terminal repeat elements.
+
+        Args:
+            orientation: String like 'F,R', 'F,F', 'R,R', 'R,F'
+                        F=Forward(+), R=Reverse(-)
+            left_model: Model name for left terminus (None for symmetric)
+            right_model: Model name for right terminus (None for symmetric)
+            single_model: Model name when using same model for both ends
+        """
+        self.orientation = orientation.split(',')
+        self.left_strand = '+' if self.orientation[0] == 'F' else '-'
+        self.right_strand = '+' if self.orientation[1] == 'F' else '-'
+
+        # Determine if using symmetric (same model) or asymmetric (different models)
+        self.is_asymmetric = left_model is not None and right_model is not None
+        self.left_model = left_model if self.is_asymmetric else single_model
+        self.right_model = right_model if self.is_asymmetric else single_model
+
+    def get_model_pairs(self) -> List[Tuple[Optional[str], Optional[str]]]:
+        """
+        Get model pairs for pairing analysis.
+
+        Returns
+        -------
+        list of tuple
+            List containing (left_model, right_model) tuples.
+            For symmetric pairing, returns [(model, model)].
+            For asymmetric pairing, returns [(left_model, right_model)].
+        """
+        if self.is_asymmetric:
+            return [(self.left_model, self.right_model)]
+        else:
+            # For symmetric models, pair with themselves
+            return [(self.left_model, self.left_model)]
+
+
+def parseHitsGeneral(
+    hitsDict: Optional[Dict[str, Dict[str, List[Any]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    maxDist: Optional[int] = None,
+    config: Any = None,
+) -> Dict[str, Dict[int, Dict[str, Any]]]:
+    """
+    Populate candidate partners using configurable strand orientations.
+
+    Parameters
+    ----------
+    hitsDict : dict
+        Nested dictionary of hits: hitsDict[model][chromosome] = [hit_records].
+    hitIndex : dict
+        Nested dictionary tracking pairing: hitIndex[model][idx] = {rec, partner, candidates}.
+    maxDist : int, optional
+        Maximum distance in base pairs between paired elements. If None, uses infinity.
+    config : PairingConfig
+        Configuration object specifying orientation and model pairing rules.
+
+    Returns
+    -------
+    dict
+        Updated hitIndex with populated candidate lists respecting config orientation.
+
+    Notes
+    -----
+    Handles both symmetric (same model) and asymmetric (different models) pairing.
+    For each orientation configuration, searches for valid partners on correct strands
+    within the specified distance constraint. Supports all strand combinations:
+    F,R (canonical), R,F, F,F, and R,R orientations.
+    """
+    assert hitsDict is not None, 'hitsDict cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert config is not None, 'config cannot be None'
+    logging.debug('=== ENTERING parseHitsGeneral ===')
+    logging.debug(
+        f'Config: orientation={config.orientation}, left_strand={config.left_strand}, right_strand={config.right_strand}'
+    )
+    logging.debug(f'Is asymmetric: {config.is_asymmetric}')
+
+    if not maxDist:
+        maxDist_value: float = float('inf')
+        logging.debug('Using infinite maxDist')
+    else:
+        maxDist_value = float(maxDist)
+        logging.debug(f'Using maxDist: {maxDist_value}')
+
+    model_pairs = config.get_model_pairs()
+    logging.debug(f'Model pairs to process: {model_pairs}')
+
+    for left_model, right_model in model_pairs:
+        logging.debug(f'Processing pair: {left_model} -> {right_model}')
+
+        if left_model == right_model:
+            # Symmetric pairing - enhanced logic for custom orientations
+            logging.debug(f'=== SYMMETRIC PAIRING for {left_model} ===')
+
+            if left_model in hitIndex:
+                logging.debug(
+                    f'Found {len(hitIndex[left_model])} hits for model {left_model}'
+                )
+
+                for UID in hitIndex[left_model].keys():
+                    ref = hitIndex[left_model][UID]['rec']
+                    logging.debug(
+                        f'Processing hit {UID}: {ref.strand}:{ref.hitStart}-{ref.hitEnd}'
+                    )
+
+                    # For symmetric pairing, a hit can act as either left or right terminus
+                    # depending on its strand and the config orientation
+
+                    if ref.strand == config.left_strand:
+                        # This hit matches the left terminus strand requirement
+                        # It should look for right terminus partners
+
+                        # Determine search direction based on orientation and strand
+                        if config.left_strand == '+' and config.right_strand == '+':
+                            # F,F on positive strand: left looks downstream (higher coords)
+                            search_direction = 'left_to_right'
+                        elif config.left_strand == '+' and config.right_strand == '-':
+                            # F,R: left(+) looks for right(-), still downstream
+                            search_direction = 'left_to_right'
+                        elif config.left_strand == '-' and config.right_strand == '+':
+                            # R,F: left(-) looks for right(+), upstream in genomic coords
+                            search_direction = 'right_to_left'
+                        elif config.left_strand == '-' and config.right_strand == '-':
+                            # R,R on negative strand: left(-) looks upstream (lower coords)
+                            search_direction = 'right_to_left'
+
+                        logging.debug(
+                            f'Hit {UID} acting as LEFT terminus, searching {search_direction} for RIGHT partners on {config.right_strand} strand'
+                        )
+
+                        _find_candidates(
+                            ref,
+                            right_model,
+                            config.right_strand,
+                            hitsDict,
+                            hitIndex,
+                            maxDist_value,
+                            search_direction,
+                        )
+
+                    elif ref.strand == config.right_strand:
+                        # This hit matches the right terminus strand requirement
+                        # It should look for left terminus partners
+
+                        # Determine search direction (opposite of left terminus search)
+                        if config.left_strand == '+' and config.right_strand == '+':
+                            # F,F: right(+) looks upstream for left(+)
+                            search_direction = 'right_to_left'
+                        elif config.left_strand == '+' and config.right_strand == '-':
+                            # F,R: right(-) looks upstream for left(+)
+                            search_direction = 'right_to_left'
+                        elif config.left_strand == '-' and config.right_strand == '+':
+                            # R,F: right(+) looks downstream for left(-)
+                            search_direction = 'left_to_right'
+                        elif config.left_strand == '-' and config.right_strand == '-':
+                            # R,R: right(-) looks downstream for left(-)
+                            search_direction = 'left_to_right'
+
+                        logging.debug(
+                            f'Hit {UID} acting as RIGHT terminus, searching {search_direction} for LEFT partners on {config.left_strand} strand'
+                        )
+
+                        _find_candidates(
+                            ref,
+                            left_model,
+                            config.left_strand,
+                            hitsDict,
+                            hitIndex,
+                            maxDist_value,
+                            search_direction,
+                        )
+                    else:
+                        logging.debug(
+                            f'Hit {UID} on strand {ref.strand} does not match required orientations ({config.left_strand}, {config.right_strand})'
+                        )
+        else:
+            # FIXED: Asymmetric pairing with strand combination handling
+            logging.debug(f'=== ASYMMETRIC PAIRING: {left_model} + {right_model} ===')
+
+            # Get all valid strand combinations for this orientation
+            strand_combinations = []
+
+            if config.orientation == ['F', 'R']:
+                # F,R can appear as: (+,-) on pos strand OR (-,+) on neg strand
+                strand_combinations = [('+', '-'), ('-', '+')]
+            elif config.orientation == ['R', 'F']:
+                # R,F can appear as: (-,+) on pos strand OR (+,-) on neg strand
+                strand_combinations = [('-', '+'), ('+', '-')]
+            elif config.orientation == ['F', 'F']:
+                # F,F can appear as: (+,+) on pos strand OR (-,-) on neg strand
+                strand_combinations = [('+', '+'), ('-', '-')]
+            elif config.orientation == ['R', 'R']:
+                # R,R can appear as: (-,-) on pos strand OR (+,+) on neg strand
+                strand_combinations = [('-', '-'), ('+', '+')]
+
+            logging.debug(f'Processing strand combinations: {strand_combinations}')
+
+            for left_strand, right_strand in strand_combinations:
+                logging.debug(
+                    f'Processing strand combination: left={left_strand}, right={right_strand}'
+                )
+
+                # Process hits for the left model with this strand combination
+                if left_model in hitIndex:
+                    for UID in hitIndex[left_model].keys():
+                        ref = hitIndex[left_model][UID]['rec']
+
+                        if ref.strand == left_strand:
+                            # Determine search direction based on strand
+                            if left_strand == '+':
+                                search_direction = 'left_to_right'  # Search downstream
+                            else:
+                                search_direction = (
+                                    'right_to_left'  # Search upstream (neg strand)
+                                )
+
+                            logging.debug(
+                                f'Left model hit {UID} ({left_strand}) searching {search_direction} for right model on {right_strand}'
+                            )
+
+                            _find_candidates(
+                                ref,
+                                right_model,
+                                right_strand,
+                                hitsDict,
+                                hitIndex,
+                                maxDist_value,
+                                search_direction,
+                            )
+
+                # Process hits for the right model with this strand combination
+                if right_model in hitIndex:
+                    for UID in hitIndex[right_model].keys():
+                        ref = hitIndex[right_model][UID]['rec']
+
+                        if ref.strand == right_strand:
+                            # Determine search direction (opposite of left)
+                            if right_strand == '+':
+                                search_direction = 'right_to_left'  # Search upstream
+                            else:
+                                search_direction = (
+                                    'left_to_right'  # Search downstream (neg strand)
+                                )
+
+                            logging.debug(
+                                f'Right model hit {UID} ({right_strand}) searching {search_direction} for left model on {left_strand}'
+                            )
+
+                            _find_candidates(
+                                ref,
+                                left_model,
+                                left_strand,
+                                hitsDict,
+                                hitIndex,
+                                maxDist_value,
+                                search_direction,
+                            )
+
+    logging.debug('=== COMPLETED parseHitsGeneral ===')
+    return hitIndex
+
+
+def _check_distance(
+    ref_hit: Any, candidate: Any, direction: str, maxDist: float
+) -> bool:
+    """
+    Validate that candidate hit is within distance threshold of reference hit.
+
+    Parameters
+    ----------
+    ref_hit : namedtuple
+        Reference hit with model, strand, hitStart, hitEnd attributes.
+    candidate : namedtuple
+        Candidate partner hit with model, strand, hitStart, hitEnd attributes.
+    direction : str
+        Search direction: 'left_to_right' (left looking for right terminus downstream)
+        or 'right_to_left' (right looking for left terminus upstream).
+    maxDist : float
+        Maximum allowed distance in base pairs. Can be infinity for no constraint.
+
+    Returns
+    -------
+    bool
+        True if candidate is valid (positive distance within maxDist), False otherwise.
+
+    Notes
+    -----
+    Handles strand-aware distance calculation. For negative strand hits, coordinates
+    are inverted in nhmmer output (hitStart > hitEnd). Calculates biological distance
+    from terminus 3' end to partner 5' end based on strand orientations.
+    """
+
+    def get_terminus_position(hit: Any) -> Dict[str, int]:
+        """
+        Extract terminus positions based on strand orientation and biological direction.
+
+        Parameters
+        ----------
+        hit : namedtuple
+            Hit record with strand, hitStart, and hitEnd attributes.
+
+        Returns
+        -------
+        dict
+            Dictionary with keys: 'start', 'end', '5_prime', '3_prime' containing
+            genomic coordinates adjusted for strand orientation.
+
+        Notes
+        -----
+        For positive strand (+): hitStart < hitEnd, 5' = hitStart, 3' = hitEnd.
+        For negative strand (-): hitStart > hitEnd (flipped), 5' = hitEnd, 3' = hitStart.
+        The 5' and 3' positions represent biological directionality.
+        """
+        if hit.strand == '+':
+            # Positive strand: hitStart < hitEnd
+            # For left terminus: use 3' end (hitEnd)
+            # For right terminus: use 5' end (hitStart)
+            return {
+                'start': hit.hitStart,
+                'end': hit.hitEnd,
+                '5_prime': hit.hitStart,
+                '3_prime': hit.hitEnd,
+            }
+        else:
+            # Negative strand: hitStart > hitEnd (coordinates flipped)
+            # For left terminus: use 3' end (hitStart)
+            # For right terminus: use 5' end (hitEnd)
+            return {
+                'start': hit.hitEnd,
+                'end': hit.hitStart,
+                '5_prime': hit.hitEnd,
+                '3_prime': hit.hitStart,
+            }
+
+    # Get terminus positions for both hits
+    ref_pos = get_terminus_position(ref_hit)
+    cand_pos = get_terminus_position(candidate)
+
+    # Debug logging
+    logging.debug('=== DISTANCE CHECK DEBUG ===')
+    logging.debug(f'Direction: {direction}')
+    logging.debug(
+        f'Ref hit: {ref_hit.model} strand={ref_hit.strand} coords=({ref_hit.hitStart}, {ref_hit.hitEnd})'
+    )
+    logging.debug(
+        f'Candidate: {candidate.model} strand={candidate.strand} coords=({candidate.hitStart}, {candidate.hitEnd})'
+    )
+    logging.debug(f'Ref positions: {ref_pos}')
+    logging.debug(f'Candidate positions: {cand_pos}')
+
+    # Calculate distance based on biological relationship
+    if direction == 'left_to_right':
+        # Left terminus looking for right terminus downstream
+        # Distance from left terminus 3' end to right terminus 5' end
+        if ref_hit.strand == '+' and candidate.strand == '+':
+            # F,F orientation on + strand: left_end -> right_start
+            distance = cand_pos['5_prime'] - ref_pos['3_prime']
+        elif ref_hit.strand == '+' and candidate.strand == '-':
+            # F,R orientation: left_end -> right_start (right is on - strand)
+            distance = cand_pos['5_prime'] - ref_pos['3_prime']
+        elif ref_hit.strand == '-' and candidate.strand == '+':
+            # R,F orientation: left_end -> right_start (left is on - strand)
+            distance = cand_pos['5_prime'] - ref_pos['3_prime']
+        elif ref_hit.strand == '-' and candidate.strand == '-':
+            # R,R orientation on - strand: left_end -> right_start
+            distance = cand_pos['5_prime'] - ref_pos['3_prime']
+        else:
+            logging.error(
+                f'Unexpected strand combination: {ref_hit.strand}, {candidate.strand}'
+            )
+            return False
+
+    else:  # 'right_to_left'
+        # Right terminus looking for left terminus upstream
+        # Distance from right terminus 5' end to left terminus 3' end (should be negative, so we flip)
+        if ref_hit.strand == '+' and candidate.strand == '+':
+            # F,F orientation: right_start -> left_end (upstream)
+            distance = ref_pos['5_prime'] - cand_pos['3_prime']
+        elif ref_hit.strand == '-' and candidate.strand == '+':
+            # R,F orientation: right_start -> left_end
+            distance = ref_pos['5_prime'] - cand_pos['3_prime']
+        elif ref_hit.strand == '+' and candidate.strand == '-':
+            # F,R orientation: right_start -> left_end
+            distance = ref_pos['5_prime'] - cand_pos['3_prime']
+        elif ref_hit.strand == '-' and candidate.strand == '-':
+            # R,R orientation: right_start -> left_end
+            distance = ref_pos['5_prime'] - cand_pos['3_prime']
+        else:
+            logging.error(
+                f'Unexpected strand combination: {ref_hit.strand}, {candidate.strand}'
+            )
+            return False
+
+    logging.debug(f'Calculated distance: {distance}')
+
+    # Check for negative distances (invalid pairing)
+    if distance < 0:
+        logging.warning(
+            f'Negative distance ({distance}) between {ref_hit.model} and {candidate.model} '
+            f'on {ref_hit.target}. Ref: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}, '
+            f'Candidate: {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+        )
+        return False
+
+    # Check if within max distance
+    valid = distance >= 0 and distance <= maxDist
+    logging.debug(
+        f'Valid distance check: {valid} (distance: {distance}, maxDist: {maxDist})'
+    )
+
+    return valid
+
+
+def _find_candidates(
+    ref_hit: Any,
+    target_model: str,
+    target_strand: str,
+    hitsDict: Dict[str, Dict[str, List[Any]]],
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]],
+    maxDist: float,
+    direction: str,
+) -> None:
+    """
+    Find and store valid candidate partners for a reference hit.
+
+    Parameters
+    ----------
+    ref_hit : namedtuple
+        Reference hit record with model, target, strand, idx, hitStart, hitEnd.
+    target_model : str
+        Model name to search for candidate partners.
+    target_strand : str
+        Required strand orientation ('+' or '-') for candidates.
+    hitsDict : dict
+        Dictionary of all hits: hitsDict[model][chromosome] = [hit_records].
+    hitIndex : dict
+        Index for storing candidates: hitIndex[model][idx]['candidates'].
+    maxDist : float
+        Maximum distance constraint for valid partners.
+    direction : str
+        Search direction: 'left_to_right' or 'right_to_left'.
+
+    Returns
+    -------
+    None
+        Modifies hitIndex in place by appending valid candidates and sorting by distance.
+
+    Notes
+    -----
+    Candidates are sorted by calculated biological distance with closest partners first.
+    Only hits on target chromosome matching target_strand and within maxDist are added.
+    """
+    import logging
+
+    logging.debug('=== _find_candidates DEBUG ===')
+    logging.debug(
+        f'Ref hit: {ref_hit.model} {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}'
+    )
+    logging.debug(
+        f'Looking for target_model: {target_model}, target_strand: {target_strand}'
+    )
+    logging.debug(f'Direction: {direction}, maxDist: {maxDist}')
+
+    if target_model not in hitsDict or ref_hit.target not in hitsDict[target_model]:
+        logging.debug(
+            f'No hits found for target_model {target_model} on {ref_hit.target}'
+        )
+        return
+
+    # Store candidates under the reference hit's model and UID
+    model_key = ref_hit.model
+    uid_key = ref_hit.idx
+
+    candidates_found = 0
+
+    for candidate in hitsDict[target_model][ref_hit.target]:
+        if candidate.strand == target_strand:
+            logging.debug(
+                f'Checking candidate: {candidate.model} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+            )
+
+            # Calculate distance based on direction and orientation
+            valid_distance = _check_distance(ref_hit, candidate, direction, maxDist)
+
+            if valid_distance:
+                hitIndex[model_key][uid_key]['candidates'].append(candidate)
+                candidates_found += 1
+                logging.debug(
+                    f'Added valid candidate: {candidate.model}_{candidate.idx}'
+                )
+
+    logging.debug(
+        f'Found {candidates_found} valid candidates for {ref_hit.model}_{ref_hit.idx}'
+    )
+
+    # Sort candidates by distance using the same logic as _check_distance
+    # This ensures closest valid partners are prioritized
+    def get_distance_for_sorting(ref: Any, cand: Any, direction: str) -> int:
+        """
+        Calculate biological distance between hits for sorting candidates.
+
+        Parameters
+        ----------
+        ref : namedtuple
+            Reference hit with strand, hitStart, hitEnd attributes.
+        cand : namedtuple
+            Candidate partner hit with strand, hitStart, hitEnd attributes.
+        direction : str
+            Search direction: 'left_to_right' or 'right_to_left'.
+
+        Returns
+        -------
+        int
+            Calculated distance in base pairs from reference to candidate based
+            on terminus positions and biological orientation.
+
+        Notes
+        -----
+        Matches the distance calculation logic in _check_distance function.
+        For left_to_right: distance from left terminus 3' end to right terminus 5' end.
+        For right_to_left: distance from right terminus 5' end to left terminus 3' end.
+        """
+
+        def get_terminus_position(hit: Any) -> Dict[str, int]:
+            """
+            Extract 5' and 3' terminus positions accounting for strand orientation.
+
+            Parameters
+            ----------
+            hit : namedtuple
+                Hit record with strand, hitStart, and hitEnd attributes.
+
+            Returns
+            -------
+            dict
+                Dictionary with '5_prime' and '3_prime' keys containing genomic coordinates
+                adjusted for strand directionality.
+            """
+            if hit.strand == '+':
+                return {'5_prime': hit.hitStart, '3_prime': hit.hitEnd}
+            else:
+                return {'5_prime': hit.hitEnd, '3_prime': hit.hitStart}
+
+        ref_pos = get_terminus_position(ref)
+        cand_pos = get_terminus_position(cand)
+
+        if direction == 'left_to_right':
+            # Distance from left terminus 3' end to right terminus 5' end
+            return int(cand_pos['5_prime'] - ref_pos['3_prime'])
+        else:
+            # Distance from right terminus 5' end to left terminus 3' end
+            return int(ref_pos['5_prime'] - cand_pos['3_prime'])
+
+    if hitIndex[model_key][uid_key]['candidates']:
+        # Sort by calculated distance (closest first)
+        hitIndex[model_key][uid_key]['candidates'] = sorted(
+            hitIndex[model_key][uid_key]['candidates'],
+            key=lambda x: get_distance_for_sorting(ref_hit, x, direction),
+        )
+
+        logging.debug(
+            f'Sorted {len(hitIndex[model_key][uid_key]["candidates"])} candidates by distance'
+        )
+
+
+def iterateGetPairsAsymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], config: Any, stableReps: int = 0
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]], List[int]]:
+    """
+    Iterate asymmetric pairing with different left and right HMM models.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Nested hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    config : PairingConfig
+        Configuration with left_model and right_model specified.
+    stableReps : int, default 0
+        Maximum iterations to continue after no new pairs found.
+
+    Returns
+    -------
+    hitIndex : dict
+        Updated index with partner assignments.
+    paired : dict
+        Dictionary of pairs: paired[left_model] = [list of pair sets].
+    unpaired : list
+        List of hit indices that remain unpaired.
+
+    Notes
+    -----
+    Pairs hits from different HMM models representing left and right termini.
+    Handles multiple strand combinations for each orientation configuration.
+    Iterates until convergence or stable iteration limit reached.
+    """
+    import logging
+
+    logging.debug('=== ENTERING iterateGetPairsAsymmetric ===')
+    logging.debug(
+        f'Config: {config.left_model} ({config.left_strand}) + {config.right_model} ({config.right_strand})'
+    )
+
+    # Init stable repeat counter
+    reps = 0
+
+    # Initialize paired dict with left model name (convention for asymmetric)
+    paired: Dict[str, List[Set[int]]] = {config.left_model: []}
+
+    # Run initial pairing
+    hitIndex, paired = getPairsAsymmetric(
+        hitIndex=hitIndex, config=config, paired=paired
+    )
+
+    # Count remaining unpaired hits
+    countUP = countUnpairedAsymmetric(hitIndex, config)
+
+    logging.debug(f'Initial unpaired count: {countUP}')
+
+    # Iterate pairing procedure until either no unpaired remain
+    # OR max number of iterations without new pairing is reached
+    while countUP > 0 and reps < stableReps:
+        # Re-run pairing procedure
+        hitIndex, paired = getPairsAsymmetric(
+            hitIndex=hitIndex, config=config, paired=paired
+        )
+
+        # Store previous unpaired hit count
+        lastCountUP = countUP
+        # Update unpaired hit count
+        countUP = countUnpairedAsymmetric(hitIndex, config)
+
+        logging.debug(
+            f'Iteration {reps + 1}: unpaired count {lastCountUP} -> {countUP}'
+        )
+
+        # If no change in unpaired hit count, iterate stable rep counter
+        if lastCountUP == countUP:
+            reps += 1
+
+    # Get IDs of remaining unpaired hits
+    unpaired = listunpairedAsymmetric(hitIndex, config)
+
+    total_pairs = sum(len(pairs) for pairs in paired.values())
+    logging.debug(
+        f'Asymmetric pairing completed: {total_pairs} pairs, {len(unpaired)} unpaired'
+    )
+
+    return hitIndex, paired, unpaired
+
+
+def getPairsAsymmetric(
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    config: Any = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]]]:
+    """
+    Perform one round of asymmetric pairing between different models.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Nested hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    config : PairingConfig
+        Configuration specifying left_model, right_model, and strand orientations.
+    paired : dict, optional
+        Existing pairs dictionary. If None, creates new dictionary.
+
+    Returns
+    -------
+    hitIndex : dict
+        Updated index with new partner assignments.
+    paired : dict
+        Updated pairs dictionary: paired[left_model] = [list of pair sets].
+
+    Notes
+    -----
+    Checks reciprocal best-match relationship between left and right model hits.
+    Only pairs hits that are each other's closest valid unpaired partners.
+    """
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert config is not None, 'config cannot be None'
+    import logging
+
+    if not paired:
+        paired_dict: Dict[str, List[Set[int]]] = {config.left_model: []}
+    else:
+        paired_dict = paired
+
+    pairs_found = 0
+
+    # Get hits from left model looking for right model partners
+    if config.left_model in hitIndex:
+        for leftID in hitIndex[config.left_model].keys():
+            if not hitIndex[config.left_model][leftID]['partner']:
+                left_hit = hitIndex[config.left_model][leftID]['rec']
+
+                # REMOVED: Strand restriction check
+                # The parseHitsGeneral already populated candidates with valid combinations
+                logging.debug(
+                    f'Processing left hit {leftID}: {left_hit.strand}:{left_hit.hitStart}-{left_hit.hitEnd}'
+                )
+
+                # Look through candidates (which should be from right model)
+                for candidate in hitIndex[config.left_model][leftID]['candidates']:
+                    logging.debug(
+                        f'Checking candidate: {candidate.model}_{candidate.idx} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+                    )
+
+                    # Check if candidate is from right model and unpaired
+                    if (
+                        candidate.model == config.right_model
+                        and candidate.idx in hitIndex[config.right_model]
+                        and not hitIndex[config.right_model][candidate.idx]['partner']
+                    ):
+                        # Check if this left hit is also the best candidate for the right hit
+                        found = checkAsymmetricReciprocity(
+                            left_model=config.left_model,
+                            left_id=leftID,
+                            right_model=config.right_model,
+                            right_id=candidate.idx,
+                            hitIndex=hitIndex,
+                            config=config,
+                        )
+
+                        if found:
+                            # Mark as paired
+                            hitIndex[config.left_model][leftID]['partner'] = (
+                                candidate.idx
+                            )
+                            hitIndex[config.right_model][candidate.idx]['partner'] = (
+                                leftID
+                            )
+
+                            # Add to paired list (store under left model)
+                            paired_dict[config.left_model].append(
+                                {leftID, candidate.idx}
+                            )
+                            pairs_found += 1
+
+                            logging.debug(
+                                f'Paired: {config.left_model}_{leftID} + {config.right_model}_{candidate.idx}'
+                            )
+                            break
+
+    logging.debug(f'Found {pairs_found} new asymmetric pairs')
+    return hitIndex, paired_dict
+
+
+def checkAsymmetricReciprocity(
+    left_model: str,
+    left_id: int,
+    right_model: str,
+    right_id: int,
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]],
+    config: Any,
+) -> bool:
+    """
+    Check if asymmetric pair has reciprocal best-match relationship.
+
+    Parameters
+    ----------
+    left_model : str
+        Model name for left terminus hit.
+    left_id : int
+        Index of left hit in hitIndex.
+    right_model : str
+        Model name for right terminus hit.
+    right_id : int
+        Index of right hit in hitIndex.
+    hitIndex : dict
+        Hit index dictionary with candidate lists.
+    config : PairingConfig
+        Configuration with strand requirements.
+
+    Returns
+    -------
+    bool
+        True if left hit is right hit's best unpaired candidate, False otherwise.
+
+    Notes
+    -----
+    Asymmetric reciprocity requires left hit to be the first valid unpaired
+    candidate in right hit's candidate list, accounting for strand compatibility.
+    """
+    import logging
+
+    # Check if left hit is the best candidate for the right hit
+    right_candidates = hitIndex[right_model][right_id]['candidates']
+
+    for candidate in right_candidates:
+        if (
+            candidate.model == left_model
+            # REMOVED: strand compatibility check - already filtered
+            and candidate.idx in hitIndex[left_model]
+            and not hitIndex[left_model][candidate.idx]['partner']
+        ):
+            if candidate.idx == left_id:
+                logging.debug(
+                    f'Reciprocal match: {left_model}_{left_id} <-> {right_model}_{right_id}'
+                )
+                return True  # Reciprocal match found
+            else:
+                logging.debug(
+                    f'Better candidate exists for {right_model}_{right_id}: {candidate.idx}'
+                )
+                return False  # A better candidate exists
+
+    logging.debug(
+        f'No reciprocal match for {left_model}_{left_id} -> {right_model}_{right_id}'
+    )
+    return False  # No valid candidates
+
+
+def iterateGetPairsCustom(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], config: Any, stableReps: int = 0
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]], List[int]]:
+    """
+    Iterate symmetric pairing with custom strand orientations.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Nested hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    config : PairingConfig
+        Configuration with single_model and custom orientation specified.
+    stableReps : int, default 0
+        Maximum iterations to continue after no new pairs found.
+
+    Returns
+    -------
+    hitIndex : dict
+        Updated index with partner assignments.
+    paired : dict
+        Dictionary of pairs: paired[model] = [list of pair sets].
+    unpaired : list
+        List of hit indices that remain unpaired.
+
+    Notes
+    -----
+    Handles non-standard orientations (F,F or R,R) for symmetric model pairing.
+    Useful for elements with non-canonical TIR orientations or inverted structures.
+    """
+    import logging
+
+    logging.debug('=== ENTERING iterateGetPairsCustom ===')
+    logging.debug(
+        f'Config: {config.left_model} orientation {config.left_strand},{config.right_strand}'
+    )
+
+    model_name = config.left_model
+
+    if model_name not in hitIndex:
+        logging.error(f'Model {model_name} not found in hitIndex')
+        return hitIndex, {model_name: []}, []
+
+    # Initialize pairing structures
+    paired: Dict[str, List[Set[int]]] = {model_name: []}
+    reps = 0
+
+    # Run initial pairing
+    hitIndex, paired = getPairsSymmetric(
+        hitIndex=hitIndex, model_name=model_name, config=config, paired=paired
+    )
+
+    # Count remaining unpaired hits
+    countUP = countUnpairedSymmetric(hitIndex, model_name, config)
+
+    logging.debug(f'Initial unpaired count: {countUP}')
+
+    # Iterate pairing procedure
+    while countUP > 0 and reps < stableReps:
+        hitIndex, paired = getPairsSymmetric(
+            hitIndex=hitIndex, model_name=model_name, config=config, paired=paired
+        )
+
+        lastCountUP = countUP
+        countUP = countUnpairedSymmetric(hitIndex, model_name, config)
+
+        logging.debug(
+            f'Iteration {reps + 1}: unpaired count {lastCountUP} -> {countUP}'
+        )
+
+        if lastCountUP == countUP:
+            reps += 1
+
+    # Get unpaired list
+    unpaired = listunpairedSymmetric(hitIndex, model_name, config)
+
+    total_pairs = len(paired[model_name])
+    logging.debug(
+        f'Symmetric pairing completed: {total_pairs} pairs, {len(unpaired)} unpaired'
+    )
+
+    return hitIndex, paired, unpaired
+
+
+def getPairsSymmetric(
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    model_name: Optional[str] = None,
+    config: Any = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+) -> Tuple[Dict[str, Dict[int, Dict[str, Any]]], Dict[str, List[Set[int]]]]:
+    """
+    Perform one round of symmetric pairing within a single model.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Nested hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    model_name : str
+        Name of HMM model for symmetric pairing.
+    config : PairingConfig
+        Configuration specifying orientation constraints.
+    paired : dict, optional
+        Existing pairs dictionary. If None, creates new dictionary.
+
+    Returns
+    -------
+    hitIndex : dict
+        Updated index with new partner assignments.
+    paired : dict
+        Updated pairs dictionary: paired[model] = [list of pair sets].
+
+    Notes
+    -----
+    Pairs hits from the same HMM model that meet orientation requirements.
+    Each hit must have complementary role (left or right) based on strand
+    to form a valid symmetric pair.
+    """
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert model_name is not None, 'model_name cannot be None'
+    assert config is not None, 'config cannot be None'
+    import logging
+
+    if model_name not in hitIndex:
+        if paired is None:
+            paired = {}
+        return hitIndex, paired
+
+    if not paired:
+        paired_dict: Dict[str, List[Set[int]]] = {model_name: []}
+    else:
+        paired_dict = paired
+
+    pairs_found = 0
+
+    for refID in hitIndex[model_name].keys():
+        if not hitIndex[model_name][refID]['partner']:
+            ref_hit = hitIndex[model_name][refID]['rec']
+
+            # Check if this hit can act as a left or right terminus based on strand
+            can_be_left = ref_hit.strand == config.left_strand
+            can_be_right = ref_hit.strand == config.right_strand
+
+            if not (can_be_left or can_be_right):
+                logging.debug(
+                    f"Hit {refID} on strand {ref_hit.strand} doesn't match orientation {config.left_strand},{config.right_strand}"
+                )
+                continue
+
+            logging.debug(
+                f'Processing hit {refID}: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd} (can_be_left: {can_be_left}, can_be_right: {can_be_right})'
+            )
+
+            # Check candidates for this hit
+            for candidate in hitIndex[model_name][refID]['candidates']:
+                logging.debug(
+                    f'Checking candidate: {candidate.model}_{candidate.idx} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+                )
+
+                # Candidate should be from the same model for symmetric pairing
+                if (
+                    candidate.model == model_name
+                    and candidate.idx in hitIndex[model_name]
+                    and not hitIndex[model_name][candidate.idx]['partner']
+                ):
+                    # Check strand compatibility for symmetric pairing
+                    candidate_can_be_left = candidate.strand == config.left_strand
+                    candidate_can_be_right = candidate.strand == config.right_strand
+
+                    # For symmetric pairing, we need complementary roles
+                    compatible = False
+                    if can_be_left and candidate_can_be_right:
+                        compatible = True
+                        logging.debug(
+                            f'Compatible: {refID} (left) + {candidate.idx} (right)'
+                        )
+                    elif can_be_right and candidate_can_be_left:
+                        compatible = True
+                        logging.debug(
+                            f'Compatible: {refID} (right) + {candidate.idx} (left)'
+                        )
+
+                    if compatible:
+                        # Check reciprocity
+                        if checkSymmetricReciprocity(
+                            model_name, refID, candidate.idx, hitIndex, config
+                        ):
+                            # Mark as paired
+                            hitIndex[model_name][refID]['partner'] = candidate.idx
+                            hitIndex[model_name][candidate.idx]['partner'] = refID
+
+                            # Add to paired list
+                            paired_dict[model_name].append({refID, candidate.idx})
+                            pairs_found += 1
+
+                            logging.debug(
+                                f'Paired: {model_name}_{refID} + {model_name}_{candidate.idx}'
+                            )
+                            break
+
+    logging.debug(f'Found {pairs_found} new symmetric pairs')
+    return hitIndex, paired_dict
+
+
+def checkSymmetricReciprocity(
+    model_name: str,
+    ref_id: int,
+    candidate_id: int,
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]],
+    config: Any,
+) -> bool:
+    """
+    Check reciprocal best-match for symmetric pairing with orientation constraints.
+
+    Parameters
+    ----------
+    model_name : str
+        Name of HMM model.
+    ref_id : int
+        Index of reference hit.
+    candidate_id : int
+        Index of candidate partner hit.
+    hitIndex : dict
+        Hit index dictionary with candidate lists.
+    config : PairingConfig
+        Configuration with strand orientation requirements.
+
+    Returns
+    -------
+    bool
+        True if ref and candidate are reciprocal best unpaired matches, False otherwise.
+
+    Notes
+    -----
+    Verifies ref_id appears as first valid unpaired candidate in candidate_id's
+    candidate list, with both hits having complementary strand roles.
+    """
+    import logging
+
+    # Check if ref_id is the best unpaired candidate for candidate_id
+    for mate_candidate in hitIndex[model_name][candidate_id]['candidates']:
+        if (
+            mate_candidate.idx in hitIndex[model_name]
+            and not hitIndex[model_name][mate_candidate.idx]['partner']
+        ):
+            # Check strand compatibility
+            mate_hit = hitIndex[model_name][mate_candidate.idx]['rec']
+            candidate_hit = hitIndex[model_name][candidate_id]['rec']
+
+            # Determine if they can form a valid pair
+            mate_can_be_left = mate_hit.strand == config.left_strand
+            mate_can_be_right = mate_hit.strand == config.right_strand
+            candidate_can_be_left = candidate_hit.strand == config.left_strand
+            candidate_can_be_right = candidate_hit.strand == config.right_strand
+
+            # Check if this candidate pair is strand-compatible
+            strand_compatible = (mate_can_be_left and candidate_can_be_right) or (
+                mate_can_be_right and candidate_can_be_left
+            )
+
+            if strand_compatible:
+                reciprocal = bool(mate_candidate.idx == ref_id)
+                logging.debug(
+                    f'Reciprocal check: {candidate_id} -> {mate_candidate.idx} == {ref_id}? {reciprocal}'
+                )
+                return reciprocal
+
+    logging.debug(f'No reciprocal match found for {ref_id} -> {candidate_id}')
+    return False
+
+
+# Update helper functions to include config parameter
+def countUnpairedAsymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], config: Any
+) -> int:
+    """
+    Count unpaired hits across both left and right asymmetric models.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Nested hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    config : PairingConfig
+        Configuration specifying left_model and right_model.
+
+    Returns
+    -------
+    int
+        Total number of unpaired hits across both models.
+    """
+    count = 0
+    for model in [config.left_model, config.right_model]:
+        if model in hitIndex:
+            for hitID in hitIndex[model].keys():
+                if not hitIndex[model][hitID]['partner']:
+                    count += 1  # Count all unpaired hits regardless of strand
+    return count
+
+
+def listunpairedAsymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], config: Any
+) -> List[int]:
+    """
+    List all unpaired hit indices for asymmetric models.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Nested hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    config : PairingConfig
+        Configuration specifying left_model and right_model.
+
+    Returns
+    -------
+    list of int
+        List of hit indices without assigned partners from both models.
+    """
+    unpaired = []
+    for model in [config.left_model, config.right_model]:
+        if model in hitIndex:
+            for hitID in hitIndex[model].keys():
+                if not hitIndex[model][hitID]['partner']:
+                    unpaired.append(
+                        hitID
+                    )  # Include all unpaired hits regardless of strand
+    return unpaired
+
+
+def countUnpairedSymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], model_name: str, config: Any
+) -> int:
+    """
+    Count unpaired hits for symmetric model considering orientation constraints.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Nested hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    model_name : str
+        Name of HMM model.
+    config : PairingConfig
+        Configuration with strand requirements.
+
+    Returns
+    -------
+    int
+        Number of unpaired hits on valid strands for this model.
+
+    Notes
+    -----
+    Only counts hits whose strand matches either left_strand or right_strand
+    in the configuration, as other hits cannot participate in pairing.
+    """
+    if model_name not in hitIndex:
+        return 0
+
+    count = 0
+    for hitID in hitIndex[model_name].keys():
+        if not hitIndex[model_name][hitID]['partner']:
+            hit = hitIndex[model_name][hitID]['rec']
+            # Only count hits that can participate in pairing
+            if hit.strand in [config.left_strand, config.right_strand]:
+                count += 1
+    return count
+
+
+def listunpairedSymmetric(
+    hitIndex: Dict[str, Dict[int, Dict[str, Any]]], model_name: str, config: Any
+) -> List[int]:
+    """
+    List unpaired hit indices for symmetric model with orientation constraints.
+
+    Parameters
+    ----------
+    hitIndex : dict
+        Nested hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    model_name : str
+        Name of HMM model.
+    config : PairingConfig
+        Configuration with strand requirements.
+
+    Returns
+    -------
+    list of int
+        List of unpaired hit indices on valid strands.
+
+    Notes
+    -----
+    Only includes hits whose strand can participate in pairing based on
+    left_strand and right_strand in configuration.
+    """
+    if model_name not in hitIndex:
+        return []
+
+    unpaired = []
+    for hitID in hitIndex[model_name].keys():
+        if not hitIndex[model_name][hitID]['partner']:
+            hit = hitIndex[model_name][hitID]['rec']
+            # Only include hits that can participate in pairing
+            if hit.strand in [config.left_strand, config.right_strand]:
+                unpaired.append(hitID)
+    return unpaired

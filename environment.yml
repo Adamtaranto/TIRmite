@@ -13,6 +13,4 @@ dependencies:
   - pip:
       - "biopython>=1.70"
       - "pandas>=0.20.3"
-      - hatch
-      - pytest
       - rich

@@ -27,11 +27,11 @@ An iterative pairing algorithm is then used to annotate cryptic transposon varia
 # Table of contents
 
 * [About TIRmite](#about-tirmite)
-* [Algorithm overview](#algorithm-overview)
 * [Options and usage](#options-and-usage)
   * [Installing TIRmite](#installing-tirmite)
   * [Example usage](#example-usage)
   * [Standard options](#standard-options)
+* [Algorithm overview](#algorithm-overview)
 * [Contributing](#contributing)
 * [Issues](#issues)
 * [License](#license)
@@ -46,21 +46,6 @@ Three classes of output are produced:
   2. Candidate elements comprised of paired termini are written to fasta (per query HMM).
   3. Genomic annotations of candidate elements and, optionally, HMM hits
   (paired and unpaired) are written as a single GFF3 file.
-
-## Algorithm overview
-
-  1. Use nhmmer to query genome with termini HMMs.
-  2. Import all hits under *--maxeval* threshold.
-  3. For each significant terminus match, identify candidate partners, where:
-    - Hit is on the same sequence.
-    - Hit is in coreect relative orientation.
-    - Distance is <= *--maxdist*.
-    - Hit length is >= (model length * *--mincov* prop)
-  4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
-  5. Pair reciprocal top candidate hits.
-  6. For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.
-  7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
-  8. Iterate steps 6-7 until all termini hits are paired OR number of iterations without new pairing exceeds *--stableReps*.
 
 ## Options and usage
 
@@ -213,6 +198,21 @@ Examples:
   tirmite seed --left-seed left.fa --model-name myTE --genome genome.fa
   tirmite pair --genome genome.fa --nhmmerFile hits.out --hmmFile model.hmm
 ```
+
+## Algorithm overview
+
+  1. Use nhmmer to query genome with termini HMMs.
+  2. Import all hits under *--maxeval* threshold.
+  3. For each significant terminus match, identify candidate partners, where:
+    - Hit is on the same sequence.
+    - Hit is in coreect relative orientation.
+    - Distance is <= *--maxdist*.
+    - Hit length is >= (model length * *--mincov* prop)
+  4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
+  5. Pair reciprocal top candidate hits.
+  6. For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.
+  7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
+  8. Iterate steps 6-7 until all termini hits are paired OR number of iterations without new pairing exceeds *--stableReps*.
 
 ## Contributing
 

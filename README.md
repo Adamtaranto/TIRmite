@@ -10,11 +10,11 @@
 
 # TIRmite
 
-Autonomous examples of transposons, belonging to many [distinct superfamilies, share two features](https://doi.org/10.1266/ggs.18-00024 "Yes yes, except when they don't. Don't @ me, nerds."): A gene or genes encoding the mode of transposition; and terminal sequence features that are recognised by said gene products as the element boundaries.
+Autonomous examples of transposons, belonging to many [distinct super-families](https://doi.org/10.1266/ggs.18-00024 "Yes yes, except when they don't. Don't @ me, nerds."), share two common properties: A gene or genes encoding the mode of transposition; and terminal sequence features that are recognised by these gene products as the element boundaries.
 
 Proper classification of transposons and grouping into families relies on both phylogeny of conserved sequences and conservation of transposition mechanism.
 
-However, not all TE instances are created equal — inhabiting the nulear soup of their host genome, where your brother's transposase is as good as your own, non-autonomous variants lacking their own functional hardware proliferate.
+However, not all TE instances are created equal — inhabiting the nulear soup of their host genome, where your brother's transposase is as good as your own, non-autonomous variants (lacking their own functional hardware) proliferate.
 
 MITEs are a classic example of this - derived from autonomous DNA elements with Terminal Inverted Repeats, they are Miniature Inverted-repeat Transposable Elements, sometimes little more than a pair of TIRs.
 
@@ -23,6 +23,8 @@ When non-autonomous structural variants of a TE vastly outnumber their parent el
 **TIRmite** employs profile Hidden Markov Models (HMMs) to model natural variation in transposon termini and recover divergent and degraded hits that are often missed by sequence-based aligners like BLAST.
 
 An iterative pairing algorithm is then used to annotate cryptic transposon variants with variable internal sequence compositions.
+
+The elements extracted by TIRmite generally represent structuaral variants derived from an autonomous ancestor and may be further clustered into families.
 
 # Table of contents
 

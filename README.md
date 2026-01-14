@@ -32,6 +32,7 @@ An iterative pairing algorithm is then used to annotate cryptic transposon varia
   * [Installing TIRmite](#installing-tirmite)
   * [Example usage](#example-usage)
   * [Standard options](#standard-options)
+* [Contributing](#contributing)
 * [Issues](#issues)
 * [License](#license)
 
@@ -99,23 +100,6 @@ pip install tirmite
 
 ```bash
 conda install -c bioconda tirmite
-```
-
-4) Clone from this repository and install as a local Python package.
-
-Only do this if you want to edit the code.
-
-```bash
-# Clone this repo (or your own fork)
-git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite
-# Install custom conda env
-conda env create -f environment.yml
-# Activate conda env
-conda activate tirmite
-# Install an editable copy of the package
-pip install -e '.[dev]'
-# Enable pre-commit checks
-pre-commit install
 ```
 
 Test installation.
@@ -228,6 +212,27 @@ Examples:
   tirmite legacy --genome genome.fa --hmmFile model.hmm
   tirmite seed --left-seed left.fa --model-name myTE --genome genome.fa
   tirmite pair --genome genome.fa --nhmmerFile hits.out --hmmFile model.hmm
+```
+
+## Contributing
+
+If you would like to add a new feature or fix a bug, please see our [contribution guidelines](https://github.com/Adamtaranto/TIRmite?tab=contributing-ov-file#readme).
+
+- Open an issue
+- Fork the repo
+- Follow the dev env setup instructions below
+
+```bash
+# Clone this repo (or your own fork)
+git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite
+# Install custom conda env
+conda env create -f environment.yml
+# Activate conda env
+conda activate tirmite
+# Install an editable copy of the package
+pip install -e '.[dev]'
+# Enable pre-commit checks
+pre-commit install
 ```
 
 ## Issues

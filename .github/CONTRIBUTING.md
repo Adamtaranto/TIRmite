@@ -3,6 +3,7 @@
 Thank you for your interest in contributing to TIRmite! This document provides guidelines and instructions for contributing to this project.
 
 ## Table of Contents
+
 - [Code of Conduct](#code-of-conduct)
 - [How to Contribute](#how-to-contribute)
   - [Reporting Bugs](#reporting-bugs)
@@ -45,8 +46,9 @@ We welcome feature suggestions! To suggest a feature:
 1. Fork the repository
 2. Create a new branch for your feature or bugfix
 3. Make your changes
-4. Run tests to ensure they pass
-5. Submit a pull request
+4. Write tests that validate your code's expected output
+5. Run tests to ensure they pass
+6. Submit a pull request
 
 ## Development Setup
 
@@ -55,7 +57,7 @@ To set up your development environment:
 1. Clone your fork of the repository
 
   ```bash
-   git clone https://github.com/adamtaranto/TIRmite.git
+   git clone https://github.com/adamtaranto/TIRmite.git # your fork here
    cd TIRmite
   ```
 
@@ -63,27 +65,48 @@ To set up your development environment:
 
   ```bash
   conda env create -f environment.yml
-  conda activate TIRmite
+  conda activate tirmite
   ```
 
 3. Install development dependencies
 
   ```bash
+  # Install in editable mode with dev dependencies
   pip install -e ".[dev]"
   ```
 
+4. Enable pre-commit hooks
+
+```bash
+pre-commit install
+```
+
 ## Style Guidelines
 
-We follow PEP 8 style guidelines and use NumPy-style docstrings.
+We follow PEP 8 style guidelines and use numpydoc-style docstrings.
 
 Key points:
 
-- Maximum line length of 88 characters
 - Use type hints
-- Document functions and classes with NumPy-style docstrings
+- Document functions and classes with numpydoc-style docstrings
 - Use descriptive variable names
-- Format code with Black
+- Format code with Ruff
 - Sort imports with isort
+
+Formatting checks:
+
+```bash
+# Apply Ruff formatting
+ruff format
+ruff check
+# Format imports
+isort src/ tests/
+# Validate typehints
+mypy src/
+# Validate docstrings
+pydocstyle # fussy
+numpydoc lint src/**/*.py # essential
+```
 
 ## Testing
 

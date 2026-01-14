@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Common Changelog](https://common-changelog.org/).
 
-## [1.3.0] - _Unreleased_
+## [1.3.0] - 2026-01-14
 
 ### Added
 
@@ -60,6 +60,6 @@ The format is based on [Common Changelog](https://common-changelog.org/).
 
 ---
 
-## [1.2.0] - 2023-XX-XX
+## [1.0.0] - 2017-10-02
 
 Initial stable release with core TIRmite functionality.

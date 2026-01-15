@@ -10,7 +10,7 @@
 
 # TIRmite
 
-Autonomous examples of transposons, belonging to many [distinct super-families](https://doi.org/10.1266/ggs.18-00024 "Yes yes, except when they don't. Don't @ me, nerds."), share two common properties: A gene or genes encoding the mode of transposition; and terminal sequence features that are recognised by these gene products as the element boundaries.
+Autonomous examples of transposons, belonging to many [distinct super-families, share two common properties](https://doi.org/10.1266/ggs.18-00024 "Yes yes, except when they don't. Don't @ me, nerds."): A gene or genes encoding the mode of transposition; and terminal sequence features that are recognised by these gene products as the element boundaries.
 
 Proper classification of transposons and grouping into families relies on both phylogeny of conserved sequences and conservation of transposition mechanism.
 

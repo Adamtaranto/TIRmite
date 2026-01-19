@@ -15,12 +15,12 @@ for flexible transposon architecture detection.
 import argparse
 import logging
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional, cast
 
-from tirmite._version import __version__  # type: ignore[import-not-found]
 import tirmite.tirmitetools as tirmite
+from tirmite._version import __version__  # type: ignore[import-not-found]
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
@@ -616,7 +616,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         elif args.blastdb:
             logging.info(f'Using BLAST database: {args.blastdb}')
             # Note: genome will remain None, sequence extraction will use blastdbcmd
-        
+
         # Load model/query lengths
         logging.info('Loading model/query lengths...')
         model_lengths = {}
@@ -666,7 +666,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Single BLAST file mode
             logging.info('Importing BLAST hits...')
             input_format = 'blast'
-            
+
             # Detect format and warn if mismatch
             detected_format = tirmite.detect_input_format(args.blastFile)
             if detected_format != 'blast' and detected_format != 'unknown':
@@ -674,26 +674,26 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     f'File format appears to be {detected_format}, but --blastFile was specified. '
                     'Consider using --nhmmerFile instead.'
                 )
-            
+
             hitTable = tirmite.import_blast(
                 infile=args.blastFile, hitTable=None, prefix=args.prefix
             )
-            
+
             # If queryLen was provided, assign it now that we have the query name
             if args.queryLen and hitTable is not None and len(hitTable) > 0:
                 query_name = hitTable['model'].iloc[0]
                 model_lengths[query_name] = args.queryLen
                 logging.info(f'Set length for query {query_name}: {args.queryLen}')
-                
+
         elif args.leftBlast:
             # Asymmetric BLAST mode - import from both files
             logging.info('Importing BLAST hits from left and right queries...')
             input_format = 'blast'
-            
+
             # Detect format for both files
             detected_left = tirmite.detect_input_format(args.leftBlast)
             detected_right = tirmite.detect_input_format(args.rightBlast)
-            
+
             if detected_left != 'blast' and detected_left != 'unknown':
                 logging.warning(
                     f'Left file format appears to be {detected_left}, but --leftBlast was specified.'
@@ -702,7 +702,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 logging.warning(
                     f'Right file format appears to be {detected_right}, but --rightBlast was specified.'
                 )
-            
+
             hitTable = tirmite.import_blast(
                 infile=args.leftBlast,
                 hitTable=None,
@@ -797,7 +797,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
-            
+
             # Note: Model assignment is based on order of appearance in combined hit table
             # The first model encountered becomes 'left', second becomes 'right'
             # For deterministic results, ensure leftBlast file contains only left query hits

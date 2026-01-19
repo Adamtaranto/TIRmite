@@ -12,16 +12,16 @@ The pairing algorithms use reciprocal best-match approaches with
 configurable strand orientations and distance constraints.
 """
 
-from collections import namedtuple
 import glob
 import logging
-from operator import attrgetter
 import os
+from collections import namedtuple
+from operator import attrgetter
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+import pandas as pd  # type: ignore[import-untyped]
 from Bio import AlignIO, Seq, SeqIO  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
 
 from tirmite.utils.utils import cleanID
 
@@ -1006,7 +1006,7 @@ def extract_from_blastdb(
                 f'Invalid FASTA output from blastdbcmd for {seqid}:{start}-{end}'
             )
             return None
-        
+
         # Concatenate sequence lines (skip header at index 0)
         seq = ''.join(lines[1:])
         return seq
@@ -1095,7 +1095,9 @@ def extractTIRs_blastdb(
                 # blastdbcmd uses 1-based inclusive coordinates
                 # Convert to 0-based for Python string slicing
                 hit_start_in_seq = start - pad_start
-                hit_end_in_seq = end - pad_start + 1  # +1 for inclusive end in blastdbcmd
+                hit_end_in_seq = (
+                    end - pad_start + 1
+                )  # +1 for inclusive end in blastdbcmd
 
                 # Convert to lowercase/uppercase
                 hit_seq_str = (
@@ -1282,12 +1284,14 @@ def writeTIRs(
     -----
     Creates one FASTA file per model with filename format:
     {prefix}{model}_hits_{count}.fasta
-    
+
     Either genome or blastdb must be provided for sequence extraction.
     """
     assert hitTable is not None, 'hitTable cannot be None'
-    assert genome is not None or blastdb is not None, 'Either genome or blastdb must be provided'
-    
+    assert genome is not None or blastdb is not None, (
+        'Either genome or blastdb must be provided'
+    )
+
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1387,12 +1391,14 @@ def fetchElements(
     Extracts sequence from leftHit.hitStart to rightHit.hitEnd.
     Handles both symmetric (same model) and asymmetric (different models) pairing.
     Element IDs have format: Element_{counter}.
-    
+
     Either genome or blastdb must be provided for sequence extraction.
     """
     assert paired is not None, 'paired cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
-    assert genome is not None or blastdb is not None, 'Either genome or blastdb must be provided'
+    assert genome is not None or blastdb is not None, (
+        'Either genome or blastdb must be provided'
+    )
     # Check if hitIndex is nested or flat
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
 
@@ -1481,9 +1487,7 @@ def fetchElements(
                         leftHit.strand,
                     )
                     if ele_seq_str is None:
-                        logging.warning(
-                            f'Failed to extract element {eleID}, skipping'
-                        )
+                        logging.warning(f'Failed to extract element {eleID}, skipping')
                         continue
                 else:
                     # Extract using pyfaidx (0-based indexing)
@@ -1619,13 +1623,15 @@ def writePairedTIRs(
     Right TIRs are reverse complemented. Outputs two sequences per pair:
     {model}_{counter}_L (left TIR) and {model}_{counter}_R (right TIR).
     Filename format: {prefix}{model}_paired_term_hits_{count}.fasta
-    
+
     Either genome or blastdb must be provided for sequence extraction.
     """
     assert outDir is not None, 'outDir cannot be None'
     assert paired is not None, 'paired cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
-    assert genome is not None or blastdb is not None, 'Either genome or blastdb must be provided'
+    assert genome is not None or blastdb is not None, (
+        'Either genome or blastdb must be provided'
+    )
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1696,22 +1702,28 @@ def writePairedTIRs(
                         left_start = max(1, int(leftHit.hitStart) - padlen)
                         left_end = int(leftHit.hitEnd) + padlen
                         left_full = extract_from_blastdb(
-                            blastdb, leftHit.target, left_start, left_end, leftHit.strand
+                            blastdb,
+                            leftHit.target,
+                            left_start,
+                            left_end,
+                            leftHit.strand,
                         )
                         if left_full is None:
                             logging.warning(f'Failed to extract left TIR for {eleID}')
                             continue
-                        
+
                         # Apply case formatting
                         # blastdbcmd uses 1-based inclusive coordinates
                         hit_start_in_seq = int(leftHit.hitStart) - left_start
-                        hit_end_in_seq = int(leftHit.hitEnd) - left_start + 1  # +1 for inclusive end
+                        hit_end_in_seq = (
+                            int(leftHit.hitEnd) - left_start + 1
+                        )  # +1 for inclusive end
                         left_seq_str = (
                             left_full[:hit_start_in_seq].lower()
                             + left_full[hit_start_in_seq:hit_end_in_seq]
                             + left_full[hit_end_in_seq:].lower()
                         )
-                        
+
                         # Extract right TIR with padding
                         right_start = max(1, int(rightHit.hitStart) - padlen)
                         right_end = int(rightHit.hitEnd) + padlen
@@ -1721,11 +1733,13 @@ def writePairedTIRs(
                         if right_full is None:
                             logging.warning(f'Failed to extract right TIR for {eleID}')
                             continue
-                        
+
                         # Apply case formatting (before reverse complement)
                         # blastdbcmd uses 1-based inclusive coordinates
                         hit_start_in_seq = int(rightHit.hitStart) - right_start
-                        hit_end_in_seq = int(rightHit.hitEnd) - right_start + 1  # +1 for inclusive end
+                        hit_end_in_seq = (
+                            int(rightHit.hitEnd) - right_start + 1
+                        )  # +1 for inclusive end
                         right_seq_str = (
                             right_full[:hit_start_in_seq].lower()
                             + right_full[hit_start_in_seq:hit_end_in_seq]
@@ -1747,7 +1761,7 @@ def writePairedTIRs(
                             int(rightHit.hitEnd),
                             '+',  # Don't reverse complement yet
                         )
-                        
+
                         if left_seq_str is None or right_seq_str is None:
                             logging.warning(f'Failed to extract TIRs for {eleID}')
                             continue
@@ -1773,7 +1787,9 @@ def writePairedTIRs(
                             )
                         left_seq_parts.append(str(chrom[left_start:left_end]))
                         if left_end < left_pad_end:
-                            left_seq_parts.append(str(chrom[left_end:left_pad_end]).lower())
+                            left_seq_parts.append(
+                                str(chrom[left_end:left_pad_end]).lower()
+                            )
 
                         left_seq_str = ''.join(left_seq_parts)
 

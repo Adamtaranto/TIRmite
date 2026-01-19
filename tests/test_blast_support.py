@@ -7,7 +7,6 @@ Tests BLAST parsing, format detection, and basic functionality.
 
 import os
 import tempfile
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -19,17 +18,17 @@ import tirmite.tirmitetools as tirmite
 def blast_file():
     """Create a temporary BLAST tabular output file."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-        f.write("# BLASTN 2.12.0+\n")
-        f.write("# Query: TIR_query1\n")
-        f.write("# Database: test_genome\n")
+        f.write('# BLASTN 2.12.0+\n')
+        f.write('# Query: TIR_query1\n')
+        f.write('# Database: test_genome\n')
         f.write(
-            "# Fields: query acc.ver, subject acc.ver, % identity, alignment length, "
-            "mismatches, gap opens, q. start, q. end, s. start, s. end, evalue, bit score\n"
+            '# Fields: query acc.ver, subject acc.ver, % identity, alignment length, '
+            'mismatches, gap opens, q. start, q. end, s. start, s. end, evalue, bit score\n'
         )
-        f.write("TIR_query1\tchr1\t95.00\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n")
-        f.write("TIR_query1\tchr1\t93.00\t98\t7\t0\t3\t100\t5500\t5597\t1e-35\t180\n")
+        f.write('TIR_query1\tchr1\t95.00\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n')
+        f.write('TIR_query1\tchr1\t93.00\t98\t7\t0\t3\t100\t5500\t5597\t1e-35\t180\n')
         f.write(
-            "TIR_query1\tchr2\t90.00\t95\t10\t0\t5\t99\t2000\t1906\t1e-30\t160\n"
+            'TIR_query1\tchr2\t90.00\t95\t10\t0\t5\t99\t2000\t1906\t1e-30\t160\n'
         )  # Reverse strand
         fname = f.name
     yield fname
@@ -41,18 +40,18 @@ def nhmmer_file():
     """Create a temporary nhmmer output file."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.nhmmer', delete=False) as f:
         f.write(
-            "#target name         accession query name           accession mdl mdl from   "
-            "mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc "
-            "description of target\n"
+            '#target name         accession query name           accession mdl mdl from   '
+            'mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc '
+            'description of target\n'
         )
         f.write(
-            "#------------------- --------- -------------------- --------- --- -------- "
-            "-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- "
-            "--- ---------------------\n"
+            '#------------------- --------- -------------------- --------- --- -------- '
+            '-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- '
+            '--- ---------------------\n'
         )
         f.write(
-            "chr1                 -         TIR_model1           -          cm        1       "
-            "60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n"
+            'chr1                 -         TIR_model1           -          cm        1       '
+            '60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n'
         )
         fname = f.name
     yield fname
@@ -77,7 +76,7 @@ def test_import_blast(blast_file):
 
     # Check basic structure
     assert isinstance(hitTable, pd.DataFrame)
-    assert len(hitTable) == 3, f"Expected 3 hits, got {len(hitTable)}"
+    assert len(hitTable) == 3, f'Expected 3 hits, got {len(hitTable)}'
 
     # Check columns
     expected_cols = [
@@ -124,8 +123,8 @@ def test_import_blast_with_query_name(blast_file):
 def test_import_blast_empty_file():
     """Test importing empty BLAST file."""
     with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-        f.write("# BLASTN 2.12.0+\n")
-        f.write("# No hits found\n")
+        f.write('# BLASTN 2.12.0+\n')
+        f.write('# No hits found\n')
         fname = f.name
 
     try:

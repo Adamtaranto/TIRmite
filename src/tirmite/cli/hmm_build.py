@@ -16,14 +16,14 @@ import argparse
 import io
 import logging
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 
+import pandas as pd  # type: ignore[import-untyped]
 from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
 from pyhmmer.easel import (  # type: ignore[import-not-found]
     Alphabet,
     DigitalMSA,
@@ -460,7 +460,8 @@ def blast_seed_against_genome(
     blast_db: Path,
     output_file: Path,
     identity_threshold: float = 60.0,
-    num_threads: int = 1,  # Add threading parameter
+    num_threads: int = 1,
+    evalue: float = 1e-3,
 ) -> List[BlastHit]:
     """
     BLAST seed sequence against genome database using blastn with threading support.
@@ -477,6 +478,8 @@ def blast_seed_against_genome(
         Minimum percent identity threshold for BLAST hits.
     num_threads : int, default 1
         Number of CPU threads for BLAST to use.
+    evalue : float, default 1e-3
+        E-value threshold for BLAST hits.
 
     Returns
     -------
@@ -505,14 +508,20 @@ def blast_seed_against_genome(
         '-max_target_seqs',
         '10000',
         '-evalue',
-        '1e-3',
+        str(evalue),
         '-num_threads',
-        str(num_threads),  # Add threading support
+        str(num_threads),
     ]
 
-    logging.info(
-        f'Running BLAST search with identity threshold {identity_threshold}% using {num_threads} threads'
-    )
+    # Log the full blastn command being executed
+    logging.info('Running blastn with the following parameters:')
+    logging.info(f'  Command: {" ".join(cmd)}')
+    logging.info(f'  Query: {seed_file}')
+    logging.info(f'  Database: {blast_db}')
+    logging.info(f'  Output: {output_file}')
+    logging.info(f'  Identity threshold: {identity_threshold}%')
+    logging.info(f'  E-value: {evalue}')
+    logging.info(f'  Threads: {num_threads}')
 
     try:
         result = run_command(cmd, verbose=True)
@@ -1547,6 +1556,7 @@ def process_seed_sequences(
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
     threads: int = 1,
+    evalue: float = 1e-3,
 ) -> Tuple[Path, Path, Optional[Path], Optional[Path]]:
     """
     Process a seed file against genomes to build HMM.
@@ -1575,6 +1585,8 @@ def process_seed_sequences(
         Size of flanking sequence to extract.
     threads : int, default 1
         Number of CPU threads for BLAST.
+    evalue : float, default 1e-3
+        E-value threshold for BLAST hits.
 
     Returns
     -------
@@ -1598,7 +1610,7 @@ def process_seed_sequences(
         # Run BLAST search
         blast_output = temp_dir / f'{model_name}_{genome_file.stem}_blast.tab'
         hits = blast_seed_against_genome(
-            seed_file, blast_db, blast_output, min_identity, num_threads=threads
+            seed_file, blast_db, blast_output, min_identity, num_threads=threads, evalue=evalue
         )
         all_hits.extend(hits)
 
@@ -1730,7 +1742,8 @@ def process_asymmetric_seeds(
     max_gap: int = 500,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
-    threads: int = 1,  # Add threads parameter
+    threads: int = 1,
+    evalue: float = 1e-3,
 ) -> Tuple[Path, Path, Path, Path]:
     """
     Process asymmetric left and right seeds together to avoid filtering conflicts.
@@ -1761,6 +1774,8 @@ def process_asymmetric_seeds(
         Size of flanking sequence to extract.
     threads : int, default 1
         Number of CPU threads for BLAST.
+    evalue : float, default 1e-3
+        E-value threshold for BLAST hits.
 
     Returns
     -------
@@ -1784,14 +1799,14 @@ def process_asymmetric_seeds(
         # BLAST left seed
         left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
         left_hits = blast_seed_against_genome(
-            left_seed, blast_db, left_output, min_identity, num_threads=threads
+            left_seed, blast_db, left_output, min_identity, num_threads=threads, evalue=evalue
         )
         all_left_hits.extend(left_hits)
 
         # BLAST right seed
         right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
         right_hits = blast_seed_against_genome(
-            right_seed, blast_db, right_output, min_identity, num_threads=threads
+            right_seed, blast_db, right_output, min_identity, num_threads=threads, evalue=evalue
         )
         all_right_hits.extend(right_hits)
 
@@ -2240,6 +2255,38 @@ def validate_threads(value: str) -> int:
         ) from None
 
 
+def validate_evalue(value: str) -> float:
+    """
+    Custom type validator for evalue argument.
+
+    Parameters
+    ----------
+    value : str
+        E-value to validate.
+
+    Returns
+    -------
+    float
+        Validated e-value.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If value is not a positive float.
+    """
+    try:
+        fval = float(value)
+        if fval <= 0:
+            raise argparse.ArgumentTypeError(
+                f'evalue must be positive, got {fval}'
+            )
+        return fval
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"evalue must be a number, got '{value}'"
+        ) from None
+
+
 def create_seed_parser() -> argparse.ArgumentParser:
     """
     Create standalone argument parser for seed command.
@@ -2375,6 +2422,12 @@ def _configure_seed_parser(parser: argparse.ArgumentParser) -> None:
         type=validate_threads,
         default=1,
         help='Number of CPU threads to use for MAFFT alignment (default: 1)',
+    )
+    parser.add_argument(
+        '--evalue',
+        type=validate_evalue,
+        default=1e-3,
+        help='E-value threshold for BLAST hits (default: 1e-3)',
     )
 
 
@@ -2562,7 +2615,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     args.max_gap,
                     args.save_blast_hits,
                     args.flank_size,
-                    threads=args.threads,  # Pass threads parameter
+                    threads=args.threads,
+                    evalue=args.evalue,
                 )
 
                 logging.info('Asymmetric processing completed:')
@@ -2584,7 +2638,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     args.max_gap,
                     args.save_blast_hits,
                     args.flank_size,
-                    threads=args.threads,  # Pass threads parameter
+                    threads=args.threads,
+                    evalue=args.evalue,
                 )
                 logging.info(f'Single seed processing completed: {left_hmm}')
 

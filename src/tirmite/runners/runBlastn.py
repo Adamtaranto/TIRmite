@@ -11,8 +11,8 @@ All functions use Path objects and avoid shell injection vulnerabilities.
 """
 
 import logging
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from typing import List, Optional, Union
 
 
@@ -138,9 +138,16 @@ def run_blastn(
         cmd.extend(additional_args)
 
     if verbose:
-        logging.info(
-            f'Running BLAST command with {num_threads} threads: {" ".join(cmd)}'
-        )
+        logging.info('Running blastn with the following parameters:')
+        logging.info(f'  Command: {" ".join(cmd)}')
+        logging.info(f'  Query: {query_path}')
+        logging.info(f'  Subject: {subject_path}')
+        logging.info(f'  Output: {output_path}')
+        logging.info(f'  Word size: {word_size}')
+        logging.info(f'  Percent identity: {perc_identity}%')
+        logging.info(f'  Threads: {num_threads}')
+        if additional_args:
+            logging.info(f'  Additional args: {" ".join(additional_args)}')
 
     try:
         # Use subprocess.run with proper error handling

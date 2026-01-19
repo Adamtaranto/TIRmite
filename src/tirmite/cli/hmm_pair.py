@@ -15,12 +15,12 @@ for flexible transposon architecture detection.
 import argparse
 import logging
 import os
-import sys
 from pathlib import Path
+import sys
 from typing import Any, Dict, Optional, cast
 
-import tirmite.tirmitetools as tirmite
 from tirmite._version import __version__  # type: ignore[import-not-found]
+import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,

@@ -779,9 +779,29 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Create pairing configuration
         if args.leftNhmmer and args.rightNhmmer:
-            # Asymmetric pairing
+            # Asymmetric nhmmer pairing
             left_model_name = extract_model_name_from_path(args.leftModel)
             right_model_name = extract_model_name_from_path(args.rightModel)
+
+            config = tirmite.PairingConfig(
+                orientation=args.orientation,
+                left_model=left_model_name,
+                right_model=right_model_name,
+            )
+        elif args.leftBlast and args.rightBlast:
+            # Asymmetric BLAST pairing - extract model names from hitTable
+            unique_models = hitTable['model'].unique()
+            if len(unique_models) < 2:
+                logging.error(
+                    f'Expected 2 models for asymmetric pairing, found {len(unique_models)}'
+                )
+                cleanup_temp_directory(tempDir, args.keep_temp)
+                sys.exit(1)
+            
+            # Assume first two unique models are left and right
+            left_model_name = unique_models[0]
+            right_model_name = unique_models[1]
+            logging.info(f'Using BLAST query models: {left_model_name} and {right_model_name}')
 
             config = tirmite.PairingConfig(
                 orientation=args.orientation,
@@ -811,6 +831,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             prefix=args.prefix,
             padlen=args.padlen,
             genome_descriptions=genome_descriptions,
+            blastdb=args.blastdb if args.blastdb else None,
         )
 
         # Skip pairing if requested
@@ -859,6 +880,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
                 padlen=args.padlen,
                 genome_descriptions=genome_descriptions,
+                blastdb=args.blastdb if args.blastdb else None,
             )
 
         # Extract and write elements
@@ -868,6 +890,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             hitIndex=hitIndex,
             genome=genome,
             genome_descriptions=genome_descriptions,
+            blastdb=args.blastdb if args.blastdb else None,
         )
 
         logging.info('Writing paired elements to FASTA...')

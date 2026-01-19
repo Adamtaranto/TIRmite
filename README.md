@@ -137,6 +137,36 @@ nhmmer --dna --cpu 8 --tblout $NHMMERFILE $HMMFILE $GENOME
 Note: nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores.
 Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4)
 
+**Alternative: Using BLAST instead of nhmmer**
+
+TIRmite also supports BLAST tabular output as an alternative to nhmmer. This can be useful when:
+- You want to use BLAST's sensitivity settings
+- You're working with large genomes where BLAST may be faster
+- You already have BLAST results available
+
+```bash
+# Create a BLAST database from your genome
+makeblastdb -in $GENOME -dbtype nucl -out genome_db
+
+# Run BLAST search with tabular output (format 6)
+blastn -query TIR_sequence.fa -db genome_db -outfmt 6 -out MY_TIR_blast_hits.tab -evalue 0.001
+
+# Use the BLAST results with tirmite pair
+tirmite pair --genome $GENOME --blastFile MY_TIR_blast_hits.tab --queryLen 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
+```
+
+**Using BLAST database for sequence extraction**
+
+If your BLAST database was created with `-parse_seqids`, you can extract sequences directly from the database instead of requiring the original FASTA file:
+
+```bash
+# Create BLAST database with sequence IDs parsed
+makeblastdb -in $GENOME -dbtype nucl -out genome_db -parse_seqids
+
+# Run tirmite pair using the BLAST database for extraction
+tirmite pair --blastdb genome_db --blastFile MY_TIR_blast_hits.tab --queryLen 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
+```
+
 4) Use `tirmite pair` to identify valid TIR pairs. Outputs hits, elements, and annotations.
 
 ```bash
@@ -203,13 +233,13 @@ Examples:
 
 ## Algorithm overview
 
-  1. Use nhmmer to query genome with termini HMMs.
+  1. Use nhmmer (or BLAST) to query genome with termini models/sequences.
   2. Import all hits under *--maxeval* threshold.
   3. For each significant terminus match, identify candidate partners, where:
     - Hit is on the same sequence.
-    - Hit is in coreect relative orientation.
+    - Hit is in correct relative orientation.
     - Distance is <= *--maxdist*.
-    - Hit length is >= (model length * *--mincov* prop)
+    - Hit length is >= (model/query length * *--mincov* prop)
   4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
   5. Pair reciprocal top candidate hits.
   6. For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.

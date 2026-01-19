@@ -76,16 +76,21 @@ def convertAlign(
         raise ValueError('Either alnFile or alnDir must be provided')
     # Do conversion on each
     for infile in alignments:
+        # Log file being processed
+        logging.info(f'Converting alignment file: {infile}')
         # Get basename
         inBase = os.path.splitext(os.path.basename(infile))[0]
         # Make outpath
-        outAln = os.path.join(alnOutDir, inBase + '.stockholm')
+        outAln = os.path.join(alnOutDir, inBase + '.sto')
         # Open files
         input_handle = open(infile, 'r')
         output_handle = open(outAln, 'w')
         # Read alignment
         alignments = AlignIO.parse(input_handle, inFormat)
+        # Log count of sequences in 'alignments' object generated with Align.IO.parse
+        logging.info(f'Number of sequences in alignment: {len({alignments})}')
         # Write as stockholm
+        logging.info(f'Writing converted alignment to: {outAln}')
         AlignIO.write(alignments, output_handle, 'stockholm')
         # Close handles
         output_handle.close()
@@ -160,9 +165,7 @@ def import_nhmmer(
                             'bias': li_split[14],
                         }
                     )
-    # Convert list of dicts into dataframe
-    df = pd.DataFrame(hitRecords)
-    # Reorder columns
+    # Define expected columns
     cols = [
         'model',
         'target',
@@ -175,7 +178,14 @@ def import_nhmmer(
         'hmmStart',
         'hmmEnd',
     ]
-    df = df.loc[:, cols]
+    # Convert list of dicts into dataframe
+    df = pd.DataFrame(hitRecords)
+    # Handle empty results - return DataFrame with correct columns but no rows
+    if df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        # Reorder columns
+        df = df.loc[:, cols]
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
@@ -245,9 +255,7 @@ def import_BED(
                         'bias': 'NA',
                     }
                 )
-    # Convert list of dicts into dataframe
-    df = pd.DataFrame(hitRecords)
-    # Reorder columns
+    # Define expected columns
     cols = [
         'model',
         'target',
@@ -260,7 +268,14 @@ def import_BED(
         'hmmStart',
         'hmmEnd',
     ]
-    df = df.loc[:, cols]
+    # Convert list of dicts into dataframe
+    df = pd.DataFrame(hitRecords)
+    # Handle empty results - return DataFrame with correct columns but no rows
+    if df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        # Reorder columns
+        df = df.loc[:, cols]
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)

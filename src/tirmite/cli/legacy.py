@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import traceback
 from typing import Any, Dict, Optional, cast
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
@@ -716,6 +717,18 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 % (str(len(hitTable.index)), str(modelCount))
             )
 
+            # Track initial hit count for summary reporting
+            initial_hit_count = len(hitTable.index) if hitTable is not None else 0
+
+            # Check if any hits were found
+            if hitTable is None or hitTable.empty:
+                logging.warning(
+                    'No hits found in nhmmer results. '
+                    'This may indicate that the HMM models do not match any sequences in the genome.'
+                )
+                logging.info('Exiting gracefully with no results.')
+                sys.exit(0)
+
             # Apply hit length filters with detailed logging per model
             logging.info('Filtering hits with < %s model coverage. ' % str(args.mincov))
             hitCount = len(hitTable.index)
@@ -731,8 +744,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Log post-filtering counts per model
             model_counts_after = hitTable['model'].value_counts().to_dict()
-            total_excluded = hitCount - len(hitTable.index)
-            logging.info(f'Excluded {total_excluded} hits on coverage criteria.')
+            coverage_excluded = hitCount - len(hitTable.index)
+            logging.info(f'Excluded {coverage_excluded} hits on coverage criteria.')
 
             for model in model_counts_before:
                 before = model_counts_before[model]
@@ -743,6 +756,17 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
             logging.info('Total remaining hits: %s ' % str(len(hitTable.index)))
+
+            # Check if any hits remain after coverage filtering
+            if hitTable.empty:
+                logging.warning(
+                    'No hits remaining after filtering. '
+                    'Summary: %s initial hits, %s excluded by coverage filter (mincov=%s). '
+                    'Consider lowering the mincov threshold.'
+                    % (str(initial_hit_count), str(coverage_excluded), str(args.mincov))
+                )
+                logging.info('Exiting gracefully with no results.')
+                sys.exit(0)
 
             # Apply hit e-value filters with detailed logging per model
             logging.info('Filtering hits with e-value > %s' % str(args.maxeval))
@@ -757,8 +781,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Log post-filtering counts per model
             model_counts_after = hitTable['model'].value_counts().to_dict()
-            total_excluded = hitCount - len(hitTable.index)
-            logging.info(f'Excluded {total_excluded} hits on e-value criteria.')
+            evalue_excluded = hitCount - len(hitTable.index)
+            logging.info(f'Excluded {evalue_excluded} hits on e-value criteria.')
 
             for model in model_counts_before:
                 before = model_counts_before[model]
@@ -769,6 +793,38 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
             logging.info('Total remaining hits: %s ' % str(len(hitTable.index)))
+
+            # Check if any hits remain after e-value filtering
+            if hitTable.empty:
+                logging.warning(
+                    'No hits remaining after filtering. '
+                    'Summary: %s initial hits, %s excluded by coverage filter (mincov=%s), '
+                    '%s excluded by e-value filter (maxeval=%s). '
+                    'Consider adjusting filter thresholds.'
+                    % (
+                        str(initial_hit_count),
+                        str(coverage_excluded),
+                        str(args.mincov),
+                        str(evalue_excluded),
+                        str(args.maxeval),
+                    )
+                )
+                logging.info('Exiting gracefully with no results.')
+                sys.exit(0)
+
+            # Log filtering summary
+            logging.info(
+                'Filtering summary: %s initial hits, %s excluded by coverage filter (mincov=%s), '
+                '%s excluded by e-value filter (maxeval=%s), %s hits remaining.'
+                % (
+                    str(initial_hit_count),
+                    str(coverage_excluded),
+                    str(args.mincov),
+                    str(evalue_excluded),
+                    str(args.maxeval),
+                    str(len(hitTable.index)),
+                )
+            )
 
             # Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
             hitsDict, hitIndex = tirmite.table2dict(hitTable)
@@ -982,6 +1038,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
     except Exception as e:
         logging.error(f'Unexpected error during analysis: {e}')
+        logging.error(f'Traceback:\n{traceback.format_exc()}')
         sys.exit(1)
 
     finally:

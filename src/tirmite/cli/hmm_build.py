@@ -460,7 +460,8 @@ def blast_seed_against_genome(
     blast_db: Path,
     output_file: Path,
     identity_threshold: float = 60.0,
-    num_threads: int = 1,  # Add threading parameter
+    num_threads: int = 1,
+    evalue: float = 1e-3,
 ) -> List[BlastHit]:
     """
     BLAST seed sequence against genome database using blastn with threading support.
@@ -477,6 +478,8 @@ def blast_seed_against_genome(
         Minimum percent identity threshold for BLAST hits.
     num_threads : int, default 1
         Number of CPU threads for BLAST to use.
+    evalue : float, default 1e-3
+        E-value threshold for BLAST hits.
 
     Returns
     -------
@@ -505,14 +508,20 @@ def blast_seed_against_genome(
         '-max_target_seqs',
         '10000',
         '-evalue',
-        '1e-3',
+        str(evalue),
         '-num_threads',
-        str(num_threads),  # Add threading support
+        str(num_threads),
     ]
 
-    logging.info(
-        f'Running BLAST search with identity threshold {identity_threshold}% using {num_threads} threads'
-    )
+    # Log the full blastn command being executed
+    logging.info('Running blastn with the following parameters:')
+    logging.info(f'  Command: {" ".join(cmd)}')
+    logging.info(f'  Query: {seed_file}')
+    logging.info(f'  Database: {blast_db}')
+    logging.info(f'  Output: {output_file}')
+    logging.info(f'  Identity threshold: {identity_threshold}%')
+    logging.info(f'  E-value: {evalue}')
+    logging.info(f'  Threads: {num_threads}')
 
     try:
         result = run_command(cmd, verbose=True)
@@ -681,7 +690,7 @@ def filter_hits_by_thresholds(
 
 
 def chain_fragmented_hits(
-    hits: List[BlastHit], max_gap: int = 500
+    hits: List[BlastHit], max_gap: int = 10
 ) -> List[List[BlastHit]]:
     """
     Chain hits that may represent fragments of the same element.
@@ -690,19 +699,29 @@ def chain_fragmented_hits(
     ----------
     hits : list of BlastHit
         List of BLAST hits to chain together.
-    max_gap : int, default 500
+    max_gap : int, default 10
         Maximum gap in base pairs between hits to be considered part of same chain.
 
     Returns
     -------
     list of list of BlastHit
         List of hit chains where each chain is a list of consecutive hits.
+
+    Notes
+    -----
+    Hits are chained only if they meet ALL of the following criteria:
+    - Belong to the same query sequence
+    - Are sequential and non-overlapping in query coordinates
+    - Are sequential and non-overlapping in target coordinates
+    - Are all in the same orientation (strand)
+    - Are separated by less than max_gap bases in target sequence
     """
     if not hits:
         return []
 
-    # Sort by genomic position
-    sorted_hits = sorted(hits, key=lambda h: (h.subject_id, h.subject_start))
+    # Sort by query_id, subject_id, then query_start position
+    # This ensures we process hits in the order they appear in the query
+    sorted_hits = sorted(hits, key=lambda h: (h.query_id, h.subject_id, h.query_start))
 
     chains = []
     current_chain = [sorted_hits[0]]
@@ -710,11 +729,57 @@ def chain_fragmented_hits(
     for hit in sorted_hits[1:]:
         last_hit = current_chain[-1]
 
-        # Check if hits are on same chromosome and within gap distance
-        if (
-            hit.subject_id == last_hit.subject_id
-            and hit.subject_start - last_hit.subject_end <= max_gap
-        ):
+        # Check all chaining criteria
+        can_chain = True
+
+        # Criterion 1: Must belong to the same query
+        if hit.query_id != last_hit.query_id:
+            can_chain = False
+
+        # Criterion 2: Must be on the same subject/target sequence
+        elif hit.subject_id != last_hit.subject_id:
+            can_chain = False
+
+        # Criterion 3: Must be in the same orientation/strand
+        elif hit.strand != last_hit.strand:
+            can_chain = False
+
+        else:
+            # Criterion 4: Hits must be sequential and non-overlapping in query
+            # Query coordinates are always in forward orientation (start < end)
+            if hit.query_start <= last_hit.query_end:
+                # Hits overlap or are out of order in query
+                can_chain = False
+
+            # Criterion 5: Hits must be sequential and non-overlapping in target
+            # Need to handle both forward and reverse strand cases
+            elif hit.strand == '+':
+                # Forward strand: subject_start < subject_end for both hits
+                # Check if current hit starts after or at the end of last hit
+                if hit.subject_start <= last_hit.subject_end:
+                    # Hits overlap in target
+                    can_chain = False
+                # Check if gap is within max_gap
+                elif hit.subject_start - last_hit.subject_end > max_gap:
+                    # Gap too large
+                    can_chain = False
+            else:
+                # Reverse strand: subject_start > subject_end for both hits
+                # On reverse strand, we still need to ensure hits don't overlap
+                # and are in the correct order
+                min_last = min(last_hit.subject_start, last_hit.subject_end)
+                max_curr = max(hit.subject_start, hit.subject_end)
+
+                # Check for overlap
+                if max_curr >= min_last:
+                    # Hits overlap in target
+                    can_chain = False
+                # Check if gap is within max_gap
+                elif min_last - max_curr > max_gap:
+                    # Gap too large
+                    can_chain = False
+
+        if can_chain:
             current_chain.append(hit)
         else:
             # Start new chain
@@ -1487,10 +1552,11 @@ def process_seed_sequences(
     output_dir: Path,
     min_coverage: float,
     min_identity: float,
-    max_gap: int = 500,
+    max_gap: int = 10,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
     threads: int = 1,
+    evalue: float = 1e-3,
 ) -> Tuple[Path, Path, Optional[Path], Optional[Path]]:
     """
     Process a seed file against genomes to build HMM.
@@ -1511,7 +1577,7 @@ def process_seed_sequences(
         Minimum coverage threshold (0.0 to 1.0).
     min_identity : float
         Minimum percent identity threshold (0.0 to 100.0).
-    max_gap : int, default 500
+    max_gap : int, default 10
         Maximum gap for chaining fragmented hits.
     save_blast_hits : bool, default False
         If True, save all BLAST hits to file.
@@ -1519,6 +1585,8 @@ def process_seed_sequences(
         Size of flanking sequence to extract.
     threads : int, default 1
         Number of CPU threads for BLAST.
+    evalue : float, default 1e-3
+        E-value threshold for BLAST hits.
 
     Returns
     -------
@@ -1542,7 +1610,12 @@ def process_seed_sequences(
         # Run BLAST search
         blast_output = temp_dir / f'{model_name}_{genome_file.stem}_blast.tab'
         hits = blast_seed_against_genome(
-            seed_file, blast_db, blast_output, min_identity, num_threads=threads
+            seed_file,
+            blast_db,
+            blast_output,
+            min_identity,
+            num_threads=threads,
+            evalue=evalue,
         )
         all_hits.extend(hits)
 
@@ -1671,10 +1744,11 @@ def process_asymmetric_seeds(
     output_dir: Path,
     min_coverage: float,
     min_identity: float,
-    max_gap: int = 500,
+    max_gap: int = 10,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
-    threads: int = 1,  # Add threads parameter
+    threads: int = 1,
+    evalue: float = 1e-3,
 ) -> Tuple[Path, Path, Path, Path]:
     """
     Process asymmetric left and right seeds together to avoid filtering conflicts.
@@ -1697,7 +1771,7 @@ def process_asymmetric_seeds(
         Minimum coverage threshold (0.0 to 1.0).
     min_identity : float
         Minimum percent identity threshold (0.0 to 100.0).
-    max_gap : int, default 500
+    max_gap : int, default 10
         Maximum gap for resolving asymmetric conflicts.
     save_blast_hits : bool, default False
         If True, save all BLAST hits to file.
@@ -1705,6 +1779,8 @@ def process_asymmetric_seeds(
         Size of flanking sequence to extract.
     threads : int, default 1
         Number of CPU threads for BLAST.
+    evalue : float, default 1e-3
+        E-value threshold for BLAST hits.
 
     Returns
     -------
@@ -1728,14 +1804,24 @@ def process_asymmetric_seeds(
         # BLAST left seed
         left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
         left_hits = blast_seed_against_genome(
-            left_seed, blast_db, left_output, min_identity, num_threads=threads
+            left_seed,
+            blast_db,
+            left_output,
+            min_identity,
+            num_threads=threads,
+            evalue=evalue,
         )
         all_left_hits.extend(left_hits)
 
         # BLAST right seed
         right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
         right_hits = blast_seed_against_genome(
-            right_seed, blast_db, right_output, min_identity, num_threads=threads
+            right_seed,
+            blast_db,
+            right_output,
+            min_identity,
+            num_threads=threads,
+            evalue=evalue,
         )
         all_right_hits.extend(right_hits)
 
@@ -2184,6 +2270,36 @@ def validate_threads(value: str) -> int:
         ) from None
 
 
+def validate_evalue(value: str) -> float:
+    """
+    Custom type validator for evalue argument.
+
+    Parameters
+    ----------
+    value : str
+        E-value to validate.
+
+    Returns
+    -------
+    float
+        Validated e-value.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If value is not a positive float.
+    """
+    try:
+        fval = float(value)
+        if fval <= 0:
+            raise argparse.ArgumentTypeError(f'evalue must be positive, got {fval}')
+        return fval
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"evalue must be a number, got '{value}'"
+        ) from None
+
+
 def create_seed_parser() -> argparse.ArgumentParser:
     """
     Create standalone argument parser for seed command.
@@ -2319,6 +2435,12 @@ def _configure_seed_parser(parser: argparse.ArgumentParser) -> None:
         type=validate_threads,
         default=1,
         help='Number of CPU threads to use for MAFFT alignment (default: 1)',
+    )
+    parser.add_argument(
+        '--evalue',
+        type=validate_evalue,
+        default=1e-3,
+        help='E-value threshold for BLAST hits (default: 1e-3)',
     )
 
 
@@ -2506,7 +2628,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     args.max_gap,
                     args.save_blast_hits,
                     args.flank_size,
-                    threads=args.threads,  # Pass threads parameter
+                    threads=args.threads,
+                    evalue=args.evalue,
                 )
 
                 logging.info('Asymmetric processing completed:')
@@ -2528,7 +2651,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     args.max_gap,
                     args.save_blast_hits,
                     args.flank_size,
-                    threads=args.threads,  # Pass threads parameter
+                    threads=args.threads,
+                    evalue=args.evalue,
                 )
                 logging.info(f'Single seed processing completed: {left_hmm}')
 

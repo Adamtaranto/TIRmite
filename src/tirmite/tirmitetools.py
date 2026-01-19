@@ -409,7 +409,8 @@ def import_blast(
         df = df.loc[:, cols]
 
     if hitTable is not None:
-        # If an existing table was passed, concatenate (new first, then existing)
+        # If an existing table was passed, concatenate
+        # Order: new data (df) first, existing (hitTable) second (matches import_nhmmer)
         df = pd.concat([df, hitTable], ignore_index=True)
 
     # Sort hits by model, target, location, and strand
@@ -1466,8 +1467,8 @@ def fetchElements(
 
                 leftHit, rightHit = flipTIRs(x, y)
 
-                # Fix: Use a simpler element ID that doesn't duplicate model name
-                eleID = f'Element_{model_counter}'  # Simplified ID
+                # Create element ID with counter only (avoids model name duplication)
+                eleID = f'Element_{model_counter}'
 
                 # Extract element sequence
                 if blastdb:

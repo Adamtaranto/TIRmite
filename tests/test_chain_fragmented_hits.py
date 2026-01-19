@@ -9,7 +9,6 @@ This test suite validates that the chaining logic correctly applies all criteria
 5. Hits are separated by less than max_gap bases in the target sequence
 """
 
-import pytest
 from tirmite.cli.hmm_build import BlastHit, chain_fragmented_hits
 
 
@@ -306,7 +305,7 @@ class TestChainFragmentedHits:
 
     def test_full_length_hits_not_chained(self):
         """Test that neighboring full-length hits are not chained together.
-        
+
         This is the specific bug mentioned in the problem statement:
         Two complete, full-length hits from the same query should NOT be chained
         just because they are neighbors in the target sequence.
@@ -399,7 +398,7 @@ class TestChainFragmentedHits:
 
     def test_example_from_problem_statement(self):
         """Test the specific example given in the problem statement.
-        
+
         Query is 100bp long, generates 2 non-overlapping partial hits where
         target contains a 20bp insertion in the middle.
         Query coords: hit1: 1-50, hit2: 51-100
@@ -433,7 +432,7 @@ class TestChainFragmentedHits:
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
         assert len(result) == 1, "Should form a single chain"
         assert len(result[0]) == 2, "Chain should contain both hits"
-        
+
         # Verify the order is correct
         chain = result[0]
         assert chain[0].query_start == 1

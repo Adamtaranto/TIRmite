@@ -16,14 +16,14 @@ import argparse
 import io
 import logging
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 
+import pandas as pd  # type: ignore[import-untyped]
 from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
 from pyhmmer.easel import (  # type: ignore[import-not-found]
     Alphabet,
     DigitalMSA,
@@ -697,7 +697,7 @@ def chain_fragmented_hits(
     -------
     list of list of BlastHit
         List of hit chains where each chain is a list of consecutive hits.
-        
+
     Notes
     -----
     Hits are chained only if they meet ALL of the following criteria:
@@ -722,26 +722,26 @@ def chain_fragmented_hits(
 
         # Check all chaining criteria
         can_chain = True
-        
+
         # Criterion 1: Must belong to the same query
         if hit.query_id != last_hit.query_id:
             can_chain = False
-        
+
         # Criterion 2: Must be on the same subject/target sequence
         elif hit.subject_id != last_hit.subject_id:
             can_chain = False
-        
+
         # Criterion 3: Must be in the same orientation/strand
         elif hit.strand != last_hit.strand:
             can_chain = False
-        
+
         else:
             # Criterion 4: Hits must be sequential and non-overlapping in query
             # Query coordinates are always in forward orientation (start < end)
             if hit.query_start <= last_hit.query_end:
                 # Hits overlap or are out of order in query
                 can_chain = False
-            
+
             # Criterion 5: Hits must be sequential and non-overlapping in target
             # Need to handle both forward and reverse strand cases
             elif hit.strand == '+':
@@ -759,10 +759,8 @@ def chain_fragmented_hits(
                 # On reverse strand, we still need to ensure hits don't overlap
                 # and are in the correct order
                 min_last = min(last_hit.subject_start, last_hit.subject_end)
-                max_last = max(last_hit.subject_start, last_hit.subject_end)
-                min_curr = min(hit.subject_start, hit.subject_end)
                 max_curr = max(hit.subject_start, hit.subject_end)
-                
+
                 # Check for overlap
                 if max_curr >= min_last:
                     # Hits overlap in target

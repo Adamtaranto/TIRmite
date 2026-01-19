@@ -16,14 +16,14 @@ import argparse
 import io
 import logging
 import os
-from pathlib import Path
 import shutil
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
 
+import pandas as pd  # type: ignore[import-untyped]
 from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
 from pyhmmer.easel import (  # type: ignore[import-not-found]
     Alphabet,
     DigitalMSA,
@@ -505,7 +505,7 @@ def blast_seed_against_genome(
         '-max_target_seqs',
         '10000',
         '-evalue',
-        '1e-5',
+        '1e-3',
         '-num_threads',
         str(num_threads),  # Add threading support
     ]

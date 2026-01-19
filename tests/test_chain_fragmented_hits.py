@@ -66,8 +66,8 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 1, "Should form a single chain"
-        assert len(result[0]) == 2, "Chain should contain both hits"
+        assert len(result) == 1, 'Should form a single chain'
+        assert len(result[0]) == 2, 'Chain should contain both hits'
 
     def test_valid_chain_same_query_reverse_strand(self):
         """Test that valid fragments from same query on reverse strand are chained."""
@@ -97,8 +97,8 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 1, "Should form a single chain on reverse strand"
-        assert len(result[0]) == 2, "Chain should contain both hits"
+        assert len(result) == 1, 'Should form a single chain on reverse strand'
+        assert len(result[0]) == 2, 'Chain should contain both hits'
 
     def test_different_query_not_chained(self):
         """Test that hits from different queries are not chained."""
@@ -127,7 +127,9 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 2, "Should create two separate chains for different queries"
+        assert len(result) == 2, (
+            'Should create two separate chains for different queries'
+        )
 
     def test_different_subject_not_chained(self):
         """Test that hits on different subjects/chromosomes are not chained."""
@@ -156,7 +158,9 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 2, "Should create two separate chains for different subjects"
+        assert len(result) == 2, (
+            'Should create two separate chains for different subjects'
+        )
 
     def test_different_strand_not_chained(self):
         """Test that hits on different strands are not chained."""
@@ -185,7 +189,9 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 2, "Should create two separate chains for different strands"
+        assert len(result) == 2, (
+            'Should create two separate chains for different strands'
+        )
 
     def test_overlapping_query_not_chained(self):
         """Test that hits with overlapping query regions are not chained."""
@@ -214,7 +220,9 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 2, "Should create two separate chains for overlapping query regions"
+        assert len(result) == 2, (
+            'Should create two separate chains for overlapping query regions'
+        )
 
     def test_overlapping_target_forward_not_chained(self):
         """Test that hits with overlapping target regions on forward strand are not chained."""
@@ -243,7 +251,9 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 2, "Should create two separate chains for overlapping target regions"
+        assert len(result) == 2, (
+            'Should create two separate chains for overlapping target regions'
+        )
 
     def test_overlapping_target_reverse_not_chained(self):
         """Test that hits with overlapping target regions on reverse strand are not chained."""
@@ -272,7 +282,9 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 2, "Should create two separate chains for overlapping target regions on reverse strand"
+        assert len(result) == 2, (
+            'Should create two separate chains for overlapping target regions on reverse strand'
+        )
 
     def test_gap_too_large_not_chained(self):
         """Test that hits with gap larger than max_gap are not chained."""
@@ -301,7 +313,9 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 2, "Should create two separate chains when gap exceeds max_gap"
+        assert len(result) == 2, (
+            'Should create two separate chains when gap exceeds max_gap'
+        )
 
     def test_full_length_hits_not_chained(self):
         """Test that neighboring full-length hits are not chained together.
@@ -336,9 +350,11 @@ class TestChainFragmentedHits:
             subject_len=10000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 2, "Full-length hits should not be chained (not sequential in query)"
-        assert len(result[0]) == 1, "Each chain should contain only one hit"
-        assert len(result[1]) == 1, "Each chain should contain only one hit"
+        assert len(result) == 2, (
+            'Full-length hits should not be chained (not sequential in query)'
+        )
+        assert len(result[0]) == 1, 'Each chain should contain only one hit'
+        assert len(result[1]) == 1, 'Each chain should contain only one hit'
 
     def test_multiple_valid_chains(self):
         """Test that multiple valid chains are correctly formed."""
@@ -393,8 +409,8 @@ class TestChainFragmentedHits:
             subject_len=1000,
         )
         result = chain_fragmented_hits([hit1, hit2, hit3, hit4], max_gap=500)
-        assert len(result) == 2, "Should form two separate chains"
-        assert all(len(chain) == 2 for chain in result), "Each chain should have 2 hits"
+        assert len(result) == 2, 'Should form two separate chains'
+        assert all(len(chain) == 2 for chain in result), 'Each chain should have 2 hits'
 
     def test_example_from_problem_statement(self):
         """Test the specific example given in the problem statement.
@@ -430,8 +446,8 @@ class TestChainFragmentedHits:
             subject_len=5000,
         )
         result = chain_fragmented_hits([hit1, hit2], max_gap=500)
-        assert len(result) == 1, "Should form a single chain"
-        assert len(result[0]) == 2, "Chain should contain both hits"
+        assert len(result) == 1, 'Should form a single chain'
+        assert len(result[0]) == 2, 'Chain should contain both hits'
 
         # Verify the order is correct
         chain = result[0]

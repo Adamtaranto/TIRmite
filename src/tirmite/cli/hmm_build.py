@@ -690,7 +690,7 @@ def filter_hits_by_thresholds(
 
 
 def chain_fragmented_hits(
-    hits: List[BlastHit], max_gap: int = 500
+    hits: List[BlastHit], max_gap: int = 10
 ) -> List[List[BlastHit]]:
     """
     Chain hits that may represent fragments of the same element.
@@ -699,7 +699,7 @@ def chain_fragmented_hits(
     ----------
     hits : list of BlastHit
         List of BLAST hits to chain together.
-    max_gap : int, default 500
+    max_gap : int, default 10
         Maximum gap in base pairs between hits to be considered part of same chain.
 
     Returns
@@ -1552,7 +1552,7 @@ def process_seed_sequences(
     output_dir: Path,
     min_coverage: float,
     min_identity: float,
-    max_gap: int = 500,
+    max_gap: int = 10,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
     threads: int = 1,
@@ -1577,7 +1577,7 @@ def process_seed_sequences(
         Minimum coverage threshold (0.0 to 1.0).
     min_identity : float
         Minimum percent identity threshold (0.0 to 100.0).
-    max_gap : int, default 500
+    max_gap : int, default 10
         Maximum gap for chaining fragmented hits.
     save_blast_hits : bool, default False
         If True, save all BLAST hits to file.
@@ -1610,7 +1610,12 @@ def process_seed_sequences(
         # Run BLAST search
         blast_output = temp_dir / f'{model_name}_{genome_file.stem}_blast.tab'
         hits = blast_seed_against_genome(
-            seed_file, blast_db, blast_output, min_identity, num_threads=threads, evalue=evalue
+            seed_file,
+            blast_db,
+            blast_output,
+            min_identity,
+            num_threads=threads,
+            evalue=evalue,
         )
         all_hits.extend(hits)
 
@@ -1739,7 +1744,7 @@ def process_asymmetric_seeds(
     output_dir: Path,
     min_coverage: float,
     min_identity: float,
-    max_gap: int = 500,
+    max_gap: int = 10,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
     threads: int = 1,
@@ -1766,7 +1771,7 @@ def process_asymmetric_seeds(
         Minimum coverage threshold (0.0 to 1.0).
     min_identity : float
         Minimum percent identity threshold (0.0 to 100.0).
-    max_gap : int, default 500
+    max_gap : int, default 10
         Maximum gap for resolving asymmetric conflicts.
     save_blast_hits : bool, default False
         If True, save all BLAST hits to file.
@@ -1799,14 +1804,24 @@ def process_asymmetric_seeds(
         # BLAST left seed
         left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
         left_hits = blast_seed_against_genome(
-            left_seed, blast_db, left_output, min_identity, num_threads=threads, evalue=evalue
+            left_seed,
+            blast_db,
+            left_output,
+            min_identity,
+            num_threads=threads,
+            evalue=evalue,
         )
         all_left_hits.extend(left_hits)
 
         # BLAST right seed
         right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
         right_hits = blast_seed_against_genome(
-            right_seed, blast_db, right_output, min_identity, num_threads=threads, evalue=evalue
+            right_seed,
+            blast_db,
+            right_output,
+            min_identity,
+            num_threads=threads,
+            evalue=evalue,
         )
         all_right_hits.extend(right_hits)
 
@@ -2277,9 +2292,7 @@ def validate_evalue(value: str) -> float:
     try:
         fval = float(value)
         if fval <= 0:
-            raise argparse.ArgumentTypeError(
-                f'evalue must be positive, got {fval}'
-            )
+            raise argparse.ArgumentTypeError(f'evalue must be positive, got {fval}')
         return fval
     except ValueError:
         raise argparse.ArgumentTypeError(

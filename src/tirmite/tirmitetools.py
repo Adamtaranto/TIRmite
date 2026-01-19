@@ -12,16 +12,16 @@ The pairing algorithms use reciprocal best-match approaches with
 configurable strand orientations and distance constraints.
 """
 
+from collections import namedtuple
 import glob
 import logging
-import os
-from collections import namedtuple
 from operator import attrgetter
+import os
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-import pandas as pd  # type: ignore[import-untyped]
 from Bio import AlignIO, Seq, SeqIO  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
+import pandas as pd  # type: ignore[import-untyped]
 
 from tirmite.utils.utils import cleanID
 

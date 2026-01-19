@@ -14,15 +14,15 @@ import argparse
 import glob
 import logging
 import os
+from pathlib import Path
 import shutil
 import sys
 import traceback
-from pathlib import Path
 from typing import Any, Dict, Optional, cast
 
-import tirmite.tirmitetools as tirmite
 from tirmite._version import __version__  # type: ignore[import-not-found]
 from tirmite.runners.hmmer_wrappers import process_hmmer_workflow
+import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,

@@ -798,10 +798,20 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
             
-            # Assume first two unique models are left and right
+            # Note: Model assignment is based on order of appearance in combined hit table
+            # The first model encountered becomes 'left', second becomes 'right'
+            # For deterministic results, ensure leftBlast file contains only left query hits
+            # and rightBlast file contains only right query hits
             left_model_name = unique_models[0]
             right_model_name = unique_models[1]
-            logging.info(f'Using BLAST query models: {left_model_name} and {right_model_name}')
+            logging.info(
+                f'Assigning models for asymmetric pairing: '
+                f'left={left_model_name}, right={right_model_name}'
+            )
+            logging.info(
+                'Note: First unique model becomes "left", second becomes "right" '
+                'based on order in input files'
+            )
 
             config = tirmite.PairingConfig(
                 orientation=args.orientation,

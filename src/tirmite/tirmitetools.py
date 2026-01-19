@@ -409,8 +409,8 @@ def import_blast(
         df = df.loc[:, cols]
 
     if hitTable is not None:
-        # If an existing table was passed, concatenate (existing first for consistency)
-        df = pd.concat([hitTable, df], ignore_index=True)
+        # If an existing table was passed, concatenate (new first, then existing)
+        df = pd.concat([df, hitTable], ignore_index=True)
 
     # Sort hits by model, target, location, and strand
     df = df.sort_values(
@@ -998,14 +998,17 @@ def extract_from_blastdb(
             cmd, capture_output=True, text=True, check=True, timeout=30
         )
 
-        # Parse FASTA output - skip header line and concatenate sequence lines
+        # Parse FASTA output - validate format and skip header line
         lines = result.stdout.strip().split('\n')
-        if len(lines) > 1:
-            seq = ''.join(lines[1:])
-            return seq
-        else:
-            logging.warning(f'No sequence extracted for {seqid}:{start}-{end}')
+        if len(lines) < 2 or not lines[0].startswith('>'):
+            logging.error(
+                f'Invalid FASTA output from blastdbcmd for {seqid}:{start}-{end}'
+            )
             return None
+        
+        # Concatenate sequence lines (skip header at index 0)
+        seq = ''.join(lines[1:])
+        return seq
 
     except subprocess.CalledProcessError as e:
         logging.error(f'blastdbcmd failed: {e.stderr}')
@@ -1088,9 +1091,10 @@ def extractTIRs_blastdb(
                     continue
 
                 # Calculate positions within extracted sequence to apply case formatting
-                # Positions are relative to pad_start
+                # blastdbcmd uses 1-based inclusive coordinates
+                # Convert to 0-based for Python string slicing
                 hit_start_in_seq = start - pad_start
-                hit_end_in_seq = end - pad_start
+                hit_end_in_seq = end - pad_start + 1  # +1 for inclusive end in blastdbcmd
 
                 # Convert to lowercase/uppercase
                 hit_seq_str = (
@@ -1698,8 +1702,9 @@ def writePairedTIRs(
                             continue
                         
                         # Apply case formatting
+                        # blastdbcmd uses 1-based inclusive coordinates
                         hit_start_in_seq = int(leftHit.hitStart) - left_start
-                        hit_end_in_seq = int(leftHit.hitEnd) - left_start
+                        hit_end_in_seq = int(leftHit.hitEnd) - left_start + 1  # +1 for inclusive end
                         left_seq_str = (
                             left_full[:hit_start_in_seq].lower()
                             + left_full[hit_start_in_seq:hit_end_in_seq]
@@ -1717,8 +1722,9 @@ def writePairedTIRs(
                             continue
                         
                         # Apply case formatting (before reverse complement)
+                        # blastdbcmd uses 1-based inclusive coordinates
                         hit_start_in_seq = int(rightHit.hitStart) - right_start
-                        hit_end_in_seq = int(rightHit.hitEnd) - right_start
+                        hit_end_in_seq = int(rightHit.hitEnd) - right_start + 1  # +1 for inclusive end
                         right_seq_str = (
                             right_full[:hit_start_in_seq].lower()
                             + right_full[hit_start_in_seq:hit_end_in_seq]

@@ -468,12 +468,12 @@ def detect_input_format(infile: str) -> str:
 
                 # Try space-delimited (nhmmer)
                 space_split = li.split()
-                if len(space_split) >= 15:
-                    # nhmmer has specific pattern: column 11 is strand (+/-)
-                    # and column 12 is evalue (scientific notation)
+                if len(space_split) >= 16:
+                    # nhmmer has specific pattern: column 9 is strand (+/-)
+                    # and column 15 is evalue (scientific notation)
                     try:
-                        if space_split[11] in ['+', '-']:
-                            float(space_split[12])  # evalue
+                        if space_split[9] in ['+', '-']:
+                            float(space_split[15])  # evalue
                             return 'nhmmer'
                     except (ValueError, IndexError):
                         pass

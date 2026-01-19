@@ -505,7 +505,7 @@ def blast_seed_against_genome(
         '-max_target_seqs',
         '10000',
         '-evalue',
-        '1e-5',
+        '1e-3',
         '-num_threads',
         str(num_threads),  # Add threading support
     ]

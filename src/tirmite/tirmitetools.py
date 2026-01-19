@@ -291,6 +291,205 @@ def import_BED(
     return df
 
 
+def import_blast(
+    infile: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    prefix: Optional[str] = None,
+    query_name: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Parse BLAST tabular output file into a pandas DataFrame.
+
+    Parameters
+    ----------
+    infile : str
+        Path to BLAST tabular output file (outfmt 6 or 7).
+    hitTable : pandas.DataFrame, optional
+        Existing DataFrame of hits to concatenate with new hits.
+    prefix : str, optional
+        Prefix to add to model names (currently unused but reserved for future use).
+    query_name : str, optional
+        Name to use for the query/model. If not provided, uses the query ID from first hit.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing parsed hit records with columns:
+        model, target, hitStart, hitEnd, strand, evalue, score, bias,
+        hmmStart, hmmEnd. Sorted by model, target, hitStart, hitEnd, strand.
+
+    Notes
+    -----
+    Expected BLAST tabular format (outfmt 6):
+    qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+
+    For reverse strand hits (sstart > send), coordinates are swapped and strand set to '-'.
+    The query alignment coordinates (qstart, qend) are stored as hmmStart, hmmEnd.
+    """
+    hitRecords = []
+    if not infile:
+        raise ValueError('infile parameter is required')
+
+    model_name = query_name
+    with open(infile, 'r') as f:
+        for line in f.readlines():
+            li = line.strip()
+            # Skip comments and empty lines
+            if not li or li.startswith('#'):
+                continue
+
+            li_split = li.split('\t')
+            # BLAST tabular format has 12 columns minimum
+            if len(li_split) < 12:
+                logging.warning(f'Skipping malformed BLAST line: {li}')
+                continue
+
+            query_id = li_split[0]
+            subject_id = li_split[1]
+            qstart = int(li_split[6])
+            qend = int(li_split[7])
+            sstart = int(li_split[8])
+            send = int(li_split[9])
+            evalue = float(li_split[10])
+            bitscore = float(li_split[11])
+
+            # Use first query ID as model name if not provided
+            if model_name is None:
+                model_name = query_id
+
+            # Determine strand based on subject coordinates
+            if sstart <= send:
+                # Forward strand
+                strand = '+'
+                hitStart = sstart
+                hitEnd = send
+            else:
+                # Reverse strand (coordinates are reversed in BLAST output)
+                strand = '-'
+                hitStart = send
+                hitEnd = sstart
+
+            hitRecords.append(
+                {
+                    'target': subject_id,
+                    'model': model_name,
+                    'hmmStart': str(qstart),
+                    'hmmEnd': str(qend),
+                    'hitStart': str(hitStart),
+                    'hitEnd': str(hitEnd),
+                    'strand': strand,
+                    'evalue': str(evalue),
+                    'score': str(bitscore),
+                    'bias': 'NA',
+                }
+            )
+
+    # Define expected columns
+    cols = [
+        'model',
+        'target',
+        'hitStart',
+        'hitEnd',
+        'strand',
+        'evalue',
+        'score',
+        'bias',
+        'hmmStart',
+        'hmmEnd',
+    ]
+
+    # Convert list of dicts into dataframe
+    df = pd.DataFrame(hitRecords)
+
+    # Handle empty results - return DataFrame with correct columns but no rows
+    if df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        # Reorder columns
+        df = df.loc[:, cols]
+
+    if hitTable is not None:
+        # If an existing table was passed, concatenate
+        df = pd.concat([df, hitTable], ignore_index=True)
+
+    # Sort hits by model, target, location, and strand
+    df = df.sort_values(
+        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
+        ascending=[True, True, True, True, True],
+    )
+
+    # Reindex
+    df = df.reset_index(drop=True)
+
+    return df
+
+
+def detect_input_format(infile: str) -> str:
+    """
+    Detect whether input file is BLAST or nhmmer format.
+
+    Parameters
+    ----------
+    infile : str
+        Path to input file to analyze.
+
+    Returns
+    -------
+    str
+        Format type: 'blast', 'nhmmer', or 'unknown'.
+
+    Notes
+    -----
+    Detection heuristics:
+    - BLAST: Tab-delimited, typically 12+ columns, numeric subject coordinates
+    - nhmmer: Space-delimited, has specific column patterns with model names
+    - Checks first non-comment line for format signature
+    """
+    try:
+        with open(infile, 'r') as f:
+            for line in f:
+                li = line.strip()
+                # Skip comments and empty lines
+                if not li or li.startswith('#'):
+                    continue
+
+                # Found first data line - analyze it
+                # Try tab-delimited first (BLAST)
+                tab_split = li.split('\t')
+                if len(tab_split) >= 12:
+                    # Likely BLAST format - check if columns 8-9 are numeric (subject coords)
+                    try:
+                        int(tab_split[8])
+                        int(tab_split[9])
+                        float(tab_split[10])  # evalue
+                        return 'blast'
+                    except (ValueError, IndexError):
+                        pass
+
+                # Try space-delimited (nhmmer)
+                space_split = li.split()
+                if len(space_split) >= 15:
+                    # nhmmer has specific pattern: column 11 is strand (+/-)
+                    # and column 12 is evalue (scientific notation)
+                    try:
+                        if space_split[11] in ['+', '-']:
+                            float(space_split[12])  # evalue
+                            return 'nhmmer'
+                    except (ValueError, IndexError):
+                        pass
+
+                # If we got here, couldn't determine format from first line
+                logging.warning('Could not determine format from first data line')
+                return 'unknown'
+
+    except Exception as e:
+        logging.error(f'Error reading file {infile}: {e}')
+        return 'unknown'
+
+    # Empty file or no data lines
+    return 'unknown'
+
+
 def filterHitsLen(
     hmmDB: Optional[str] = None,
     mincov: Optional[float] = None,

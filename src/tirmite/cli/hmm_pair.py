@@ -286,21 +286,38 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--genome',
         type=str,
-        required=True,
+        required=False,
         help='Path to target genome FASTA file.',
     )
 
-    # nhmmer input files (mutually exclusive groups)
-    nhmmer_group = parser.add_mutually_exclusive_group(required=True)
-    nhmmer_group.add_argument(
+    parser.add_argument(
+        '--blastdb',
+        type=str,
+        required=False,
+        help='Path to BLAST database (alternative to --genome for sequence extraction).',
+    )
+
+    # Search result input files (mutually exclusive groups)
+    search_group = parser.add_mutually_exclusive_group(required=True)
+    search_group.add_argument(
         '--nhmmerFile',
         type=str,
         help='Path to single nhmmer output file (requires --hmmFile or --lengthsFile).',
     )
-    nhmmer_group.add_argument(
+    search_group.add_argument(
         '--leftNhmmer',
         type=str,
         help='Path to nhmmer output for left model (use with --rightNhmmer).',
+    )
+    search_group.add_argument(
+        '--blastFile',
+        type=str,
+        help='Path to single BLAST tabular output file (requires --queryLen or --lengthsFile).',
+    )
+    search_group.add_argument(
+        '--leftBlast',
+        type=str,
+        help='Path to BLAST output for left query (use with --rightBlast).',
     )
 
     parser.add_argument(
@@ -309,7 +326,13 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         help='Path to nhmmer output for right model (use with --leftNhmmer).',
     )
 
-    # Model length sources (mutually exclusive)
+    parser.add_argument(
+        '--rightBlast',
+        type=str,
+        help='Path to BLAST output for right query (use with --leftBlast).',
+    )
+
+    # Model/Query length sources (mutually exclusive)
     length_group = parser.add_mutually_exclusive_group()
     length_group.add_argument(
         '--hmmFile',
@@ -325,6 +348,11 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         '--lengthsFile',
         type=str,
         help='Path to tab-delimited file with model_name and model_length columns.',
+    )
+    length_group.add_argument(
+        '--queryLen',
+        type=int,
+        help='Length of BLAST query sequence (for single query pairing).',
     )
 
     parser.add_argument(
@@ -450,20 +478,32 @@ def validate_arguments(args: Any) -> None:
     FileNotFoundError
         If required files don't exist.
     """
+    # Check that either genome or blastdb is provided
+    if not args.genome and not args.blastdb:
+        raise ValueError('Either --genome or --blastdb must be provided')
+
     # Check asymmetric pairing requirements
     if args.leftNhmmer and not args.rightNhmmer:
         raise ValueError('--leftNhmmer requires --rightNhmmer')
     if args.rightNhmmer and not args.leftNhmmer:
         raise ValueError('--rightNhmmer requires --leftNhmmer')
+    if args.leftBlast and not args.rightBlast:
+        raise ValueError('--leftBlast requires --rightBlast')
+    if args.rightBlast and not args.leftBlast:
+        raise ValueError('--rightBlast requires --leftBlast')
     if args.leftModel and not args.rightModel:
         raise ValueError('--leftModel requires --rightModel')
     if args.rightModel and not args.leftModel:
         raise ValueError('--rightModel requires --leftModel')
 
-    # Check model length source requirements
+    # Check model/query length source requirements
     if args.nhmmerFile:
         if not (args.hmmFile or args.lengthsFile):
             raise ValueError('--nhmmerFile requires either --hmmFile or --lengthsFile')
+
+    if args.blastFile:
+        if not (args.queryLen or args.lengthsFile):
+            raise ValueError('--blastFile requires either --queryLen or --lengthsFile')
 
     if args.leftNhmmer and args.rightNhmmer:
         if not (args.leftModel and args.rightModel) and not args.lengthsFile:
@@ -471,13 +511,25 @@ def validate_arguments(args: Any) -> None:
                 'Asymmetric pairing requires --leftModel/--rightModel or --lengthsFile'
             )
 
+    if args.leftBlast and args.rightBlast:
+        if not args.lengthsFile:
+            raise ValueError(
+                'Asymmetric BLAST pairing requires --lengthsFile with query lengths'
+            )
+
     # Check file existence
-    required_files = [args.genome]
+    required_files = []
+    if args.genome:
+        required_files.append(args.genome)
 
     if args.nhmmerFile:
         required_files.append(args.nhmmerFile)
     if args.leftNhmmer:
         required_files.extend([args.leftNhmmer, args.rightNhmmer])
+    if args.blastFile:
+        required_files.append(args.blastFile)
+    if args.leftBlast:
+        required_files.extend([args.leftBlast, args.rightBlast])
     if args.hmmFile:
         required_files.append(args.hmmFile)
     if args.leftModel:
@@ -488,6 +540,16 @@ def validate_arguments(args: Any) -> None:
     for file_path in required_files:
         if not Path(file_path).exists():
             raise FileNotFoundError(f'Required file not found: {file_path}')
+
+    # Validate blastdb existence if provided
+    if args.blastdb:
+        # Check if any of the expected BLAST DB files exist
+        db_extensions = ['.nhr', '.nin', '.nsq', '.ndb', '.not', '.ntf', '.nto']
+        db_exists = any(Path(f'{args.blastdb}{ext}').exists() for ext in db_extensions)
+        if not db_exists:
+            raise FileNotFoundError(
+                f'BLAST database files not found for: {args.blastdb}'
+            )
 
 
 def main(args: Optional[argparse.Namespace] = None) -> int:
@@ -545,41 +607,48 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         logging.info(f'Output directory: {outDir}')
         logging.debug(f'Temporary directory: {tempDir}')
 
-        # Index genome
-        logging.info(f'Indexing genome: {args.genome}')
-        genome, genome_descriptions = indexGenome(args.genome)
-
-        # Load model lengths
-        logging.info('Loading model lengths...')
+        # Index genome if provided
+        genome = None
+        genome_descriptions = None
+        if args.genome:
+            logging.info(f'Indexing genome: {args.genome}')
+            genome, genome_descriptions = indexGenome(args.genome)
+        elif args.blastdb:
+            logging.info(f'Using BLAST database: {args.blastdb}')
+            # Note: genome will remain None, sequence extraction will use blastdbcmd
+        
+        # Load model/query lengths
+        logging.info('Loading model/query lengths...')
         model_lengths = {}
 
         if args.lengthsFile:
             model_lengths = load_model_lengths_file(args.lengthsFile)
         elif args.hmmFile:
             model_lengths = get_hmm_model_length(args.hmmFile)
+        elif args.queryLen:
+            # For single BLAST query, we'll assign the length after importing hits
+            # to get the query name
+            pass
         elif args.leftModel and args.rightModel:
             left_lengths = get_hmm_model_length(args.leftModel)
             right_lengths = get_hmm_model_length(args.rightModel)
             model_lengths = {**left_lengths, **right_lengths}
 
-        if not model_lengths:
-            logging.error('No model lengths could be loaded')
-            cleanup_temp_directory(tempDir, args.keep_temp)
-            sys.exit(1)
-
-        logging.info(f'Loaded lengths for models: {", ".join(model_lengths.keys())}')
-
-        # Import nhmmer hits
-        logging.info('Importing nhmmer hits...')
+        # Import search hits
         hitTable = None
+        input_format = None
 
         if args.nhmmerFile:
-            # Single file mode
+            # Single nhmmer file mode
+            logging.info('Importing nhmmer hits...')
+            input_format = 'nhmmer'
             hitTable = tirmite.import_nhmmer(
                 infile=args.nhmmerFile, hitTable=None, prefix=args.prefix
             )
-        else:
-            # Asymmetric mode - import from both files
+        elif args.leftNhmmer:
+            # Asymmetric nhmmer mode - import from both files
+            logging.info('Importing nhmmer hits from left and right models...')
+            input_format = 'nhmmer'
             left_model_name = extract_model_name_from_path(args.leftModel)
             right_model_name = extract_model_name_from_path(args.rightModel)
 
@@ -593,8 +662,72 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 hitTable=hitTable,
                 prefix=args.prefix,
             )
+        elif args.blastFile:
+            # Single BLAST file mode
+            logging.info('Importing BLAST hits...')
+            input_format = 'blast'
+            
+            # Detect format and warn if mismatch
+            detected_format = tirmite.detect_input_format(args.blastFile)
+            if detected_format != 'blast' and detected_format != 'unknown':
+                logging.warning(
+                    f'File format appears to be {detected_format}, but --blastFile was specified. '
+                    'Consider using --nhmmerFile instead.'
+                )
+            
+            hitTable = tirmite.import_blast(
+                infile=args.blastFile, hitTable=None, prefix=args.prefix
+            )
+            
+            # If queryLen was provided, assign it now that we have the query name
+            if args.queryLen and hitTable is not None and len(hitTable) > 0:
+                query_name = hitTable['model'].iloc[0]
+                model_lengths[query_name] = args.queryLen
+                logging.info(f'Set length for query {query_name}: {args.queryLen}')
+                
+        elif args.leftBlast:
+            # Asymmetric BLAST mode - import from both files
+            logging.info('Importing BLAST hits from left and right queries...')
+            input_format = 'blast'
+            
+            # Detect format for both files
+            detected_left = tirmite.detect_input_format(args.leftBlast)
+            detected_right = tirmite.detect_input_format(args.rightBlast)
+            
+            if detected_left != 'blast' and detected_left != 'unknown':
+                logging.warning(
+                    f'Left file format appears to be {detected_left}, but --leftBlast was specified.'
+                )
+            if detected_right != 'blast' and detected_right != 'unknown':
+                logging.warning(
+                    f'Right file format appears to be {detected_right}, but --rightBlast was specified.'
+                )
+            
+            hitTable = tirmite.import_blast(
+                infile=args.leftBlast,
+                hitTable=None,
+                prefix=args.prefix,
+            )
+            hitTable = tirmite.import_blast(
+                infile=args.rightBlast,
+                hitTable=hitTable,
+                prefix=args.prefix,
+            )
+
+        if hitTable is None or len(hitTable) == 0:
+            logging.error('No hits were imported from input files')
+            cleanup_temp_directory(tempDir, args.keep_temp)
+            sys.exit(1)
 
         logging.info(f'Imported {len(hitTable)} total hits')
+
+        # Validate that we have model lengths for all models in hitTable
+        if not model_lengths:
+            logging.error('No model/query lengths could be loaded')
+            cleanup_temp_directory(tempDir, args.keep_temp)
+            sys.exit(1)
+
+        logging.info(f'Loaded lengths for models: {", ".join(model_lengths.keys())}')
 
         # Calculate hit coverage
         logging.info('Calculating hit coverage...')

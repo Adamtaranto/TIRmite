@@ -409,8 +409,8 @@ def import_blast(
         df = df.loc[:, cols]
 
     if hitTable is not None:
-        # If an existing table was passed, concatenate
-        df = pd.concat([df, hitTable], ignore_index=True)
+        # If an existing table was passed, concatenate (existing first for consistency)
+        df = pd.concat([hitTable, df], ignore_index=True)
 
     # Sort hits by model, target, location, and strand
     df = df.sort_values(

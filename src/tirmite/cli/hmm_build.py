@@ -697,12 +697,22 @@ def chain_fragmented_hits(
     -------
     list of list of BlastHit
         List of hit chains where each chain is a list of consecutive hits.
+        
+    Notes
+    -----
+    Hits are chained only if they meet ALL of the following criteria:
+    - Belong to the same query sequence
+    - Are sequential and non-overlapping in query coordinates
+    - Are sequential and non-overlapping in target coordinates
+    - Are all in the same orientation (strand)
+    - Are separated by less than max_gap bases in target sequence
     """
     if not hits:
         return []
 
-    # Sort by genomic position
-    sorted_hits = sorted(hits, key=lambda h: (h.subject_id, h.subject_start))
+    # Sort by query_id, subject_id, then query_start position
+    # This ensures we process hits in the order they appear in the query
+    sorted_hits = sorted(hits, key=lambda h: (h.query_id, h.subject_id, h.query_start))
 
     chains = []
     current_chain = [sorted_hits[0]]
@@ -710,11 +720,59 @@ def chain_fragmented_hits(
     for hit in sorted_hits[1:]:
         last_hit = current_chain[-1]
 
-        # Check if hits are on same chromosome and within gap distance
-        if (
-            hit.subject_id == last_hit.subject_id
-            and hit.subject_start - last_hit.subject_end <= max_gap
-        ):
+        # Check all chaining criteria
+        can_chain = True
+        
+        # Criterion 1: Must belong to the same query
+        if hit.query_id != last_hit.query_id:
+            can_chain = False
+        
+        # Criterion 2: Must be on the same subject/target sequence
+        elif hit.subject_id != last_hit.subject_id:
+            can_chain = False
+        
+        # Criterion 3: Must be in the same orientation/strand
+        elif hit.strand != last_hit.strand:
+            can_chain = False
+        
+        else:
+            # Criterion 4: Hits must be sequential and non-overlapping in query
+            # Query coordinates are always in forward orientation (start < end)
+            if hit.query_start <= last_hit.query_end:
+                # Hits overlap or are out of order in query
+                can_chain = False
+            
+            # Criterion 5: Hits must be sequential and non-overlapping in target
+            # Need to handle both forward and reverse strand cases
+            elif hit.strand == '+':
+                # Forward strand: subject_start < subject_end for both hits
+                # Check if current hit starts after or at the end of last hit
+                if hit.subject_start <= last_hit.subject_end:
+                    # Hits overlap in target
+                    can_chain = False
+                # Check if gap is within max_gap
+                elif hit.subject_start - last_hit.subject_end > max_gap:
+                    # Gap too large
+                    can_chain = False
+            else:
+                # Reverse strand: subject_start > subject_end for both hits
+                # On reverse strand, we still need to ensure hits don't overlap
+                # and are in the correct order
+                min_last = min(last_hit.subject_start, last_hit.subject_end)
+                max_last = max(last_hit.subject_start, last_hit.subject_end)
+                min_curr = min(hit.subject_start, hit.subject_end)
+                max_curr = max(hit.subject_start, hit.subject_end)
+                
+                # Check for overlap
+                if max_curr >= min_last:
+                    # Hits overlap in target
+                    can_chain = False
+                # Check if gap is within max_gap
+                elif min_last - max_curr > max_gap:
+                    # Gap too large
+                    can_chain = False
+
+        if can_chain:
             current_chain.append(hit)
         else:
             # Start new chain

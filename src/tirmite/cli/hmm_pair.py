@@ -899,17 +899,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 'Multiple models require --pairing_map to specify which features should be paired together.'
             )
 
-        # Determine if we need to run multiple pairing procedures
-        if pairing_map and len(pairing_map) > 1:
-            # Multiple pairing procedures
-            logging.info(f'Will execute {len(pairing_map)} independent pairing procedures')
-            # We'll handle this below after writing individual hits
-            pass
-
         # Create pairing configuration
         if pairing_map:
             # Use pairing map - will create configs for each pairing later
-            # For now, just ensure we can write hits for all models
+            # Pairing map workflow handles both single and multiple pairings
+            logging.info(f'Will execute {len(pairing_map)} independent pairing procedure(s) based on pairing map')
             config = None
         elif args.leftNhmmer and args.rightNhmmer:
             # Asymmetric nhmmer pairing
@@ -923,10 +917,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             )
         elif args.leftBlast and args.rightBlast:
             # Asymmetric BLAST pairing - extract model names from hitTable
-            unique_models = hitTable['model'].unique()
-            if len(unique_models) < 2:
+            blast_models = hitTable['model'].unique()
+            if len(blast_models) < 2:
                 logging.error(
-                    f'Expected 2 models for asymmetric pairing, found {len(unique_models)}'
+                    f'Expected 2 models for asymmetric pairing, found {len(blast_models)}'
                 )
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
@@ -935,8 +929,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # The first model encountered becomes 'left', second becomes 'right'
             # For deterministic results, ensure leftBlast file contains only left query hits
             # and rightBlast file contains only right query hits
-            left_model_name = unique_models[0]
-            right_model_name = unique_models[1]
+            left_model_name = blast_models[0]
+            right_model_name = blast_models[1]
             logging.info(
                 f'Assigning models for asymmetric pairing: '
                 f'left={left_model_name}, right={right_model_name}'
@@ -990,6 +984,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             
             all_paired = {}  # Accumulate all paired results by model
             all_paired_hits = set()  # Track which hit indices have been paired
+            original_hitIndex = hitIndex  # Preserve original for unpaired hit tracking
             
             for pair_idx, (left_feature, right_feature) in enumerate(pairing_map, 1):
                 logging.info(f'Pairing procedure {pair_idx}/{len(pairing_map)}: {left_feature} <-> {right_feature}')
@@ -1017,10 +1012,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         right_model=right_feature
                     )
                 
-                # Run pairing for this combination
+                # Run pairing for this combination (use fresh copy of hitIndex for each)
                 logging.info(f'Searching for candidate pairings: {left_feature} <-> {right_feature}')
                 pair_hitIndex = tirmite.parseHitsGeneral(
-                    hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist, config=pair_config
+                    hitsDict=hitsDict, hitIndex=original_hitIndex, maxDist=args.maxdist, config=pair_config
                 )
                 
                 logging.info('Performing iterative pairing...')
@@ -1054,13 +1049,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             
             # Final pairing results
             paired = all_paired
-            hitIndex = pair_hitIndex  # Use the last updated hitIndex
+            hitIndex = original_hitIndex  # Use original hitIndex for output
             
             # Collect truly unpaired hits (not paired in any procedure)
             unpaired = []
             for model in hitsDict.keys():
-                if model in hitIndex:
-                    for hit_id in hitIndex[model].keys():
+                if model in original_hitIndex:
+                    for hit_id in original_hitIndex[model].keys():
                         if hit_id not in all_paired_hits:
                             unpaired.append(hit_id)
             

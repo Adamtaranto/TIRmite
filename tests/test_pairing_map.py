@@ -96,8 +96,7 @@ def test_duplicate_features_warning(duplicate_feature_map, caplog):
     
     assert len(pairings) == 2
     # Check that warning was logged (feature appears in multiple lines)
-    assert any('appears in multiple pairing combinations' in record.message 
-              for record in caplog.records)
+    assert any('appears in multiple pairing combinations' in record.message for record in caplog.records)
 
 
 def test_empty_pairing_map():

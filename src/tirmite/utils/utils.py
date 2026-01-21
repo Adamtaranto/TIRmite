@@ -11,6 +11,7 @@ Provides tools for:
 
 from collections import Counter
 from contextlib import contextmanager
+import gzip
 import logging
 import os
 from pathlib import Path
@@ -503,3 +504,145 @@ def extract_genome_descriptions(genome_path: Union[str, Path]) -> dict:
         logging.warning(f'Could not extract genome descriptions: {e}')
 
     return descriptions
+
+
+def is_gzipped_file(file_path: Union[str, Path]) -> bool:
+    """
+    Check if a file is gzip-compressed.
+
+    Parameters
+    ----------
+    file_path : str or Path
+        Path to file to check.
+
+    Returns
+    -------
+    bool
+        True if file is gzip-compressed, False otherwise.
+
+    Notes
+    -----
+    Checks both file extension (.gz) and file magic bytes for gzip format.
+    """
+    file_path = Path(file_path)
+    
+    # First check extension
+    if file_path.suffix.lower() == '.gz':
+        return True
+    
+    # Also check magic bytes if file exists
+    if file_path.exists():
+        try:
+            with open(file_path, 'rb') as f:
+                # Gzip files start with 1f 8b magic bytes
+                return f.read(2) == b'\x1f\x8b'
+        except Exception:
+            pass
+    
+    return False
+
+
+def decompress_genome(
+    genome_path: Union[str, Path],
+    output_dir: Union[str, Path],
+) -> Path:
+    """
+    Decompress a gzip-compressed genome file to output directory.
+
+    Parameters
+    ----------
+    genome_path : str or Path
+        Path to gzip-compressed genome file.
+    output_dir : str or Path
+        Directory where decompressed file will be written.
+
+    Returns
+    -------
+    Path
+        Path to decompressed genome file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If input genome file doesn't exist.
+    OSError
+        If decompression fails.
+
+    Notes
+    -----
+    Creates a decompressed copy with .gz extension removed.
+    Original file is not modified.
+    """
+    genome_path = Path(genome_path)
+    output_dir = Path(output_dir)
+    
+    if not genome_path.exists():
+        raise FileNotFoundError(f'Genome file not found: {genome_path}')
+    
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Determine output filename (remove .gz extension)
+    if genome_path.suffix.lower() == '.gz':
+        output_name = genome_path.stem
+    else:
+        output_name = genome_path.name + '.decompressed'
+    
+    output_path = output_dir / output_name
+    
+    logging.info(f'Decompressing {genome_path.name} to {output_path}')
+    
+    try:
+        with gzip.open(genome_path, 'rb') as f_in:
+            with open(output_path, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        
+        logging.debug(f'Decompression complete: {output_path}')
+        return output_path
+        
+    except Exception as e:
+        raise OSError(f'Failed to decompress {genome_path}: {e}') from e
+
+
+def prepare_genome_file(
+    genome_path: Union[str, Path],
+    temp_dir: Union[str, Path],
+) -> Path:
+    """
+    Prepare genome file for use, decompressing if necessary.
+
+    Parameters
+    ----------
+    genome_path : str or Path
+        Path to genome file (may be gzip-compressed).
+    temp_dir : str or Path
+        Temporary directory for decompressed files.
+
+    Returns
+    -------
+    Path
+        Path to prepared (decompressed if necessary) genome file.
+
+    Raises
+    ------
+    FileNotFoundError
+        If genome file doesn't exist.
+    OSError
+        If decompression fails.
+
+    Notes
+    -----
+    If genome is gzip-compressed, decompresses to temp_dir.
+    Otherwise returns original path unchanged.
+    """
+    genome_path = Path(genome_path)
+    
+    if not genome_path.exists():
+        raise FileNotFoundError(f'Genome file not found: {genome_path}')
+    
+    # Check if file is gzipped
+    if is_gzipped_file(genome_path):
+        logging.info(f'Detected gzip-compressed genome: {genome_path.name}')
+        return decompress_genome(genome_path, temp_dir)
+    else:
+        return genome_path

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "tirmite"
 description = "Map profile HMMs of transposon termini to genomic sequences for annotation of cryptic transposon variants."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Adam Taranto", email = "adam.p.taranto@gmail.com" }]
 

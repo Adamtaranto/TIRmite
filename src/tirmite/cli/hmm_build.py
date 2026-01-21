@@ -159,9 +159,9 @@ def check_dependencies() -> List[str]:
 
     Notes
     -----
-    Checks for: blastn, makeblastdb, mafft.
+    Checks for: blastn, makeblastdb, mafft, hmmalign, nhmmer, hmmpress.
     """
-    required_tools = ['blastn', 'makeblastdb', 'mafft']
+    required_tools = ['blastn', 'makeblastdb', 'mafft', 'hmmalign', 'nhmmer', 'hmmpress']
     missing = []
 
     for tool in required_tools:
@@ -2669,16 +2669,14 @@ def create_flanked_alignment_output(
         Path to flanked alignment file, or None if creation failed.
     """
     try:
-        # Save sequences to temp file
-        temp_fasta = temp_dir / f'{cleanID(model_name)}_flanked.fasta'
-        SeqIO.write(unique_sequences, temp_fasta, 'fasta')
+        # Prepare output file path
+        output_file = temp_dir / f'{cleanID(model_name)}_flanked_alignment.fasta'
         
         # Run MAFFT alignment
         flanked_alignment = run_mafft_alignment(
-            input_file=temp_fasta,
-            output_dir=temp_dir,
-            model_name=f'{model_name}_flanked',
-            num_threads=threads,
+            sequences=unique_sequences,
+            output_file=output_file,
+            threads=threads,
         )
         
         # Copy to output directory

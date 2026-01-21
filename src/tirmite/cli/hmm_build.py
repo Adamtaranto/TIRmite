@@ -2979,124 +2979,124 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 # Normal seed-based workflow
                 # Compare seeds if both provided
                 if args.right_seed:
-                seed_comparisons = compare_seeds(
-                    args.left_seed,
-                    args.right_seed,
-                    temp_dir,
-                    min_length=10,  # Minimum 10bp hits
-                    min_identity=50.0,  # Minimum 50% identity
-                    num_threads=args.threads,
-                )
-
-                if seed_comparisons:
-                    logging.info(
-                        f'Found {len(seed_comparisons)} significant similarities between seeds:'
+                    seed_comparisons = compare_seeds(
+                        args.left_seed,
+                        args.right_seed,
+                        temp_dir,
+                        min_length=10,  # Minimum 10bp hits
+                        min_identity=50.0,  # Minimum 50% identity
+                        num_threads=args.threads,
                     )
 
-                    for i, (hit, alignment) in enumerate(
-                        seed_comparisons[:3], 1
-                    ):  # Show top 3
+                    if seed_comparisons:
                         logging.info(
-                            f'  Similarity {i}: {hit.length}bp, {hit.identity:.1f}% identity'
-                        )
-                        logging.info(
-                            f'    Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]'
-                        )
-                        logging.info(
-                            f'    Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}] ({hit.strand} strand)'
-                        )
-                        logging.info(f'    Alignment score: {alignment.score}')
-
-                        # Optionally print the alignment for the best hit
-                        if i == 1 and args.loglevel == 'DEBUG':
-                            logging.debug('Best seed alignment:')
-                            for line in str(alignment).split('\n'):
-                                logging.debug(f'    {line}')
-
-                    # Save detailed seed comparison results
-                    seed_comparison_file = (
-                        output_dir / f'{cleanID(args.model_name)}_seed_comparison.txt'
-                    )
-                    with open(seed_comparison_file, 'w') as f:
-                        f.write(f'Seed Comparison Results for {args.model_name}\n')
-                        f.write('=' * 50 + '\n\n')
-                        f.write(f'Left seed: {args.left_seed.name}\n')
-                        f.write(f'Right seed: {args.right_seed.name}\n')
-                        f.write(
-                            f'Total similarities found: {len(seed_comparisons)}\n\n'
+                            f'Found {len(seed_comparisons)} significant similarities between seeds:'
                         )
 
-                        for i, (hit, alignment) in enumerate(seed_comparisons, 1):
-                            f.write(f'Similarity {i}:\n')
-                            f.write(f'  Length: {hit.length}bp\n')
-                            f.write(f'  Identity: {hit.identity:.1f}%\n')
-                            f.write(f'  Query coverage: {hit.query_coverage:.3f}\n')
-                            f.write(f'  Subject coverage: {hit.subject_coverage:.3f}\n')
-                            f.write(
-                                f'  Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]\n'
+                        for i, (hit, alignment) in enumerate(
+                            seed_comparisons[:3], 1
+                        ):  # Show top 3
+                            logging.info(
+                                f'  Similarity {i}: {hit.length}bp, {hit.identity:.1f}% identity'
                             )
-                            f.write(
-                                f'  Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}]\n'
+                            logging.info(
+                                f'    Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]'
                             )
-                            f.write(f'  Alignment score: {alignment.score}\n')
-                            f.write('  Alignment:\n')
-                            for line in str(alignment).split('\n'):
-                                f.write(f'    {line}\n')
-                            f.write('\n')
+                            logging.info(
+                                f'    Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}] ({hit.strand} strand)'
+                            )
+                            logging.info(f'    Alignment score: {alignment.score}')
 
-                    logging.info(
-                        f'Detailed seed comparison saved to: {seed_comparison_file}'
+                            # Optionally print the alignment for the best hit
+                            if i == 1 and args.loglevel == 'DEBUG':
+                                logging.debug('Best seed alignment:')
+                                for line in str(alignment).split('\n'):
+                                    logging.debug(f'    {line}')
+
+                        # Save detailed seed comparison results
+                        seed_comparison_file = (
+                            output_dir / f'{cleanID(args.model_name)}_seed_comparison.txt'
+                        )
+                        with open(seed_comparison_file, 'w') as f:
+                            f.write(f'Seed Comparison Results for {args.model_name}\n')
+                            f.write('=' * 50 + '\n\n')
+                            f.write(f'Left seed: {args.left_seed.name}\n')
+                            f.write(f'Right seed: {args.right_seed.name}\n')
+                            f.write(
+                                f'Total similarities found: {len(seed_comparisons)}\n\n'
+                            )
+
+                            for i, (hit, alignment) in enumerate(seed_comparisons, 1):
+                                f.write(f'Similarity {i}:\n')
+                                f.write(f'  Length: {hit.length}bp\n')
+                                f.write(f'  Identity: {hit.identity:.1f}%\n')
+                                f.write(f'  Query coverage: {hit.query_coverage:.3f}\n')
+                                f.write(f'  Subject coverage: {hit.subject_coverage:.3f}\n')
+                                f.write(
+                                    f'  Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]\n'
+                                )
+                                f.write(
+                                    f'  Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}]\n'
+                                )
+                                f.write(f'  Alignment score: {alignment.score}\n')
+                                f.write('  Alignment:\n')
+                                for line in str(alignment).split('\n'):
+                                    f.write(f'    {line}\n')
+                                f.write('\n')
+
+                        logging.info(
+                            f'Detailed seed comparison saved to: {seed_comparison_file}'
+                        )
+
+                    else:
+                        logging.info(
+                            'No significant similarity found between left and right seeds'
+                        )
+
+                        # Still proceed with asymmetric processing
+                        logging.info('Proceeding with fully asymmetric seed processing')
+
+                # Process asymmetric seeds if both provided
+                if args.right_seed:
+                    left_hmm, right_hmm, left_aln, right_aln = process_asymmetric_seeds(
+                        args.left_seed,
+                        args.right_seed,
+                        args.model_name,
+                        genome_files,
+                        temp_dir,
+                        output_dir,
+                        args.min_coverage,
+                        args.min_identity,
+                        args.max_gap,
+                        args.save_blast_hits,
+                        args.flank_size,
+                        threads=args.threads,
+                        evalue=args.evalue,
                     )
+
+                    logging.info('Asymmetric processing completed:')
+                    logging.info(f'  Left HMM: {left_hmm}')
+                    logging.info(f'  Right HMM: {right_hmm}')
+                    logging.info(f'  Left alignment: {left_aln}')
+                    logging.info(f'  Right alignment: {right_aln}')
 
                 else:
-                    logging.info(
-                        'No significant similarity found between left and right seeds'
+                    # Process single seed (existing logic)
+                    left_hmm, left_aln, left_blast, left_flanked = process_seed_sequences(
+                        args.left_seed,
+                        args.model_name,
+                        genome_files,
+                        temp_dir,
+                        output_dir,
+                        args.min_coverage,
+                        args.min_identity,
+                        args.max_gap,
+                        args.save_blast_hits,
+                        args.flank_size,
+                        threads=args.threads,
+                        evalue=args.evalue,
                     )
-
-                    # Still proceed with asymmetric processing
-                    logging.info('Proceeding with fully asymmetric seed processing')
-
-            # Process asymmetric seeds if both provided
-            if args.right_seed:
-                left_hmm, right_hmm, left_aln, right_aln = process_asymmetric_seeds(
-                    args.left_seed,
-                    args.right_seed,
-                    args.model_name,
-                    genome_files,
-                    temp_dir,
-                    output_dir,
-                    args.min_coverage,
-                    args.min_identity,
-                    args.max_gap,
-                    args.save_blast_hits,
-                    args.flank_size,
-                    threads=args.threads,
-                    evalue=args.evalue,
-                )
-
-                logging.info('Asymmetric processing completed:')
-                logging.info(f'  Left HMM: {left_hmm}')
-                logging.info(f'  Right HMM: {right_hmm}')
-                logging.info(f'  Left alignment: {left_aln}')
-                logging.info(f'  Right alignment: {right_aln}')
-
-            else:
-                # Process single seed (existing logic)
-                left_hmm, left_aln, left_blast, left_flanked = process_seed_sequences(
-                    args.left_seed,
-                    args.model_name,
-                    genome_files,
-                    temp_dir,
-                    output_dir,
-                    args.min_coverage,
-                    args.min_identity,
-                    args.max_gap,
-                    args.save_blast_hits,
-                    args.flank_size,
-                    threads=args.threads,
-                    evalue=args.evalue,
-                )
-                logging.info(f'Single seed processing completed: {left_hmm}')
+                    logging.info(f'Single seed processing completed: {left_hmm}')
 
     except Exception as e:
         logging.error(f'HMM building failed: {e}')

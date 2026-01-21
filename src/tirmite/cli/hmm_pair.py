@@ -756,9 +756,51 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Asymmetric nhmmer mode - import from both files
             logging.info('Importing nhmmer hits from left and right models...')
             input_format = 'nhmmer'
+            
+            # Check if left and right files are the same
+            if args.leftNhmmer == args.rightNhmmer:
+                raise ValueError(
+                    f'Left and right nhmmer files cannot be the same: {args.leftNhmmer}'
+                )
+            
             left_model_name = extract_model_name_from_path(args.leftModel)
             right_model_name = extract_model_name_from_path(args.rightModel)
 
+            # Import left file
+            left_hitTable = tirmite.import_nhmmer(
+                infile=args.leftNhmmer,
+                hitTable=None,
+                prefix=args.prefix,
+            )
+            left_models = check_multiple_models(left_hitTable)
+            logging.info(f'Left nhmmer file: {len(left_hitTable)} hits, {len(left_models)} unique query/model name(s)')
+            
+            # Import right file
+            right_hitTable = tirmite.import_nhmmer(
+                infile=args.rightNhmmer,
+                hitTable=None,
+                prefix=args.prefix,
+            )
+            right_models = check_multiple_models(right_hitTable)
+            logging.info(f'Right nhmmer file: {len(right_hitTable)} hits, {len(right_models)} unique query/model name(s)')
+            
+            # Check for overlapping query names
+            overlapping_models = set(left_models) & set(right_models)
+            if overlapping_models:
+                logging.warning(
+                    f'Query/model names appear in both left and right files: {", ".join(overlapping_models)}'
+                )
+            
+            # Validate single query per file or require pairing_map
+            if len(left_models) > 1 or len(right_models) > 1:
+                if not args.pairing_map:
+                    raise ValueError(
+                        f'Left file contains {len(left_models)} query/model name(s), '
+                        f'right file contains {len(right_models)} query/model name(s). '
+                        'When either file contains multiple queries, --pairing_map is required.'
+                    )
+            
+            # Combine hit tables
             hitTable = tirmite.import_nhmmer(
                 infile=args.leftNhmmer,
                 hitTable=None,
@@ -790,6 +832,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Asymmetric BLAST mode - import from both files
             logging.info('Importing BLAST hits from left and right queries...')
             input_format = 'blast'
+            
+            # Check if left and right files are the same
+            if args.leftBlast == args.rightBlast:
+                raise ValueError(
+                    f'Left and right BLAST files cannot be the same: {args.leftBlast}'
+                )
 
             # Detect format for both files
             detected_left = tirmite.detect_input_format(args.leftBlast)
@@ -804,6 +852,41 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     f'Right file format appears to be {detected_right}, but --rightBlast was specified.'
                 )
 
+            # Import left file
+            left_hitTable = tirmite.import_blast(
+                infile=args.leftBlast,
+                hitTable=None,
+                prefix=args.prefix,
+            )
+            left_models = check_multiple_models(left_hitTable)
+            logging.info(f'Left BLAST file: {len(left_hitTable)} hits, {len(left_models)} unique query/model name(s)')
+            
+            # Import right file
+            right_hitTable = tirmite.import_blast(
+                infile=args.rightBlast,
+                hitTable=None,
+                prefix=args.prefix,
+            )
+            right_models = check_multiple_models(right_hitTable)
+            logging.info(f'Right BLAST file: {len(right_hitTable)} hits, {len(right_models)} unique query/model name(s)')
+            
+            # Check for overlapping query names
+            overlapping_models = set(left_models) & set(right_models)
+            if overlapping_models:
+                logging.warning(
+                    f'Query/model names appear in both left and right files: {", ".join(overlapping_models)}'
+                )
+            
+            # Validate single query per file or require pairing_map
+            if len(left_models) > 1 or len(right_models) > 1:
+                if not args.pairing_map:
+                    raise ValueError(
+                        f'Left file contains {len(left_models)} query/model name(s), '
+                        f'right file contains {len(right_models)} query/model name(s). '
+                        'When either file contains multiple queries, --pairing_map is required.'
+                    )
+            
+            # Combine hit tables
             hitTable = tirmite.import_blast(
                 infile=args.leftBlast,
                 hitTable=None,
@@ -897,12 +980,16 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Check for multiple models and validate pairing map requirement
         # Note: unique_models was already determined and logged after import
+        # For asymmetric modes, validation was already done per-file
+        is_asymmetric = (args.leftNhmmer and args.rightNhmmer) or (args.leftBlast and args.rightBlast)
+        
         # Load pairing map if provided
         pairing_map = None
         if args.pairing_map:
             pairing_map = load_pairing_map(args.pairing_map)
-        elif len(unique_models) > 1:
-            # Multiple models without pairing map - raise error
+        elif len(unique_models) > 1 and not is_asymmetric:
+            # Multiple models in single file without pairing map - raise error
+            # (Asymmetric mode already validated per-file)
             raise ValueError(
                 f'Input contains {len(unique_models)} distinct models/queries: {", ".join(unique_models)}. '
                 'Multiple models require --pairing_map to specify which features should be paired together.'

@@ -302,6 +302,80 @@ def check_multiple_models(hitTable: Any) -> list[str]:
     return unique_models
 
 
+def check_overlapping_hits(left_hitTable: Any, right_hitTable: Any) -> tuple[int, int]:
+    """
+    Check for overlapping hits between left and right hit tables.
+    
+    Two hits overlap if they are on the same target sequence and their
+    genomic coordinates overlap (considering both forward and reverse strands).
+    
+    Parameters
+    ----------
+    left_hitTable : pandas.DataFrame
+        DataFrame containing hits from left file.
+    right_hitTable : pandas.DataFrame
+        DataFrame containing hits from right file.
+    
+    Returns
+    -------
+    tuple of (int, int)
+        Number of left hits that overlap with right hits,
+        Number of right hits that overlap with left hits.
+    
+    Notes
+    -----
+    This function uses an efficient algorithm that groups hits by target
+    and checks for coordinate overlaps only within each target group.
+    """
+    if left_hitTable.empty or right_hitTable.empty:
+        return 0, 0
+    
+    # Convert hitStart and hitEnd to integers for comparison
+    left_hitTable = left_hitTable.copy()
+    right_hitTable = right_hitTable.copy()
+    left_hitTable['hitStart'] = left_hitTable['hitStart'].astype(int)
+    left_hitTable['hitEnd'] = left_hitTable['hitEnd'].astype(int)
+    right_hitTable['hitStart'] = right_hitTable['hitStart'].astype(int)
+    right_hitTable['hitEnd'] = right_hitTable['hitEnd'].astype(int)
+    
+    # Group hits by target sequence for efficient lookup
+    left_by_target = left_hitTable.groupby('target')
+    right_by_target = right_hitTable.groupby('target')
+    
+    # Find common targets
+    left_targets = set(left_hitTable['target'].unique())
+    right_targets = set(right_hitTable['target'].unique())
+    common_targets = left_targets & right_targets
+    
+    if not common_targets:
+        return 0, 0
+    
+    left_overlapping_indices = set()
+    right_overlapping_indices = set()
+    
+    # Check for overlaps only on common targets
+    for target in common_targets:
+        left_hits = left_by_target.get_group(target)
+        right_hits = right_by_target.get_group(target)
+        
+        # Check each left hit against each right hit on this target
+        for left_idx, left_row in left_hits.iterrows():
+            left_start = left_row['hitStart']
+            left_end = left_row['hitEnd']
+            
+            for right_idx, right_row in right_hits.iterrows():
+                right_start = right_row['hitStart']
+                right_end = right_row['hitEnd']
+                
+                # Check if coordinates overlap
+                # Two intervals [a,b] and [c,d] overlap if max(a,c) <= min(b,d)
+                if max(left_start, right_start) <= min(left_end, right_end):
+                    left_overlapping_indices.add(left_idx)
+                    right_overlapping_indices.add(right_idx)
+    
+    return len(left_overlapping_indices), len(right_overlapping_indices)
+
+
 def create_pair_parser() -> argparse.ArgumentParser:
     """
     Create standalone argument parser for pair command.
@@ -791,6 +865,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     f'Query/model names appear in both left and right files: {", ".join(overlapping_models)}'
                 )
             
+            # Check for overlapping hits (same target, overlapping coordinates)
+            left_overlap_count, right_overlap_count = check_overlapping_hits(left_hitTable, right_hitTable)
+            if left_overlap_count > 0 or right_overlap_count > 0:
+                logging.warning(
+                    f'Found {left_overlap_count} left hit(s) and {right_overlap_count} right hit(s) '
+                    'with overlapping genomic coordinates'
+                )
+            
             # Validate single query per file or require pairing_map
             if len(left_models) > 1 or len(right_models) > 1:
                 if not args.pairing_map:
@@ -875,6 +957,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             if overlapping_models:
                 logging.warning(
                     f'Query/model names appear in both left and right files: {", ".join(overlapping_models)}'
+                )
+            
+            # Check for overlapping hits (same target, overlapping coordinates)
+            left_overlap_count, right_overlap_count = check_overlapping_hits(left_hitTable, right_hitTable)
+            if left_overlap_count > 0 or right_overlap_count > 0:
+                logging.warning(
+                    f'Found {left_overlap_count} left hit(s) and {right_overlap_count} right hit(s) '
+                    'with overlapping genomic coordinates'
                 )
             
             # Validate single query per file or require pairing_map

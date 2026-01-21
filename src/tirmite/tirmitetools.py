@@ -330,7 +330,6 @@ def import_blast(
     if not infile:
         raise ValueError('infile parameter is required')
 
-    model_name = query_name
     with open(infile, 'r') as f:
         for line in f.readlines():
             li = line.strip()
@@ -353,9 +352,10 @@ def import_blast(
             evalue = float(li_split[10])
             bitscore = float(li_split[11])
 
-            # Use first query ID as model name if not provided
-            if model_name is None:
-                model_name = query_id
+            # Determine model name for this hit
+            # If query_name parameter was provided, use it for all hits
+            # Otherwise, use the query ID from this specific hit
+            hit_model_name = query_name if query_name is not None else query_id
 
             # Determine strand based on subject coordinates
             if sstart <= send:
@@ -372,7 +372,7 @@ def import_blast(
             hitRecords.append(
                 {
                     'target': subject_id,
-                    'model': model_name,
+                    'model': hit_model_name,
                     'hmmStart': str(qstart),
                     'hmmEnd': str(qend),
                     'hitStart': str(hitStart),

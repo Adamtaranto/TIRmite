@@ -525,11 +525,11 @@ def is_gzipped_file(file_path: Union[str, Path]) -> bool:
     Checks both file extension (.gz) and file magic bytes for gzip format.
     """
     file_path = Path(file_path)
-    
+
     # First check extension
     if file_path.suffix.lower() == '.gz':
         return True
-    
+
     # Also check magic bytes if file exists
     if file_path.exists():
         try:
@@ -538,7 +538,7 @@ def is_gzipped_file(file_path: Union[str, Path]) -> bool:
                 return f.read(2) == b'\x1f\x8b'
         except Exception:
             pass
-    
+
     return False
 
 
@@ -575,31 +575,31 @@ def decompress_genome(
     """
     genome_path = Path(genome_path)
     output_dir = Path(output_dir)
-    
+
     if not genome_path.exists():
         raise FileNotFoundError(f'Genome file not found: {genome_path}')
-    
+
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Determine output filename (remove .gz extension)
     if genome_path.suffix.lower() == '.gz':
         output_name = genome_path.stem
     else:
         output_name = genome_path.name + '.decompressed'
-    
+
     output_path = output_dir / output_name
-    
+
     logging.info(f'Decompressing {genome_path.name} to {output_path}')
-    
+
     try:
         with gzip.open(genome_path, 'rb') as f_in:
             with open(output_path, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
-        
+
         logging.debug(f'Decompression complete: {output_path}')
         return output_path
-        
+
     except Exception as e:
         raise OSError(f'Failed to decompress {genome_path}: {e}') from e
 
@@ -636,10 +636,10 @@ def prepare_genome_file(
     Otherwise returns original path unchanged.
     """
     genome_path = Path(genome_path)
-    
+
     if not genome_path.exists():
         raise FileNotFoundError(f'Genome file not found: {genome_path}')
-    
+
     # Check if file is gzipped
     if is_gzipped_file(genome_path):
         logging.info(f'Detected gzip-compressed genome: {genome_path.name}')

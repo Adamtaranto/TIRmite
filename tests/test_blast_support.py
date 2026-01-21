@@ -163,30 +163,30 @@ def test_import_blast_multiple_queries():
     """Test importing BLAST file with multiple query sequences."""
     # Create BLAST file with multiple queries
     with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-        f.write("query1\tseq1\t100.000\t50\t0\t0\t1\t50\t100\t149\t1e-20\t100\n")
-        f.write("query1\tseq2\t95.000\t50\t2\t0\t1\t50\t200\t249\t1e-18\t95\n")
-        f.write("query2\tseq1\t98.000\t45\t1\t0\t1\t45\t300\t344\t1e-19\t97\n")
-        f.write("query3\tseq3\t100.000\t40\t0\t0\t1\t40\t500\t539\t1e-17\t90\n")
+        f.write('query1\tseq1\t100.000\t50\t0\t0\t1\t50\t100\t149\t1e-20\t100\n')
+        f.write('query1\tseq2\t95.000\t50\t2\t0\t1\t50\t200\t249\t1e-18\t95\n')
+        f.write('query2\tseq1\t98.000\t45\t1\t0\t1\t45\t300\t344\t1e-19\t97\n')
+        f.write('query3\tseq3\t100.000\t40\t0\t0\t1\t40\t500\t539\t1e-17\t90\n')
         fname = f.name
 
     try:
         hitTable = tirmite.import_blast(fname)
-        
+
         # Should have 4 hits
         assert len(hitTable) == 4
-        
+
         # Should have 3 unique models (query1, query2, query3)
         unique_models = hitTable['model'].unique()
         assert len(unique_models) == 3
         assert 'query1' in unique_models
         assert 'query2' in unique_models
         assert 'query3' in unique_models
-        
+
         # Check hit counts per model
         assert len(hitTable[hitTable['model'] == 'query1']) == 2
         assert len(hitTable[hitTable['model'] == 'query2']) == 1
         assert len(hitTable[hitTable['model'] == 'query3']) == 1
-        
+
     finally:
         os.unlink(fname)
 

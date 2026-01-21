@@ -15,12 +15,12 @@ for flexible transposon architecture detection.
 import argparse
 import logging
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from typing import Any, Dict, Optional, cast
 
-from tirmite._version import __version__  # type: ignore[import-not-found]
 import tirmite.tirmitetools as tirmite
+from tirmite._version import __version__  # type: ignore[import-not-found]
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
@@ -250,11 +250,9 @@ def load_pairing_map(pairing_map_file: str) -> list[tuple[str, str]]:
                     )
 
                 left_feature, right_feature = parts[0].strip(), parts[1].strip()
-                
+
                 if not left_feature or not right_feature:
-                    raise ValueError(
-                        f'Empty feature name on line {line_num}'
-                    )
+                    raise ValueError(f'Empty feature name on line {line_num}')
 
                 pairings.append((left_feature, right_feature))
 
@@ -265,9 +263,11 @@ def load_pairing_map(pairing_map_file: str) -> list[tuple[str, str]]:
                     seen_features[feature].append(line_num)
 
     except FileNotFoundError:
-        raise FileNotFoundError(f'Pairing map file not found: {pairing_map_file}')
+        raise FileNotFoundError(
+            f'Pairing map file not found: {pairing_map_file}'
+        ) from None
     except Exception as e:
-        raise ValueError(f'Error reading pairing map file: {e}')
+        raise ValueError(f'Error reading pairing map file: {e}') from e
 
     if not pairings:
         raise ValueError(f'No valid pairings found in {pairing_map_file}')
@@ -305,23 +305,23 @@ def check_multiple_models(hitTable: Any) -> list[str]:
 def check_overlapping_hits(left_hitTable: Any, right_hitTable: Any) -> tuple[int, int]:
     """
     Check for overlapping hits between left and right hit tables.
-    
+
     Two hits overlap if they are on the same target sequence and their
     genomic coordinates overlap (considering both forward and reverse strands).
-    
+
     Parameters
     ----------
     left_hitTable : pandas.DataFrame
         DataFrame containing hits from left file.
     right_hitTable : pandas.DataFrame
         DataFrame containing hits from right file.
-    
+
     Returns
     -------
     tuple of (int, int)
         Number of left hits that overlap with right hits,
         Number of right hits that overlap with left hits.
-    
+
     Notes
     -----
     This function uses an efficient algorithm that groups hits by target
@@ -329,7 +329,7 @@ def check_overlapping_hits(left_hitTable: Any, right_hitTable: Any) -> tuple[int
     """
     if left_hitTable.empty or right_hitTable.empty:
         return 0, 0
-    
+
     # Convert hitStart and hitEnd to integers for comparison
     left_hitTable = left_hitTable.copy()
     right_hitTable = right_hitTable.copy()
@@ -337,42 +337,42 @@ def check_overlapping_hits(left_hitTable: Any, right_hitTable: Any) -> tuple[int
     left_hitTable['hitEnd'] = left_hitTable['hitEnd'].astype(int)
     right_hitTable['hitStart'] = right_hitTable['hitStart'].astype(int)
     right_hitTable['hitEnd'] = right_hitTable['hitEnd'].astype(int)
-    
+
     # Group hits by target sequence for efficient lookup
     left_by_target = left_hitTable.groupby('target')
     right_by_target = right_hitTable.groupby('target')
-    
+
     # Find common targets
     left_targets = set(left_hitTable['target'].unique())
     right_targets = set(right_hitTable['target'].unique())
     common_targets = left_targets & right_targets
-    
+
     if not common_targets:
         return 0, 0
-    
+
     left_overlapping_indices = set()
     right_overlapping_indices = set()
-    
+
     # Check for overlaps only on common targets
     for target in common_targets:
         left_hits = left_by_target.get_group(target)
         right_hits = right_by_target.get_group(target)
-        
+
         # Check each left hit against each right hit on this target
         for left_idx, left_row in left_hits.iterrows():
             left_start = left_row['hitStart']
             left_end = left_row['hitEnd']
-            
+
             for right_idx, right_row in right_hits.iterrows():
                 right_start = right_row['hitStart']
                 right_end = right_row['hitEnd']
-                
+
                 # Check if coordinates overlap
                 # Two intervals [a,b] and [c,d] overlap if max(a,c) <= min(b,d)
                 if max(left_start, right_start) <= min(left_end, right_end):
                     left_overlapping_indices.add(left_idx)
                     right_overlapping_indices.add(right_idx)
-    
+
     return len(left_overlapping_indices), len(right_overlapping_indices)
 
 
@@ -830,13 +830,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Asymmetric nhmmer mode - import from both files
             logging.info('Importing nhmmer hits from left and right models...')
             input_format = 'nhmmer'
-            
+
             # Check if left and right files are the same
             if args.leftNhmmer == args.rightNhmmer:
                 raise ValueError(
                     f'Left and right nhmmer files cannot be the same: {args.leftNhmmer}'
                 )
-            
+
             left_model_name = extract_model_name_from_path(args.leftModel)
             right_model_name = extract_model_name_from_path(args.rightModel)
 
@@ -847,8 +847,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
             left_models = check_multiple_models(left_hitTable)
-            logging.info(f'Left nhmmer file: {len(left_hitTable)} hits, {len(left_models)} unique query/model name(s)')
-            
+            logging.info(
+                f'Left nhmmer file: {len(left_hitTable)} hits, {len(left_models)} unique query/model name(s)'
+            )
+
             # Import right file
             right_hitTable = tirmite.import_nhmmer(
                 infile=args.rightNhmmer,
@@ -856,23 +858,27 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
             right_models = check_multiple_models(right_hitTable)
-            logging.info(f'Right nhmmer file: {len(right_hitTable)} hits, {len(right_models)} unique query/model name(s)')
-            
+            logging.info(
+                f'Right nhmmer file: {len(right_hitTable)} hits, {len(right_models)} unique query/model name(s)'
+            )
+
             # Check for overlapping query names
             overlapping_models = set(left_models) & set(right_models)
             if overlapping_models:
                 logging.warning(
                     f'Query/model names appear in both left and right files: {", ".join(overlapping_models)}'
                 )
-            
+
             # Check for overlapping hits (same target, overlapping coordinates)
-            left_overlap_count, right_overlap_count = check_overlapping_hits(left_hitTable, right_hitTable)
+            left_overlap_count, right_overlap_count = check_overlapping_hits(
+                left_hitTable, right_hitTable
+            )
             if left_overlap_count > 0 or right_overlap_count > 0:
                 logging.warning(
                     f'Found {left_overlap_count} left hit(s) and {right_overlap_count} right hit(s) '
                     'with overlapping genomic coordinates'
                 )
-            
+
             # Validate single query per file or require pairing_map
             if len(left_models) > 1 or len(right_models) > 1:
                 if not args.pairing_map:
@@ -881,7 +887,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         f'right file contains {len(right_models)} query/model name(s). '
                         'When either file contains multiple queries, --pairing_map is required.'
                     )
-            
+
             # Combine hit tables
             hitTable = tirmite.import_nhmmer(
                 infile=args.leftNhmmer,
@@ -914,7 +920,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Asymmetric BLAST mode - import from both files
             logging.info('Importing BLAST hits from left and right queries...')
             input_format = 'blast'
-            
+
             # Check if left and right files are the same
             if args.leftBlast == args.rightBlast:
                 raise ValueError(
@@ -941,8 +947,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
             left_models = check_multiple_models(left_hitTable)
-            logging.info(f'Left BLAST file: {len(left_hitTable)} hits, {len(left_models)} unique query/model name(s)')
-            
+            logging.info(
+                f'Left BLAST file: {len(left_hitTable)} hits, {len(left_models)} unique query/model name(s)'
+            )
+
             # Import right file
             right_hitTable = tirmite.import_blast(
                 infile=args.rightBlast,
@@ -950,23 +958,27 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
             right_models = check_multiple_models(right_hitTable)
-            logging.info(f'Right BLAST file: {len(right_hitTable)} hits, {len(right_models)} unique query/model name(s)')
-            
+            logging.info(
+                f'Right BLAST file: {len(right_hitTable)} hits, {len(right_models)} unique query/model name(s)'
+            )
+
             # Check for overlapping query names
             overlapping_models = set(left_models) & set(right_models)
             if overlapping_models:
                 logging.warning(
                     f'Query/model names appear in both left and right files: {", ".join(overlapping_models)}'
                 )
-            
+
             # Check for overlapping hits (same target, overlapping coordinates)
-            left_overlap_count, right_overlap_count = check_overlapping_hits(left_hitTable, right_hitTable)
+            left_overlap_count, right_overlap_count = check_overlapping_hits(
+                left_hitTable, right_hitTable
+            )
             if left_overlap_count > 0 or right_overlap_count > 0:
                 logging.warning(
                     f'Found {left_overlap_count} left hit(s) and {right_overlap_count} right hit(s) '
                     'with overlapping genomic coordinates'
                 )
-            
+
             # Validate single query per file or require pairing_map
             if len(left_models) > 1 or len(right_models) > 1:
                 if not args.pairing_map:
@@ -975,7 +987,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         f'right file contains {len(right_models)} query/model name(s). '
                         'When either file contains multiple queries, --pairing_map is required.'
                     )
-            
+
             # Combine hit tables
             hitTable = tirmite.import_blast(
                 infile=args.leftBlast,
@@ -995,22 +1007,24 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Log import statistics
         logging.info(f'Imported {len(hitTable)} total hits')
-        
+
         # Get unique models and log statistics
         unique_models = check_multiple_models(hitTable)
         logging.info(f'Found {len(unique_models)} unique query/model name(s)')
-        
+
         # Log per-query hit counts at debug level
         for model in unique_models:
             hit_count = len(hitTable[hitTable['model'] == model])
             logging.debug(f'Query/model "{model}": {hit_count} hits')
-        
+
         # If queryLen was provided for BLAST input, assign it to ALL queries
         if args.blastFile and args.queryLen:
             for query_name in unique_models:
                 model_lengths[query_name] = args.queryLen
                 logging.debug(f'Set length for query {query_name}: {args.queryLen}')
-            logging.info(f'Applied query length {args.queryLen} to {len(unique_models)} query name(s)')
+            logging.info(
+                f'Applied query length {args.queryLen} to {len(unique_models)} query name(s)'
+            )
 
         # Validate that we have model lengths for all models in hitTable
         if not model_lengths:
@@ -1071,8 +1085,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Check for multiple models and validate pairing map requirement
         # Note: unique_models was already determined and logged after import
         # For asymmetric modes, validation was already done per-file
-        is_asymmetric = (args.leftNhmmer and args.rightNhmmer) or (args.leftBlast and args.rightBlast)
-        
+        is_asymmetric = (args.leftNhmmer and args.rightNhmmer) or (
+            args.leftBlast and args.rightBlast
+        )
+
         # Load pairing map if provided
         pairing_map = None
         if args.pairing_map:
@@ -1089,7 +1105,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if pairing_map:
             # Use pairing map - will create configs for each pairing later
             # Pairing map workflow handles both single and multiple pairings
-            logging.info(f'Will execute {len(pairing_map)} independent pairing procedure(s) based on pairing map')
+            logging.info(
+                f'Will execute {len(pairing_map)} independent pairing procedure(s) based on pairing map'
+            )
             config = None
         elif args.leftNhmmer and args.rightNhmmer:
             # Asymmetric nhmmer pairing
@@ -1166,60 +1184,76 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Run pairing - handle single or multiple pairing procedures
         if pairing_map:
             # Multiple pairing procedures based on pairing map
-            logging.info(f'Running {len(pairing_map)} independent pairing procedures based on pairing map')
-            
+            logging.info(
+                f'Running {len(pairing_map)} independent pairing procedures based on pairing map'
+            )
+
             all_paired = {}  # Accumulate all paired results by model
             all_paired_hits = set()  # Track which hit indices have been paired
             original_hitIndex = hitIndex  # Preserve original for unpaired hit tracking
-            
+
             for pair_idx, (left_feature, right_feature) in enumerate(pairing_map, 1):
-                logging.info(f'Pairing procedure {pair_idx}/{len(pairing_map)}: {left_feature} <-> {right_feature}')
-                
+                logging.info(
+                    f'Pairing procedure {pair_idx}/{len(pairing_map)}: {left_feature} <-> {right_feature}'
+                )
+
                 # Check if both features exist in hitsDict
                 if left_feature not in hitsDict:
-                    logging.warning(f'Feature "{left_feature}" not found in hits, skipping this pairing')
+                    logging.warning(
+                        f'Feature "{left_feature}" not found in hits, skipping this pairing'
+                    )
                     continue
                 if right_feature not in hitsDict:
-                    logging.warning(f'Feature "{right_feature}" not found in hits, skipping this pairing')
+                    logging.warning(
+                        f'Feature "{right_feature}" not found in hits, skipping this pairing'
+                    )
                     continue
-                
+
                 # Create config for this pairing
                 if left_feature == right_feature:
                     # Symmetric pairing
                     pair_config = tirmite.PairingConfig(
-                        orientation=args.orientation,
-                        single_model=left_feature
+                        orientation=args.orientation, single_model=left_feature
                     )
                 else:
                     # Asymmetric pairing
                     pair_config = tirmite.PairingConfig(
                         orientation=args.orientation,
                         left_model=left_feature,
-                        right_model=right_feature
+                        right_model=right_feature,
                     )
-                
+
                 # Run pairing for this combination (use fresh copy of hitIndex for each)
-                logging.info(f'Searching for candidate pairings: {left_feature} <-> {right_feature}')
-                pair_hitIndex = tirmite.parseHitsGeneral(
-                    hitsDict=hitsDict, hitIndex=original_hitIndex, maxDist=args.maxdist, config=pair_config
+                logging.info(
+                    f'Searching for candidate pairings: {left_feature} <-> {right_feature}'
                 )
-                
+                pair_hitIndex = tirmite.parseHitsGeneral(
+                    hitsDict=hitsDict,
+                    hitIndex=original_hitIndex,
+                    maxDist=args.maxdist,
+                    config=pair_config,
+                )
+
                 logging.info('Performing iterative pairing...')
                 if pair_config.is_asymmetric:
                     logging.info(
                         f'Using asymmetric pairing: {pair_config.left_model} + {pair_config.right_model}'
                     )
-                    pair_hitIndex, pair_paired, pair_unpaired = tirmite.iterateGetPairsAsymmetric(
-                        pair_hitIndex, pair_config, stableReps=args.stableReps
+                    pair_hitIndex, pair_paired, pair_unpaired = (
+                        tirmite.iterateGetPairsAsymmetric(
+                            pair_hitIndex, pair_config, stableReps=args.stableReps
+                        )
                     )
                 else:
                     logging.info(
                         f'Using symmetric pairing with orientation {pair_config.orientation}'
                     )
-                    pair_hitIndex, pair_paired, pair_unpaired = tirmite.iterateGetPairsCustom(
-                        pair_hitIndex, pair_config, stableReps=args.stableReps
+                    pair_hitIndex, pair_paired, pair_unpaired = (
+                        tirmite.iterateGetPairsCustom(
+                            pair_hitIndex, pair_config, stableReps=args.stableReps
+                        )
                     )
-                
+
                 # Accumulate paired results
                 for model, pairs in pair_paired.items():
                     if model not in all_paired:
@@ -1228,15 +1262,17 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     # Track paired hit indices
                     for pair_set in pairs:
                         all_paired_hits.update(pair_set)
-                
+
                 # Log this pairing's results
                 total_pairs = sum(len(pairs) for pairs in pair_paired.values())
-                logging.info(f'Pairing procedure {pair_idx} completed: {total_pairs} pairs found')
-            
+                logging.info(
+                    f'Pairing procedure {pair_idx} completed: {total_pairs} pairs found'
+                )
+
             # Final pairing results
             paired = all_paired
             hitIndex = original_hitIndex  # Use original hitIndex for output
-            
+
             # Collect truly unpaired hits (not paired in any procedure)
             unpaired = []
             for model in hitsDict.keys():
@@ -1244,19 +1280,22 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     for hit_id in original_hitIndex[model].keys():
                         if hit_id not in all_paired_hits:
                             unpaired.append(hit_id)
-            
+
             # Log final pairing results
             total_pairs = sum(len(pairs) for pairs in paired.values())
             total_unpaired = len(unpaired)
             logging.info(
                 f'All pairing procedures completed: {total_pairs} total pairs, {total_unpaired} unpaired hits'
             )
-        
+
         else:
             # Single pairing procedure (original logic)
             logging.info('Searching for candidate pairings...')
             hitIndex = tirmite.parseHitsGeneral(
-                hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist, config=config
+                hitsDict=hitsDict,
+                hitIndex=hitIndex,
+                maxDist=args.maxdist,
+                config=config,
             )
 
             logging.info('Performing iterative pairing...')

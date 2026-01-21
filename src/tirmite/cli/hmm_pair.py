@@ -204,6 +204,104 @@ def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
     return Path(model_path).stem
 
 
+def load_pairing_map(pairing_map_file: str) -> list[tuple[str, str]]:
+    """
+    Load pairing map from tab-delimited file.
+
+    Parameters
+    ----------
+    pairing_map_file : str
+        Path to tab-delimited file with left and right feature names.
+
+    Returns
+    -------
+    list of tuple
+        List of (left_feature, right_feature) tuples.
+
+    Raises
+    ------
+    ValueError
+        If file format is invalid.
+    FileNotFoundError
+        If file doesn't exist.
+
+    Notes
+    -----
+    File format: left_feature<TAB>right_feature
+    For symmetric pairing, both columns have the same value.
+    Skips comment lines (starting with #) and blank lines.
+    """
+    pairings = []
+    seen_features = {}  # Track occurrences of each feature
+
+    try:
+        with open(pairing_map_file, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                # Skip comments and blank lines
+                if not line or line.startswith('#'):
+                    continue
+
+                parts = line.split('\t')
+                if len(parts) != 2:
+                    raise ValueError(
+                        f'Invalid format on line {line_num}: expected 2 tab-delimited columns, '
+                        f'got {len(parts)}'
+                    )
+
+                left_feature, right_feature = parts[0].strip(), parts[1].strip()
+                
+                if not left_feature or not right_feature:
+                    raise ValueError(
+                        f'Empty feature name on line {line_num}'
+                    )
+
+                pairings.append((left_feature, right_feature))
+
+                # Track feature occurrences for warning
+                for feature in [left_feature, right_feature]:
+                    if feature not in seen_features:
+                        seen_features[feature] = []
+                    seen_features[feature].append(line_num)
+
+    except FileNotFoundError:
+        raise FileNotFoundError(f'Pairing map file not found: {pairing_map_file}')
+    except Exception as e:
+        raise ValueError(f'Error reading pairing map file: {e}')
+
+    if not pairings:
+        raise ValueError(f'No valid pairings found in {pairing_map_file}')
+
+    # Warn about features appearing in multiple pairings
+    for feature, line_nums in seen_features.items():
+        if len(line_nums) > 1:
+            logging.warning(
+                f'Feature "{feature}" appears in multiple pairing combinations '
+                f'(lines: {", ".join(map(str, line_nums))})'
+            )
+
+    logging.info(f'Loaded {len(pairings)} pairing combinations from {pairing_map_file}')
+    return pairings
+
+
+def check_multiple_models(hitTable: Any) -> list[str]:
+    """
+    Check if hitTable contains hits from multiple models/queries.
+
+    Parameters
+    ----------
+    hitTable : pandas.DataFrame
+        DataFrame containing hit data with 'model' column.
+
+    Returns
+    -------
+    list of str
+        List of unique model names found in hitTable.
+    """
+    unique_models = hitTable['model'].unique().tolist()
+    return unique_models
+
+
 def create_pair_parser() -> argparse.ArgumentParser:
     """
     Create standalone argument parser for pair command.
@@ -398,6 +496,13 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         help='Number of iterations when no new pairs found. Default: 0',
     )
 
+    parser.add_argument(
+        '--pairing_map',
+        type=str,
+        default=None,
+        help='Tab-delimited file mapping left to right feature names for pairing. Required when input contains multiple models/queries.',
+    )
+
     # Output options
     parser.add_argument(
         '--outdir',
@@ -536,6 +641,8 @@ def validate_arguments(args: Any) -> None:
         required_files.extend([args.leftModel, args.rightModel])
     if args.lengthsFile:
         required_files.append(args.lengthsFile)
+    if args.pairing_map:
+        required_files.append(args.pairing_map)
 
     for file_path in required_files:
         if not Path(file_path).exists():
@@ -777,8 +884,34 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Convert to dict structure
         hitsDict, hitIndex = tirmite.table2dict(hitTable)
 
+        # Check for multiple models and validate pairing map requirement
+        unique_models = check_multiple_models(hitTable)
+        logging.info(f'Found {len(unique_models)} unique models in input: {", ".join(unique_models)}')
+
+        # Load pairing map if provided
+        pairing_map = None
+        if args.pairing_map:
+            pairing_map = load_pairing_map(args.pairing_map)
+        elif len(unique_models) > 1:
+            # Multiple models without pairing map - raise error
+            raise ValueError(
+                f'Input contains {len(unique_models)} distinct models/queries: {", ".join(unique_models)}. '
+                'Multiple models require --pairing_map to specify which features should be paired together.'
+            )
+
+        # Determine if we need to run multiple pairing procedures
+        if pairing_map and len(pairing_map) > 1:
+            # Multiple pairing procedures
+            logging.info(f'Will execute {len(pairing_map)} independent pairing procedures')
+            # We'll handle this below after writing individual hits
+            pass
+
         # Create pairing configuration
-        if args.leftNhmmer and args.rightNhmmer:
+        if pairing_map:
+            # Use pairing map - will create configs for each pairing later
+            # For now, just ensure we can write hits for all models
+            config = None
+        elif args.leftNhmmer and args.rightNhmmer:
             # Asymmetric nhmmer pairing
             left_model_name = extract_model_name_from_path(args.leftModel)
             right_model_name = extract_model_name_from_path(args.rightModel)
@@ -850,34 +983,123 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             cleanup_temp_directory(tempDir, args.keep_temp)
             return 0
 
-        # Run pairing
-        logging.info('Searching for candidate pairings...')
-        hitIndex = tirmite.parseHitsGeneral(
-            hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist, config=config
-        )
-
-        logging.info('Performing iterative pairing...')
-        if config.is_asymmetric:
+        # Run pairing - handle single or multiple pairing procedures
+        if pairing_map:
+            # Multiple pairing procedures based on pairing map
+            logging.info(f'Running {len(pairing_map)} independent pairing procedures based on pairing map')
+            
+            all_paired = {}  # Accumulate all paired results by model
+            all_paired_hits = set()  # Track which hit indices have been paired
+            
+            for pair_idx, (left_feature, right_feature) in enumerate(pairing_map, 1):
+                logging.info(f'Pairing procedure {pair_idx}/{len(pairing_map)}: {left_feature} <-> {right_feature}')
+                
+                # Check if both features exist in hitsDict
+                if left_feature not in hitsDict:
+                    logging.warning(f'Feature "{left_feature}" not found in hits, skipping this pairing')
+                    continue
+                if right_feature not in hitsDict:
+                    logging.warning(f'Feature "{right_feature}" not found in hits, skipping this pairing')
+                    continue
+                
+                # Create config for this pairing
+                if left_feature == right_feature:
+                    # Symmetric pairing
+                    pair_config = tirmite.PairingConfig(
+                        orientation=args.orientation,
+                        single_model=left_feature
+                    )
+                else:
+                    # Asymmetric pairing
+                    pair_config = tirmite.PairingConfig(
+                        orientation=args.orientation,
+                        left_model=left_feature,
+                        right_model=right_feature
+                    )
+                
+                # Run pairing for this combination
+                logging.info(f'Searching for candidate pairings: {left_feature} <-> {right_feature}')
+                pair_hitIndex = tirmite.parseHitsGeneral(
+                    hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist, config=pair_config
+                )
+                
+                logging.info('Performing iterative pairing...')
+                if pair_config.is_asymmetric:
+                    logging.info(
+                        f'Using asymmetric pairing: {pair_config.left_model} + {pair_config.right_model}'
+                    )
+                    pair_hitIndex, pair_paired, pair_unpaired = tirmite.iterateGetPairsAsymmetric(
+                        pair_hitIndex, pair_config, stableReps=args.stableReps
+                    )
+                else:
+                    logging.info(
+                        f'Using symmetric pairing with orientation {pair_config.orientation}'
+                    )
+                    pair_hitIndex, pair_paired, pair_unpaired = tirmite.iterateGetPairsCustom(
+                        pair_hitIndex, pair_config, stableReps=args.stableReps
+                    )
+                
+                # Accumulate paired results
+                for model, pairs in pair_paired.items():
+                    if model not in all_paired:
+                        all_paired[model] = []
+                    all_paired[model].extend(pairs)
+                    # Track paired hit indices
+                    for pair_set in pairs:
+                        all_paired_hits.update(pair_set)
+                
+                # Log this pairing's results
+                total_pairs = sum(len(pairs) for pairs in pair_paired.values())
+                logging.info(f'Pairing procedure {pair_idx} completed: {total_pairs} pairs found')
+            
+            # Final pairing results
+            paired = all_paired
+            hitIndex = pair_hitIndex  # Use the last updated hitIndex
+            
+            # Collect truly unpaired hits (not paired in any procedure)
+            unpaired = []
+            for model in hitsDict.keys():
+                if model in hitIndex:
+                    for hit_id in hitIndex[model].keys():
+                        if hit_id not in all_paired_hits:
+                            unpaired.append(hit_id)
+            
+            # Log final pairing results
+            total_pairs = sum(len(pairs) for pairs in paired.values())
+            total_unpaired = len(unpaired)
             logging.info(
-                f'Using asymmetric pairing: {config.left_model} + {config.right_model}'
+                f'All pairing procedures completed: {total_pairs} total pairs, {total_unpaired} unpaired hits'
             )
-            hitIndex, paired, unpaired = tirmite.iterateGetPairsAsymmetric(
-                hitIndex, config, stableReps=args.stableReps
-            )
+        
         else:
-            logging.info(
-                f'Using symmetric pairing with orientation {config.orientation}'
-            )
-            hitIndex, paired, unpaired = tirmite.iterateGetPairsCustom(
-                hitIndex, config, stableReps=args.stableReps
+            # Single pairing procedure (original logic)
+            logging.info('Searching for candidate pairings...')
+            hitIndex = tirmite.parseHitsGeneral(
+                hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist, config=config
             )
 
-        # Log pairing results
-        total_pairs = sum(len(pairs) for pairs in paired.values())
-        total_unpaired = len(unpaired)
-        logging.info(
-            f'Pairing completed: {total_pairs} pairs, {total_unpaired} unpaired'
-        )
+            logging.info('Performing iterative pairing...')
+            if config.is_asymmetric:
+                logging.info(
+                    f'Using asymmetric pairing: {config.left_model} + {config.right_model}'
+                )
+                hitIndex, paired, unpaired = tirmite.iterateGetPairsAsymmetric(
+                    hitIndex, config, stableReps=args.stableReps
+                )
+            else:
+                logging.info(
+                    f'Using symmetric pairing with orientation {config.orientation}'
+                )
+                hitIndex, paired, unpaired = tirmite.iterateGetPairsCustom(
+                    hitIndex, config, stableReps=args.stableReps
+                )
+
+            # Log pairing results
+            total_pairs = sum(len(pairs) for pairs in paired.values())
+            total_unpaired = len(unpaired)
+            logging.info(
+                f'Pairing completed: {total_pairs} pairs, {total_unpaired} unpaired'
+            )
 
         # Write paired TIRs
         if args.report in ['all', 'paired']:

@@ -3,13 +3,14 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
-  - "pymummer>=0.10.3"
+  - aliview
   - blast
   - hmmer
   - mafft
   - pip
   - pyhmmer
   - python 3.12
+  - seqkit
   - pip:
       - "biopython>=1.70"
       - "pandas>=0.20.3"

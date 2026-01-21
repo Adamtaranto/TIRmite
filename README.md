@@ -173,6 +173,36 @@ tirmite pair --blastdb genome_db --blastFile MY_TIR_blast_hits.tab --queryLen 10
 tirmite pair --genome $GENOME  --nhmmerFile $NHMMERFILE --hmmFile $HMMFILE --orientation F,R --mincov 0.4 --report all  --maxdist 20000 --stableReps 2 --outdir MY_TIR_PAIRING_OUTPUT --padlen 20 --maxeval 0.001 --gffOut --logfile
 ```
 
+**Handling Multiple Models/Queries**
+
+When your input files contain hits from multiple HMM models or BLAST queries, you must provide a pairing map file using `--pairing_map` to specify which features should be paired together. This prevents incorrect pairing between unrelated models.
+
+The pairing map is a tab-delimited file with two columns: left_feature and right_feature.
+
+For symmetric pairing (same feature on both sides):
+```
+# pairing_map.txt
+model1	model1
+model2	model2
+```
+
+For asymmetric pairing (different features):
+```
+# pairing_map.txt
+left_termini	right_termini
+ITR_5prime	ITR_3prime
+```
+
+Example usage with pairing map:
+```bash
+# Multiple models in input require pairing map
+tirmite pair --genome $GENOME --nhmmerFile multi_model_hits.tab \
+  --lengthsFile model_lengths.txt --pairing_map pairing_map.txt \
+  --orientation F,R --mincov 0.4 --maxdist 20000 --outdir OUTPUT
+```
+
+Features can appear in multiple pairing combinations if needed. TIRmite will run independent pairing procedures for each combination and correctly track unpaired hits across all procedures.
+
 #### Legacy mode
 
 TIRmite `legacy` mode will take a TIR-pHMM and target genome fasta as input and run the full standard workflow, reporting all hits, valid pairings, and write GFF3 annotation file.

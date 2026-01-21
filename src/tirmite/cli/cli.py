@@ -16,7 +16,7 @@ def create_parser() -> argparse.ArgumentParser:
     Returns
     -------
     argparse.ArgumentParser
-        Configured argument parser with legacy, seed, and pair subcommands.
+        Configured argument parser with legacy, seed, pair, and search subcommands.
 
     Notes
     -----
@@ -24,6 +24,7 @@ def create_parser() -> argparse.ArgumentParser:
     - legacy: Original TIRmite workflow (HMM search + pairing)
     - seed: Build HMM models from seed sequences
     - pair: Pair precomputed nhmmer hits
+    - search: Ensemble search with hit merging from clustered features
     """
     parser = argparse.ArgumentParser(
         prog='tirmite',
@@ -34,11 +35,13 @@ Available subcommands:
   legacy    Original TIRmite workflow (HMM search + pairing)
   seed      Build HMM models from seed sequences
   pair      Pair precomputed nhmmer hits
+  search    Ensemble search: merge hits from clustered features
 
 Examples:
   tirmite legacy --genome genome.fa --hmmFile model.hmm
   tirmite seed --left-seed left.fa --model-name myTE --genome genome.fa
   tirmite pair --genome genome.fa --nhmmerFile hits.out --hmmFile model.hmm
+  tirmite search --blast-results hits.tab --cluster-map clusters.tsv
         """,
     )
 
@@ -50,6 +53,7 @@ Examples:
     )
 
     # Import and add subcommands
+    from tirmite.cli.ensemble_search import add_search_parser
     from tirmite.cli.hmm_build import add_seed_parser
     from tirmite.cli.hmm_pair import add_pair_parser
     from tirmite.cli.legacy import add_legacy_parser
@@ -57,6 +61,7 @@ Examples:
     add_legacy_parser(subparsers)
     add_seed_parser(subparsers)
     add_pair_parser(subparsers)
+    add_search_parser(subparsers)
 
     return parser
 
@@ -99,6 +104,11 @@ def main() -> int:
         from tirmite.cli.hmm_pair import main as pair_main
 
         result = pair_main(args)
+        return int(result) if result is not None else 0
+    elif args.command == 'search':
+        from tirmite.cli.ensemble_search import main as search_main
+
+        result = search_main(args)
         return int(result) if result is not None else 0
     else:
         parser.print_help()

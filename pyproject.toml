@@ -94,6 +94,12 @@ ignore = [
 # Don't auto-fix docstring issues - they're too fragile
 unfixable = ["D"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D"] # Ignore all pydocstyle rules in tests
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
 [tool.ruff.format]
 indent-style = "space"
 quote-style = "single"

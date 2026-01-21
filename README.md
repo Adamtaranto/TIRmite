@@ -10,7 +10,7 @@
 
 # TIRmite
 
-Autonomous examples of transposons, belonging to many [distinct super-families](https://doi.org/10.1266/ggs.18-00024 "Yes yes, except when they don't. Don't @ me, nerds."), share two common properties: A gene or genes encoding the mode of transposition; and terminal sequence features that are recognised by these gene products as the element boundaries.
+Autonomous examples of transposons, belonging to many [distinct super-families, share two common properties](https://doi.org/10.1266/ggs.18-00024 "Yes yes, except when they don't. Don't @ me, nerds."): A gene or genes encoding the mode of transposition; and terminal sequence features that are recognised by these gene products as the element boundaries.
 
 Proper classification of transposons and grouping into families relies on both phylogeny of conserved sequences and conservation of transposition mechanism.
 
@@ -137,11 +137,71 @@ nhmmer --dna --cpu 8 --tblout $NHMMERFILE $HMMFILE $GENOME
 Note: nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores.
 Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4)
 
+**Alternative: Using BLAST instead of nhmmer**
+
+TIRmite also supports BLAST tabular output as an alternative to nhmmer. This can be useful when:
+- You want to use BLAST's sensitivity settings
+- You're working with large genomes where BLAST may be faster
+- You already have BLAST results available
+
+```bash
+# Create a BLAST database from your genome
+makeblastdb -in $GENOME -dbtype nucl -out genome_db
+
+# Run BLAST search with tabular output (format 6)
+blastn -query TIR_sequence.fa -db genome_db -outfmt 6 -out MY_TIR_blast_hits.tab -evalue 0.001
+
+# Use the BLAST results with tirmite pair
+tirmite pair --genome $GENOME --blastFile MY_TIR_blast_hits.tab --queryLen 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
+```
+
+**Using BLAST database for sequence extraction**
+
+If your BLAST database was created with `-parse_seqids`, you can extract sequences directly from the database instead of requiring the original FASTA file:
+
+```bash
+# Create BLAST database with sequence IDs parsed
+makeblastdb -in $GENOME -dbtype nucl -out genome_db -parse_seqids
+
+# Run tirmite pair using the BLAST database for extraction
+tirmite pair --blastdb genome_db --blastFile MY_TIR_blast_hits.tab --queryLen 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
+```
+
 4) Use `tirmite pair` to identify valid TIR pairs. Outputs hits, elements, and annotations.
 
 ```bash
 tirmite pair --genome $GENOME  --nhmmerFile $NHMMERFILE --hmmFile $HMMFILE --orientation F,R --mincov 0.4 --report all  --maxdist 20000 --stableReps 2 --outdir MY_TIR_PAIRING_OUTPUT --padlen 20 --maxeval 0.001 --gffOut --logfile
 ```
+
+**Handling Multiple Models/Queries**
+
+When your input files contain hits from multiple HMM models or BLAST queries, you must provide a pairing map file using `--pairing_map` to specify which features should be paired together. This prevents incorrect pairing between unrelated models.
+
+The pairing map is a tab-delimited file with two columns: left_feature and right_feature.
+
+For symmetric pairing (same feature on both sides):
+```
+# pairing_map.txt
+model1	model1
+model2	model2
+```
+
+For asymmetric pairing (different features):
+```
+# pairing_map.txt
+left_termini	right_termini
+ITR_5prime	ITR_3prime
+```
+
+Example usage with pairing map:
+```bash
+# Multiple models in input require pairing map
+tirmite pair --genome $GENOME --nhmmerFile multi_model_hits.tab \
+  --lengthsFile model_lengths.txt --pairing_map pairing_map.txt \
+  --orientation F,R --mincov 0.4 --maxdist 20000 --outdir OUTPUT
+```
+
+Features can appear in multiple pairing combinations if needed. TIRmite will run independent pairing procedures for each combination and correctly track unpaired hits across all procedures.
 
 #### Legacy mode
 
@@ -203,13 +263,13 @@ Examples:
 
 ## Algorithm overview
 
-  1. Use nhmmer to query genome with termini HMMs.
+  1. Use nhmmer (or BLAST) to query genome with termini models/sequences.
   2. Import all hits under *--maxeval* threshold.
   3. For each significant terminus match, identify candidate partners, where:
     - Hit is on the same sequence.
-    - Hit is in coreect relative orientation.
+    - Hit is in correct relative orientation.
     - Distance is <= *--maxdist*.
-    - Hit length is >= (model length * *--mincov* prop)
+    - Hit length is >= (model/query length * *--mincov* prop)
   4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
   5. Pair reciprocal top candidate hits.
   6. For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.

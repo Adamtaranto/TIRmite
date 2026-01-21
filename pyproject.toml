@@ -87,7 +87,7 @@ select = [
 ignore = [
     "C901", # max-complexity-10
     "E501", # line-too-long
-    #"I001", # isort-imports
+    "I001", # isort-imports
     "B905", # `zip()` without an explicit `strict=` parameter
 ]
 

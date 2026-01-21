@@ -291,6 +291,206 @@ def import_BED(
     return df
 
 
+def import_blast(
+    infile: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    prefix: Optional[str] = None,
+    query_name: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Parse BLAST tabular output file into a pandas DataFrame.
+
+    Parameters
+    ----------
+    infile : str
+        Path to BLAST tabular output file (outfmt 6 or 7).
+    hitTable : pandas.DataFrame, optional
+        Existing DataFrame of hits to concatenate with new hits.
+    prefix : str, optional
+        Prefix to add to model names (currently unused but reserved for future use).
+    query_name : str, optional
+        Name to use for the query/model. If not provided, uses the query ID from first hit.
+
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing parsed hit records with columns:
+        model, target, hitStart, hitEnd, strand, evalue, score, bias,
+        hmmStart, hmmEnd. Sorted by model, target, hitStart, hitEnd, strand.
+
+    Notes
+    -----
+    Expected BLAST tabular format (outfmt 6):
+    qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+
+    For reverse strand hits (sstart > send), coordinates are swapped and strand set to '-'.
+    The query alignment coordinates (qstart, qend) are stored as hmmStart, hmmEnd.
+    """
+    hitRecords = []
+    if not infile:
+        raise ValueError('infile parameter is required')
+
+    with open(infile, 'r') as f:
+        for line in f.readlines():
+            li = line.strip()
+            # Skip comments and empty lines
+            if not li or li.startswith('#'):
+                continue
+
+            li_split = li.split('\t')
+            # BLAST tabular format has 12 columns minimum
+            if len(li_split) < 12:
+                logging.warning(f'Skipping malformed BLAST line: {li}')
+                continue
+
+            query_id = li_split[0]
+            subject_id = li_split[1]
+            qstart = int(li_split[6])
+            qend = int(li_split[7])
+            sstart = int(li_split[8])
+            send = int(li_split[9])
+            evalue = float(li_split[10])
+            bitscore = float(li_split[11])
+
+            # Determine model name for this hit
+            # If query_name parameter was provided, use it for all hits
+            # Otherwise, use the query ID from this specific hit
+            hit_model_name = query_name if query_name is not None else query_id
+
+            # Determine strand based on subject coordinates
+            if sstart <= send:
+                # Forward strand
+                strand = '+'
+                hitStart = sstart
+                hitEnd = send
+            else:
+                # Reverse strand (coordinates are reversed in BLAST output)
+                strand = '-'
+                hitStart = send
+                hitEnd = sstart
+
+            hitRecords.append(
+                {
+                    'target': subject_id,
+                    'model': hit_model_name,
+                    'hmmStart': str(qstart),
+                    'hmmEnd': str(qend),
+                    'hitStart': str(hitStart),
+                    'hitEnd': str(hitEnd),
+                    'strand': strand,
+                    'evalue': str(evalue),
+                    'score': str(bitscore),
+                    'bias': 'NA',
+                }
+            )
+
+    # Define expected columns
+    cols = [
+        'model',
+        'target',
+        'hitStart',
+        'hitEnd',
+        'strand',
+        'evalue',
+        'score',
+        'bias',
+        'hmmStart',
+        'hmmEnd',
+    ]
+
+    # Convert list of dicts into dataframe
+    df = pd.DataFrame(hitRecords)
+
+    # Handle empty results - return DataFrame with correct columns but no rows
+    if df.empty:
+        df = pd.DataFrame(columns=cols)
+    else:
+        # Reorder columns
+        df = df.loc[:, cols]
+
+    if hitTable is not None:
+        # If an existing table was passed, concatenate
+        # Order: new data (df) first, existing (hitTable) second (matches import_nhmmer)
+        df = pd.concat([df, hitTable], ignore_index=True)
+
+    # Sort hits by model, target, location, and strand
+    df = df.sort_values(
+        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
+        ascending=[True, True, True, True, True],
+    )
+
+    # Reindex
+    df = df.reset_index(drop=True)
+
+    return df
+
+
+def detect_input_format(infile: str) -> str:
+    """
+    Detect whether input file is BLAST or nhmmer format.
+
+    Parameters
+    ----------
+    infile : str
+        Path to input file to analyze.
+
+    Returns
+    -------
+    str
+        Format type: 'blast', 'nhmmer', or 'unknown'.
+
+    Notes
+    -----
+    Detection heuristics:
+    - BLAST: Tab-delimited, typically 12+ columns, numeric subject coordinates
+    - nhmmer: Space-delimited, has specific column patterns with model names
+    - Checks first non-comment line for format signature
+    """
+    try:
+        with open(infile, 'r') as f:
+            for line in f:
+                li = line.strip()
+                # Skip comments and empty lines
+                if not li or li.startswith('#'):
+                    continue
+
+                # Found first data line - analyze it
+                # Try tab-delimited first (BLAST)
+                tab_split = li.split('\t')
+                if len(tab_split) >= 12:
+                    # Likely BLAST format - check if columns 8-9 are numeric (subject coords)
+                    try:
+                        int(tab_split[8])
+                        int(tab_split[9])
+                        float(tab_split[10])  # evalue
+                        return 'blast'
+                    except (ValueError, IndexError):
+                        pass
+
+                # Try space-delimited (nhmmer)
+                space_split = li.split()
+                if len(space_split) >= 16:
+                    # nhmmer has specific pattern: column 9 is strand (+/-)
+                    # and column 15 is evalue (scientific notation)
+                    try:
+                        if space_split[9] in ['+', '-']:
+                            float(space_split[15])  # evalue
+                            return 'nhmmer'
+                    except (ValueError, IndexError):
+                        pass
+
+                # If we got here, couldn't determine format from first line
+                logging.warning('Could not determine format from first data line')
+                return 'unknown'
+
+    except Exception as e:
+        logging.error(f'Error reading file {infile}: {e}')
+        return 'unknown'
+
+    # Empty file or no data lines
+    return 'unknown'
+
+
 def filterHitsLen(
     hmmDB: Optional[str] = None,
     mincov: Optional[float] = None,
@@ -749,6 +949,194 @@ def iterateGetPairs(
     return hitIndex, paired, unpaired
 
 
+def extract_from_blastdb(
+    blastdb: str, seqid: str, start: int, end: int, strand: str = '+'
+) -> Optional[str]:
+    """
+    Extract sequence from BLAST database using blastdbcmd.
+
+    Parameters
+    ----------
+    blastdb : str
+        Path to BLAST database (without file extension).
+    seqid : str
+        Sequence identifier to extract from.
+    start : int
+        Start position (1-based, inclusive).
+    end : int
+        End position (1-based, inclusive).
+    strand : str, default '+'
+        Strand to extract: '+' for forward, '-' for reverse complement.
+
+    Returns
+    -------
+    str or None
+        Extracted sequence string, or None if extraction failed.
+
+    Notes
+    -----
+    Uses blastdbcmd with -range parameter for sequence extraction.
+    Coordinates are 1-based as expected by blastdbcmd.
+    """
+    import subprocess
+
+    try:
+        cmd = [
+            'blastdbcmd',
+            '-db',
+            blastdb,
+            '-entry',
+            seqid,
+            '-range',
+            f'{start}-{end}',
+        ]
+
+        if strand == '-':
+            cmd.append('-strand')
+            cmd.append('minus')
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, check=True, timeout=30
+        )
+
+        # Parse FASTA output - validate format and skip header line
+        lines = result.stdout.strip().split('\n')
+        if len(lines) < 2 or not lines[0].startswith('>'):
+            logging.error(
+                f'Invalid FASTA output from blastdbcmd for {seqid}:{start}-{end}'
+            )
+            return None
+
+        # Concatenate sequence lines (skip header at index 0)
+        seq = ''.join(lines[1:])
+        return seq
+
+    except subprocess.CalledProcessError as e:
+        logging.error(f'blastdbcmd failed: {e.stderr}')
+        return None
+    except subprocess.TimeoutExpired:
+        logging.error(f'blastdbcmd timed out for {seqid}:{start}-{end}')
+        return None
+    except FileNotFoundError:
+        logging.error('blastdbcmd command not found. Is BLAST+ installed?')
+        return None
+
+
+def extractTIRs_blastdb(
+    model: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    maxeval: float = 0.001,
+    blastdb: Optional[str] = None,
+    padlen: Optional[int] = None,
+) -> Tuple[List[SeqRecord], int]:
+    """
+    Extract TIR sequences from BLAST database for hits of a specific model.
+
+    Parameters
+    ----------
+    model : str
+        Name of model to extract hits for.
+    hitTable : pandas.DataFrame
+        DataFrame containing all hits with columns: model, target, hitStart, hitEnd,
+        strand, evalue, hmmStart, hmmEnd.
+    maxeval : float, default 0.001
+        Maximum e-value threshold for extracting hits.
+    blastdb : str
+        Path to BLAST database (without extension).
+    padlen : int, optional
+        Number of flanking bases to extract on each side of hit (shown in lowercase).
+
+    Returns
+    -------
+    seqList : list of Bio.SeqRecord.SeqRecord
+        List of SeqRecord objects containing extracted TIR sequences.
+    hitcount : int
+        Number of hits extracted that passed e-value threshold.
+
+    Notes
+    -----
+    Uses blastdbcmd for sequence extraction from BLAST database.
+    Coordinates are adjusted for blastdbcmd (1-based, inclusive).
+    Padded flanking sequence is shown in lowercase letters.
+    """
+    assert model is not None, 'model cannot be None'
+    assert hitTable is not None, 'hitTable cannot be None'
+    assert blastdb is not None, 'blastdb cannot be None'
+
+    hitcount = 0
+    seqList = []
+
+    for index, row in hitTable[hitTable['model'] == model].iterrows():
+        if float(row['evalue']) <= maxeval:
+            hitcount += 1
+
+            # blastdbcmd uses 1-based coordinates
+            start = int(row['hitStart'])
+            end = int(row['hitEnd'])
+
+            # Extract sequence (possibly with padding)
+            if padlen:
+                # Extract with padding
+                pad_start = max(1, start - padlen)
+                pad_end = end + padlen
+
+                # Extract the full padded region
+                full_seq = extract_from_blastdb(
+                    blastdb, row['target'], pad_start, pad_end, row['strand']
+                )
+
+                if full_seq is None:
+                    logging.warning(
+                        f'Failed to extract sequence for {model}_{index}, skipping'
+                    )
+                    continue
+
+                # Calculate positions within extracted sequence to apply case formatting
+                # blastdbcmd uses 1-based inclusive coordinates
+                # Convert to 0-based for Python string slicing
+                hit_start_in_seq = start - pad_start
+                hit_end_in_seq = (
+                    end - pad_start + 1
+                )  # +1 for inclusive end in blastdbcmd
+
+                # Convert to lowercase/uppercase
+                hit_seq_str = (
+                    full_seq[:hit_start_in_seq].lower()
+                    + full_seq[hit_start_in_seq:hit_end_in_seq]
+                    + full_seq[hit_end_in_seq:].lower()
+                )
+            else:
+                # Extract without padding
+                hit_seq_str = extract_from_blastdb(
+                    blastdb, row['target'], start, end, row['strand']
+                )
+
+                if hit_seq_str is None:
+                    logging.warning(
+                        f'Failed to extract sequence for {model}_{index}, skipping'
+                    )
+                    continue
+
+            # Create SeqRecord
+            hitrecord = SeqRecord(Seq.Seq(hit_seq_str))
+            hitrecord.id = model + '_' + str(index)
+            hitrecord.name = hitrecord.id
+
+            # Build description
+            hitrecord.description = '_'.join(
+                [
+                    '[' + str(row['target']) + ':' + str(row['strand']),
+                    str(row['hitStart']),
+                    str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
+                    str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
+                ]
+            )
+
+            seqList.append(hitrecord)
+
+    return seqList, hitcount
+
+
 # Fix: Do not load fasta into genome!
 def extractTIRs(
     model: Optional[str] = None,
@@ -862,6 +1250,7 @@ def writeTIRs(
     prefix: Optional[str] = None,
     padlen: Optional[int] = None,
     genome_descriptions: Optional[Dict[str, str]] = None,
+    blastdb: Optional[str] = None,
 ) -> None:
     """
     Write extracted TIR sequences to FASTA files organized by model.
@@ -875,14 +1264,16 @@ def writeTIRs(
         strand, evalue, hmmStart, hmmEnd.
     maxeval : float, default 0.001
         Maximum e-value threshold for extracting hits.
-    genome : pyfaidx.Fasta
-        Indexed genome object for sequence extraction.
+    genome : pyfaidx.Fasta, optional
+        Indexed genome object for sequence extraction. Required if blastdb is None.
     prefix : str, optional
         Prefix to add to output filenames and sequence IDs.
     padlen : int, optional
         Number of flanking bases to extract on each side of hit (shown in lowercase).
     genome_descriptions : dict, optional
         Dictionary mapping sequence IDs to their descriptions.
+    blastdb : str, optional
+        Path to BLAST database for sequence extraction. Alternative to genome.
 
     Returns
     -------
@@ -893,9 +1284,14 @@ def writeTIRs(
     -----
     Creates one FASTA file per model with filename format:
     {prefix}{model}_hits_{count}.fasta
+
+    Either genome or blastdb must be provided for sequence extraction.
     """
     assert hitTable is not None, 'hitTable cannot be None'
-    assert genome is not None, 'genome cannot be None'
+    assert genome is not None or blastdb is not None, (
+        'Either genome or blastdb must be provided'
+    )
+
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -909,14 +1305,23 @@ def writeTIRs(
 
     for model in hitTable['model'].unique():
         # List of TIR seqrecords, and count of hits
-        seqList, hitcount = extractTIRs(
-            model=model,
-            hitTable=hitTable,
-            maxeval=maxeval,
-            genome=genome,
-            padlen=padlen,
-            genome_descriptions=genome_descriptions,  # Pass descriptions
-        )
+        if blastdb:
+            seqList, hitcount = extractTIRs_blastdb(
+                model=model,
+                hitTable=hitTable,
+                maxeval=maxeval,
+                blastdb=blastdb,
+                padlen=padlen,
+            )
+        else:
+            seqList, hitcount = extractTIRs(
+                model=model,
+                hitTable=hitTable,
+                maxeval=maxeval,
+                genome=genome,
+                padlen=padlen,
+                genome_descriptions=genome_descriptions,
+            )
         outfile = os.path.join(
             outDir, prefix + model + '_hits_' + str(hitcount) + '.fasta'
         )
@@ -955,6 +1360,7 @@ def fetchElements(
     hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
     genome: Any = None,
     genome_descriptions: Optional[Dict[str, str]] = None,
+    blastdb: Optional[str] = None,
 ) -> Dict[str, List[Any]]:
     """
     Extract full-length transposon element sequences from paired TIR hits.
@@ -966,10 +1372,12 @@ def fetchElements(
     hitIndex : dict
         Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
         Supports both nested (model-keyed) and flat structures.
-    genome : pyfaidx.Fasta
-        Indexed genome object for sequence extraction.
+    genome : pyfaidx.Fasta, optional
+        Indexed genome object for sequence extraction. Required if blastdb is None.
     genome_descriptions : dict, optional
         Dictionary mapping sequence IDs to their descriptions.
+    blastdb : str, optional
+        Path to BLAST database for sequence extraction. Alternative to genome.
 
     Returns
     -------
@@ -983,10 +1391,14 @@ def fetchElements(
     Extracts sequence from leftHit.hitStart to rightHit.hitEnd.
     Handles both symmetric (same model) and asymmetric (different models) pairing.
     Element IDs have format: Element_{counter}.
+
+    Either genome or blastdb must be provided for sequence extraction.
     """
     assert paired is not None, 'paired cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
-    assert genome is not None, 'genome cannot be None'
+    assert genome is not None or blastdb is not None, (
+        'Either genome or blastdb must be provided'
+    )
     # Check if hitIndex is nested or flat
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
 
@@ -1061,15 +1473,29 @@ def fetchElements(
 
                 leftHit, rightHit = flipTIRs(x, y)
 
-                # Fix: Use a simpler element ID that doesn't duplicate model name
-                eleID = f'Element_{model_counter}'  # Simplified ID
+                # Create element ID with counter only (avoids model name duplication)
+                eleID = f'Element_{model_counter}'
 
-                # Extract element sequence using pyfaidx (0-based indexing)
-                chrom = genome[leftHit.target]
-                start = int(leftHit.hitStart) - 1  # Convert to 0-based
-                end = int(rightHit.hitEnd)  # End is exclusive in slicing
+                # Extract element sequence
+                if blastdb:
+                    # Extract from BLAST database
+                    ele_seq_str = extract_from_blastdb(
+                        blastdb,
+                        leftHit.target,
+                        int(leftHit.hitStart),
+                        int(rightHit.hitEnd),
+                        leftHit.strand,
+                    )
+                    if ele_seq_str is None:
+                        logging.warning(f'Failed to extract element {eleID}, skipping')
+                        continue
+                else:
+                    # Extract using pyfaidx (0-based indexing)
+                    chrom = genome[leftHit.target]
+                    start = int(leftHit.hitStart) - 1  # Convert to 0-based
+                    end = int(rightHit.hitEnd)  # End is exclusive in slicing
+                    ele_seq_str = str(chrom[start:end])
 
-                ele_seq_str = str(chrom[start:end])
                 eleSeq = SeqRecord(Seq.Seq(ele_seq_str))
                 eleSeq.id = eleID
                 eleSeq.name = eleID
@@ -1162,6 +1588,7 @@ def writePairedTIRs(
     prefix: Optional[str] = None,
     padlen: Optional[int] = None,
     genome_descriptions: Optional[Dict[str, str]] = None,
+    blastdb: Optional[str] = None,
 ) -> None:
     """
     Extract and write left and right TIR sequences from paired hits to FASTA.
@@ -1175,14 +1602,16 @@ def writePairedTIRs(
     hitIndex : dict
         Hit index dictionary: hitIndex[model][idx] = {rec, partner, candidates}.
         Supports both nested (model-keyed) and flat structures.
-    genome : pyfaidx.Fasta
-        Indexed genome object for sequence extraction.
+    genome : pyfaidx.Fasta, optional
+        Indexed genome object for sequence extraction. Required if blastdb is None.
     prefix : str, optional
         Prefix to add to output filenames and sequence IDs.
     padlen : int, optional
         Number of flanking bases to extract on each side (shown in lowercase).
     genome_descriptions : dict, optional
         Dictionary mapping sequence IDs to their descriptions.
+    blastdb : str, optional
+        Path to BLAST database for sequence extraction. Alternative to genome.
 
     Returns
     -------
@@ -1194,11 +1623,15 @@ def writePairedTIRs(
     Right TIRs are reverse complemented. Outputs two sequences per pair:
     {model}_{counter}_L (left TIR) and {model}_{counter}_R (right TIR).
     Filename format: {prefix}{model}_paired_term_hits_{count}.fasta
+
+    Either genome or blastdb must be provided for sequence extraction.
     """
     assert outDir is not None, 'outDir cannot be None'
     assert paired is not None, 'paired cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
-    assert genome is not None, 'genome cannot be None'
+    assert genome is not None or blastdb is not None, (
+        'Either genome or blastdb must be provided'
+    )
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:
@@ -1261,50 +1694,124 @@ def writePairedTIRs(
                 leftHit, rightHit = flipTIRs(x, y)
                 eleID = f'{model}_{model_counter}'
 
-                # Extract left TIR sequence using pyfaidx
-                chrom = genome[leftHit.target]
-                left_start = int(leftHit.hitStart) - 1  # Convert to 0-based
-                left_end = int(leftHit.hitEnd)
-
-                # Extract right TIR sequence using pyfaidx
-                right_start = int(rightHit.hitStart) - 1  # Convert to 0-based
-                right_end = int(rightHit.hitEnd)
-
-                if padlen:
-                    # Extract with padding for left TIR
-                    left_pad_start = max(0, left_start - padlen)
-                    left_pad_end = min(len(chrom), left_end + padlen)
-
-                    left_seq_parts = []
-                    if left_start > left_pad_start:
-                        left_seq_parts.append(
-                            str(chrom[left_pad_start:left_start]).lower()
+                # Extract TIR sequences
+                if blastdb:
+                    # Extract from BLAST database
+                    if padlen:
+                        # Extract left TIR with padding
+                        left_start = max(1, int(leftHit.hitStart) - padlen)
+                        left_end = int(leftHit.hitEnd) + padlen
+                        left_full = extract_from_blastdb(
+                            blastdb,
+                            leftHit.target,
+                            left_start,
+                            left_end,
+                            leftHit.strand,
                         )
-                    left_seq_parts.append(str(chrom[left_start:left_end]))
-                    if left_end < left_pad_end:
-                        left_seq_parts.append(str(chrom[left_end:left_pad_end]).lower())
+                        if left_full is None:
+                            logging.warning(f'Failed to extract left TIR for {eleID}')
+                            continue
 
-                    left_seq_str = ''.join(left_seq_parts)
-
-                    # Extract with padding for right TIR
-                    right_pad_start = max(0, right_start - padlen)
-                    right_pad_end = min(len(chrom), right_end + padlen)
-
-                    right_seq_parts = []
-                    if right_start > right_pad_start:
-                        right_seq_parts.append(
-                            str(chrom[right_pad_start:right_start]).lower()
-                        )
-                    right_seq_parts.append(str(chrom[right_start:right_end]))
-                    if right_end < right_pad_end:
-                        right_seq_parts.append(
-                            str(chrom[right_end:right_pad_end]).lower()
+                        # Apply case formatting
+                        # blastdbcmd uses 1-based inclusive coordinates
+                        hit_start_in_seq = int(leftHit.hitStart) - left_start
+                        hit_end_in_seq = (
+                            int(leftHit.hitEnd) - left_start + 1
+                        )  # +1 for inclusive end
+                        left_seq_str = (
+                            left_full[:hit_start_in_seq].lower()
+                            + left_full[hit_start_in_seq:hit_end_in_seq]
+                            + left_full[hit_end_in_seq:].lower()
                         )
 
-                    right_seq_str = ''.join(right_seq_parts)
+                        # Extract right TIR with padding
+                        right_start = max(1, int(rightHit.hitStart) - padlen)
+                        right_end = int(rightHit.hitEnd) + padlen
+                        right_full = extract_from_blastdb(
+                            blastdb, rightHit.target, right_start, right_end, '+'
+                        )
+                        if right_full is None:
+                            logging.warning(f'Failed to extract right TIR for {eleID}')
+                            continue
+
+                        # Apply case formatting (before reverse complement)
+                        # blastdbcmd uses 1-based inclusive coordinates
+                        hit_start_in_seq = int(rightHit.hitStart) - right_start
+                        hit_end_in_seq = (
+                            int(rightHit.hitEnd) - right_start + 1
+                        )  # +1 for inclusive end
+                        right_seq_str = (
+                            right_full[:hit_start_in_seq].lower()
+                            + right_full[hit_start_in_seq:hit_end_in_seq]
+                            + right_full[hit_end_in_seq:].lower()
+                        )
+                    else:
+                        # Extract without padding
+                        left_seq_str = extract_from_blastdb(
+                            blastdb,
+                            leftHit.target,
+                            int(leftHit.hitStart),
+                            int(leftHit.hitEnd),
+                            leftHit.strand,
+                        )
+                        right_seq_str = extract_from_blastdb(
+                            blastdb,
+                            rightHit.target,
+                            int(rightHit.hitStart),
+                            int(rightHit.hitEnd),
+                            '+',  # Don't reverse complement yet
+                        )
+
+                        if left_seq_str is None or right_seq_str is None:
+                            logging.warning(f'Failed to extract TIRs for {eleID}')
+                            continue
                 else:
-                    left_seq_str = str(chrom[left_start:left_end])
-                    right_seq_str = str(chrom[right_start:right_end])
+                    # Extract using pyfaidx
+                    chrom = genome[leftHit.target]
+                    left_start = int(leftHit.hitStart) - 1  # Convert to 0-based
+                    left_end = int(leftHit.hitEnd)
+
+                    # Extract right TIR sequence using pyfaidx
+                    right_start = int(rightHit.hitStart) - 1  # Convert to 0-based
+                    right_end = int(rightHit.hitEnd)
+
+                    if padlen:
+                        # Extract with padding for left TIR
+                        left_pad_start = max(0, left_start - padlen)
+                        left_pad_end = min(len(chrom), left_end + padlen)
+
+                        left_seq_parts = []
+                        if left_start > left_pad_start:
+                            left_seq_parts.append(
+                                str(chrom[left_pad_start:left_start]).lower()
+                            )
+                        left_seq_parts.append(str(chrom[left_start:left_end]))
+                        if left_end < left_pad_end:
+                            left_seq_parts.append(
+                                str(chrom[left_end:left_pad_end]).lower()
+                            )
+
+                        left_seq_str = ''.join(left_seq_parts)
+
+                        # Extract with padding for right TIR
+                        right_pad_start = max(0, right_start - padlen)
+                        right_pad_end = min(len(chrom), right_end + padlen)
+
+                        right_seq_parts = []
+                        if right_start > right_pad_start:
+                            right_seq_parts.append(
+                                str(chrom[right_pad_start:right_start]).lower()
+                            )
+                        right_seq_parts.append(str(chrom[right_start:right_end]))
+                        if right_end < right_pad_end:
+                            right_seq_parts.append(
+                                str(chrom[right_end:right_pad_end]).lower()
+                            )
+
+                        right_seq_str = ''.join(right_seq_parts)
+                    else:
+                        left_seq_str = str(chrom[left_start:left_end])
+                        right_seq_str = str(chrom[right_start:right_end])
 
                 # Create SeqRecords for FASTA output only
                 eleSeqLeft = SeqRecord(Seq.Seq(left_seq_str))

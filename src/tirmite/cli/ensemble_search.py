@@ -274,19 +274,24 @@ def load_hits_from_files(
         )
 
     hit_table: Optional[pd.DataFrame] = None
+    failed_files: List[str] = []
+    loaded_files: List[str] = []
 
     # Load BLAST files
     if blast_files:
         for blast_file in blast_files:
             if not blast_file.exists():
                 logging.warning(f'BLAST file not found, skipping: {blast_file}')
+                failed_files.append(f'{blast_file} (not found)')
                 continue
 
             logging.info(f'Loading BLAST hits from: {blast_file}')
             try:
                 hit_table = tirmite.import_blast(str(blast_file), hitTable=hit_table)
+                loaded_files.append(str(blast_file))
             except Exception as e:
                 logging.error(f'Failed to load BLAST file {blast_file}: {e}')
+                failed_files.append(f'{blast_file} ({e})')
                 continue
 
     # Load nhmmer files
@@ -294,14 +299,27 @@ def load_hits_from_files(
         for nhmmer_file in nhmmer_files:
             if not nhmmer_file.exists():
                 logging.warning(f'nhmmer file not found, skipping: {nhmmer_file}')
+                failed_files.append(f'{nhmmer_file} (not found)')
                 continue
 
             logging.info(f'Loading nhmmer hits from: {nhmmer_file}')
             try:
                 hit_table = tirmite.import_nhmmer(str(nhmmer_file), hitTable=hit_table)
+                loaded_files.append(str(nhmmer_file))
             except Exception as e:
                 logging.error(f'Failed to load nhmmer file {nhmmer_file}: {e}')
+                failed_files.append(f'{nhmmer_file} ({e})')
                 continue
+
+    # Report summary of file loading
+    if failed_files:
+        logging.warning(
+            f'Failed to load {len(failed_files)} file(s): {", ".join(failed_files[:5])}'
+            + (f' and {len(failed_files) - 5} more' if len(failed_files) > 5 else '')
+        )
+
+    if loaded_files:
+        logging.info(f'Successfully loaded {len(loaded_files)} file(s)')
 
     if hit_table is None or hit_table.empty:
         logging.warning('No hits loaded from input files')
@@ -450,36 +468,35 @@ def merge_overlapping_cluster_hits(
 
         # Merge overlapping hits
         current_hits: List[pd.Series] = []
-        current_start: Optional[int] = None
-        current_end: Optional[int] = None
+        current_start: int = 0
+        current_end: int = 0
+        is_first_hit: bool = True
 
         for _, hit in group.iterrows():
             hit_start = int(hit['hitStart_int'])
             hit_end = int(hit['hitEnd_int'])
 
-            if current_start is None:
+            if is_first_hit:
                 # First hit
                 current_start = hit_start
                 current_end = hit_end
                 current_hits = [hit]
+                is_first_hit = False
+            elif hit_start <= current_end + min_overlap:
+                # Overlapping or adjacent - extend region
+                current_end = max(current_end, hit_end)
+                current_hits.append(hit)
             else:
-                # current_end is guaranteed to be set when current_start is set
-                assert current_end is not None
-                if hit_start <= current_end + min_overlap:
-                    # Overlapping or adjacent - extend region
-                    current_end = max(current_end, hit_end)
-                    current_hits.append(hit)
-                else:
-                    # Non-overlapping - save current merged hit and start new one
-                    merged_records.append(
-                        _create_merged_hit(current_hits, current_start, current_end, cluster)
-                    )
-                    current_start = hit_start
-                    current_end = hit_end
-                    current_hits = [hit]
+                # Non-overlapping - save current merged hit and start new one
+                merged_records.append(
+                    _create_merged_hit(current_hits, current_start, current_end, cluster)
+                )
+                current_start = hit_start
+                current_end = hit_end
+                current_hits = [hit]
 
         # Don't forget the last merged region
-        if current_hits and current_start is not None and current_end is not None:
+        if current_hits:
             merged_records.append(
                 _create_merged_hit(current_hits, current_start, current_end, cluster)
             )
@@ -654,8 +671,6 @@ def remove_nested_paired_hits(
     if hit_table.empty or not pairing_map:
         return hit_table
 
-    # Build reverse mapping (right -> left) - not used currently but may be useful
-    # reverse_pairing = {v: k for k, v in pairing_map.items()}
     all_paired_features = set(pairing_map.keys()) | set(pairing_map.values())
 
     hit_table = hit_table.copy()

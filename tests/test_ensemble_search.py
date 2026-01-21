@@ -281,10 +281,12 @@ class TestHitLoading:
     def test_load_nhmmer_hits(self, nhmmer_result_file):
         """Test loading hits from nhmmer file.
 
-        Note: The nhmmer format parsing has inconsistencies between
-        detect_input_format and import_nhmmer in the existing codebase.
-        This test verifies the loading mechanism works, but may not
-        parse all fields correctly due to the existing format issues.
+        Note: There is a format mismatch between the column indices expected by
+        `detect_input_format` (strand at index 9, evalue at index 15) and
+        `import_nhmmer` (strand at index 11, evalue at index 12). This is an
+        existing issue in the codebase that predates this feature. The test
+        fixture may not parse correctly due to this inconsistency. This test
+        verifies the loading mechanism doesn't crash rather than precise parsing.
         """
         from pathlib import Path
 

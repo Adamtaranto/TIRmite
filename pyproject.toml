@@ -104,6 +104,11 @@ convention = "numpy"
 indent-style = "space"
 quote-style = "single"
 
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["tirmite"]
+known-third-party = ["Bio", "pandas", "pyhmmer"]
+
 [tool.isort]
 profile = "black"
 known_third_party = ["Bio", "pandas", "pyhmmer"]

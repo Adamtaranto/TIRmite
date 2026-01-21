@@ -5,6 +5,7 @@ Provides command builders and workflow orchestration for:
 - hmmbuild: Building HMMs from multiple sequence alignments
 - hmmpress: Indexing HMM databases
 - nhmmer: Searching HMMs against genome sequences
+- hmmalign: Aligning sequences to an HMM
 
 Functions construct subprocess-safe command lists and handle
 temporary file management.
@@ -503,3 +504,69 @@ def process_hmmer_workflow(
         raise ValueError('No results directory created - no HMM files were processed')
 
     return results_dir, hmm_db_path
+
+
+def build_hmmalign_command(
+    hmm_file: Union[str, Path],
+    sequence_file: Union[str, Path],
+    output_file: Union[str, Path],
+    executable_path: str = 'hmmalign',
+    trim: bool = False,
+) -> List[str]:
+    """
+    Construct hmmalign command for aligning sequences to an HMM.
+
+    Parameters
+    ----------
+    hmm_file : str or Path
+        Path to HMM model file.
+    sequence_file : str or Path
+        Path to file containing sequences to align.
+    output_file : str or Path
+        Path to output alignment file (Stockholm format).
+    executable_path : str, default 'hmmalign'
+        Path or name of hmmalign executable.
+    trim : bool, default False
+        Trim terminal tails of nonaligned residues from alignment.
+
+    Returns
+    -------
+    list[str]
+        Command as list of arguments for subprocess.
+
+    Raises
+    ------
+    FileNotFoundError
+        If HMM or sequence files don't exist.
+
+    Notes
+    -----
+    Output is in Stockholm format by default, which can be converted
+    to other formats using Bio.AlignIO or other tools.
+    """
+    hmm_path = Path(hmm_file)
+    seq_path = Path(sequence_file)
+    out_path = Path(output_file)
+
+    # Validate input files exist
+    if not hmm_path.exists():
+        raise FileNotFoundError(f'HMM file not found: {hmm_path}')
+    if not seq_path.exists():
+        raise FileNotFoundError(f'Sequence file not found: {seq_path}')
+
+    # Build command
+    command = [
+        executable_path,
+        '--dna',  # DNA alphabet
+        '-o',
+        str(out_path),  # Output alignment file
+    ]
+
+    # Add optional parameters
+    if trim:
+        command.append('--trim')
+
+    # Add HMM and sequence files
+    command.extend([str(hmm_path), str(seq_path)])
+
+    return command

@@ -53,7 +53,7 @@ Three classes of output are produced:
 
 ### Installing TIRmite
 
-TIRmite requires Python >= v3.8
+TIRmite requires Python >= v3.9
 
 Dependencies:
 

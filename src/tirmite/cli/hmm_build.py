@@ -30,16 +30,26 @@ from pyhmmer.easel import (  # type: ignore[import-not-found]
     MSAFile,
     SequenceFile,
 )
-from pyhmmer.plan7 import Background, Builder  # type: ignore[import-not-found]
+from pyhmmer.plan7 import (  # type: ignore[import-not-found]
+    Background,
+    Builder,
+)
 
-from tirmite.runners.hmmer_wrappers import build_hmmbuild_command
+from tirmite.runners.hmmer_wrappers import (
+    build_hmmalign_command,
+    build_hmmbuild_command,
+    build_hmmpress_command,
+    build_nhmmer_command,
+)
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
+from tirmite.tirmitetools import import_nhmmer
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanID,
     create_output_directory,
     indexGenome,
+    prepare_genome_file,
     temporary_directory,
 )
 
@@ -151,9 +161,16 @@ def check_dependencies() -> List[str]:
 
     Notes
     -----
-    Checks for: blastn, makeblastdb, mafft.
+    Checks for: blastn, makeblastdb, mafft, hmmalign, nhmmer, hmmpress.
     """
-    required_tools = ['blastn', 'makeblastdb', 'mafft']
+    required_tools = [
+        'blastn',
+        'makeblastdb',
+        'mafft',
+        'hmmalign',
+        'nhmmer',
+        'hmmpress',
+    ]
     missing = []
 
     for tool in required_tools:
@@ -1372,7 +1389,7 @@ def build_hmm_from_alignment_pyhmmer(
         alphabet = Alphabet.dna()
 
         # Read alignment file first to validate it
-        alignment_records = list(SeqIO.parse(alignment_file, 'fasta'))
+        alignment_records = list(SeqIO.parse(alignment_file, 'stockholm'))
 
         if not alignment_records:
             raise HMMBuildError(
@@ -2300,6 +2317,388 @@ def validate_evalue(value: str) -> float:
         ) from None
 
 
+def update_hmm_with_genome_hits(
+    hmm_file: Path,
+    genome_files: List[Path],
+    model_name: str,
+    temp_dir: Path,
+    output_dir: Path,
+    flank_size: Optional[int] = None,
+    evalue: float = 1e-3,
+    threads: int = 1,
+) -> Tuple[Path, Path, Optional[Path]]:
+    """
+    Update an existing HMM by searching genomes, extracting hits, and rebuilding.
+
+    Parameters
+    ----------
+    hmm_file : Path
+        Path to existing HMM file to update.
+    genome_files : list of Path
+        List of genome files to search against.
+    model_name : str
+        Base name for the updated HMM model.
+    temp_dir : Path
+        Temporary directory for intermediate files.
+    output_dir : Path
+        Output directory for final results.
+    flank_size : int, optional
+        Size of flanking sequence to extract with hits.
+    evalue : float, default 1e-3
+        E-value threshold for nhmmer search.
+    threads : int, default 1
+        Number of CPU threads for alignment.
+
+    Returns
+    -------
+    tuple[Path, Path, Path or None]
+        - Path to updated HMM file
+        - Path to alignment file
+        - Path to flanked alignment file (if flank_size specified)
+
+    Raises
+    ------
+    HMMBuildError
+        If HMM update workflow fails.
+    FileNotFoundError
+        If HMM or genome files don't exist.
+
+    Notes
+    -----
+    Workflow:
+    1. Run nhmmer with existing HMM against genomes
+    2. Parse hits and extract unique sequences
+    3. Align sequences to HMM using hmmalign
+    4. Build updated HMM from alignment
+    5. Optionally create flanked alignment
+    """
+    if not hmm_file.exists():
+        raise FileNotFoundError(f'HMM file not found: {hmm_file}')
+
+    logging.info(f'Starting HMM update workflow with {hmm_file.name}')
+    logging.info(f'Searching {len(genome_files)} genome(s)')
+
+    # Collect all hits from all genomes
+    all_hit_sequences: List[SeqRecord] = []
+    total_hits = 0
+
+    for genome_file in genome_files:
+        logging.info(f'Processing genome: {genome_file.name}')
+
+        # Prepare genome (decompress if needed)
+        try:
+            prepared_genome = prepare_genome_file(genome_file, temp_dir)
+        except Exception as e:
+            logging.error(f'Failed to prepare genome {genome_file}: {e}')
+            continue
+
+        # Run nhmmer search
+        try:
+            hit_sequences = search_and_extract_hits(
+                hmm_file=hmm_file,
+                genome_file=prepared_genome,
+                temp_dir=temp_dir,
+                evalue=evalue,
+                flank_size=flank_size,
+            )
+
+            genome_hit_count = len(hit_sequences)
+            total_hits += genome_hit_count
+            all_hit_sequences.extend(hit_sequences)
+
+            logging.info(f'  Found {genome_hit_count} hits in {genome_file.name}')
+
+        except Exception as e:
+            logging.error(f'Failed to search genome {genome_file}: {e}')
+            continue
+
+    if not all_hit_sequences:
+        raise HMMBuildError('No hits found in any genome. Cannot update HMM.')
+
+    # Deduplicate sequences
+    unique_sequences = deduplicate_sequences(all_hit_sequences)
+    unique_count = len(unique_sequences)
+
+    logging.info(f'Total hits found: {total_hits}')
+    logging.info(f'Unique sequences after deduplication: {unique_count}')
+
+    # Save sequences to file for alignment
+    sequences_file = temp_dir / f'{cleanID(model_name)}_hits.fasta'
+    SeqIO.write(unique_sequences, sequences_file, 'fasta')
+    logging.info(f'Saved {unique_count} unique sequences to {sequences_file.name}')
+
+    # Align sequences to HMM using hmmalign
+    alignment_file = align_sequences_to_hmm(
+        hmm_file=hmm_file,
+        sequences_file=sequences_file,
+        temp_dir=temp_dir,
+        model_name=model_name,
+    )
+
+    # Build updated HMM from alignment
+    updated_hmm = build_hmm_from_alignment_pyhmmer(
+        alignment_file=alignment_file,
+        model_name=model_name,
+        output_dir=output_dir,
+    )
+
+    logging.info(f'Updated HMM saved to: {updated_hmm}')
+
+    # Copy alignment to output directory
+    output_alignment = output_dir / alignment_file.name
+    shutil.copy2(alignment_file, output_alignment)
+    logging.info(f'Alignment saved to: {output_alignment}')
+
+    # Create flanked alignment if requested
+    flanked_alignment = None
+    if flank_size:
+        flanked_alignment = create_flanked_alignment_output(
+            unique_sequences=unique_sequences,
+            model_name=model_name,
+            output_dir=output_dir,
+            temp_dir=temp_dir,
+            threads=threads,
+        )
+        if flanked_alignment:
+            logging.info(f'Flanked alignment saved to: {flanked_alignment}')
+
+    return updated_hmm, output_alignment, flanked_alignment
+
+
+def search_and_extract_hits(
+    hmm_file: Path,
+    genome_file: Path,
+    temp_dir: Path,
+    evalue: float = 1e-3,
+    flank_size: Optional[int] = None,
+) -> List[SeqRecord]:
+    """
+    Search genome with HMM and extract hit sequences.
+
+    Parameters
+    ----------
+    hmm_file : Path
+        Path to HMM file.
+    genome_file : Path
+        Path to genome file.
+    temp_dir : Path
+        Temporary directory for intermediate files.
+    evalue : float, default 1e-3
+        E-value threshold for nhmmer.
+    flank_size : int, optional
+        Size of flanking sequence to extract.
+
+    Returns
+    -------
+    list of SeqRecord
+        List of extracted hit sequences.
+
+    Raises
+    ------
+    HMMBuildError
+        If search or extraction fails.
+    """
+    # Press HMM (index it)
+    press_command = build_hmmpress_command(hmm_file)
+    try:
+        result = run_command(press_command, verbose=False)
+        if result.returncode != 0:
+            raise HMMBuildError(f'hmmpress failed: {result.stderr}')
+    except Exception as e:
+        raise HMMBuildError(f'Failed to press HMM: {e}') from e
+
+    # Run nhmmer search
+    nhmmer_command, results_dir = build_nhmmer_command(
+        model_path=hmm_file,
+        genome_path=genome_file,
+        output_dir=temp_dir,
+        evalue=evalue,
+    )
+
+    try:
+        result = run_command(nhmmer_command, verbose=False)
+        if result.returncode != 0:
+            raise HMMBuildError(f'nhmmer failed: {result.stderr}')
+    except Exception as e:
+        raise HMMBuildError(f'Failed to run nhmmer: {e}') from e
+
+    # Find output file
+    output_file = results_dir / f'{hmm_file.stem}.out'
+    if not output_file.exists():
+        logging.warning(f'nhmmer output file not found: {output_file}')
+        return []
+
+    # Parse nhmmer output
+    try:
+        hits_df = import_nhmmer(str(output_file))
+    except Exception as e:
+        logging.warning(f'Failed to parse nhmmer output: {e}')
+        return []
+
+    if hits_df is None or hits_df.empty:
+        logging.debug(f'No hits found in {genome_file.name}')
+        return []
+
+    logging.debug(f'Parsed {len(hits_df)} hits from nhmmer output')
+
+    # Index genome for sequence extraction
+    try:
+        genome_index, _ = indexGenome(genome_file)
+    except Exception as e:
+        raise HMMBuildError(f'Failed to index genome: {e}') from e
+
+    # Extract sequences from hits
+    hit_sequences: List[SeqRecord] = []
+
+    for idx, row in hits_df.iterrows():
+        try:
+            seq_id = row['target']
+            start = int(row['hitStart'])
+            end = int(row['hitEnd'])
+            strand = row['strand']
+
+            # Adjust coordinates for flanking sequence
+            if flank_size:
+                seq_len = len(genome_index[seq_id])
+                flank_start = max(0, start - flank_size)
+                flank_end = min(seq_len, end + flank_size)
+            else:
+                flank_start = start
+                flank_end = end
+
+            # Extract sequence
+            seq_str = genome_index[seq_id][flank_start:flank_end].seq
+
+            # Reverse complement if on minus strand
+            if strand == '-':
+                seq_obj = Seq(seq_str)
+                seq_str = str(seq_obj.reverse_complement())
+
+            # Create SeqRecord
+            hit_id = f'{seq_id}_{start}_{end}_{strand}'
+            record = SeqRecord(
+                Seq(seq_str),
+                id=hit_id,
+                description=f'HMM_hit {seq_id}:{start}-{end}({strand})',
+            )
+
+            hit_sequences.append(record)
+
+        except Exception as e:
+            logging.warning(f'Failed to extract sequence for hit {idx}: {e}')
+            continue
+
+    return hit_sequences
+
+
+def align_sequences_to_hmm(
+    hmm_file: Path,
+    sequences_file: Path,
+    temp_dir: Path,
+    model_name: str,
+) -> Path:
+    """
+    Align sequences to HMM using hmmalign.
+
+    Parameters
+    ----------
+    hmm_file : Path
+        Path to HMM file.
+    sequences_file : Path
+        Path to FASTA file with sequences to align.
+    temp_dir : Path
+        Temporary directory for output.
+    model_name : str
+        Model name for output files.
+
+    Returns
+    -------
+    Path
+        Path to Stockholm format alignment file.
+
+    Raises
+    ------
+    HMMBuildError
+        If hmmalign fails.
+    """
+    # Output alignment file (Stockholm format)
+    alignment_file = temp_dir / f'{cleanID(model_name)}_updated_alignment.sto'
+
+    # Build hmmalign command
+    align_command = build_hmmalign_command(
+        hmm_file=hmm_file,
+        sequence_file=sequences_file,
+        output_file=alignment_file,
+        trim=False,
+    )
+
+    logging.info('Aligning sequences to HMM with hmmalign...')
+
+    try:
+        result = run_command(align_command, verbose=False)
+        if result.returncode != 0:
+            raise HMMBuildError(f'hmmalign failed: {result.stderr}')
+    except Exception as e:
+        raise HMMBuildError(f'Failed to align sequences to HMM: {e}') from e
+
+    if not alignment_file.exists():
+        raise HMMBuildError(f'Alignment file not created: {alignment_file}')
+
+    logging.info(f'Alignment complete: {alignment_file.name}')
+
+    return alignment_file
+
+
+def create_flanked_alignment_output(
+    unique_sequences: List[SeqRecord],
+    model_name: str,
+    output_dir: Path,
+    temp_dir: Path,
+    threads: int = 1,
+) -> Optional[Path]:
+    """
+    Create alignment with flanked sequences using MAFFT.
+
+    Parameters
+    ----------
+    unique_sequences : list of SeqRecord
+        Sequences with flanks already included.
+    model_name : str
+        Model name for output files.
+    output_dir : Path
+        Output directory.
+    temp_dir : Path
+        Temporary directory.
+    threads : int, default 1
+        Number of threads for MAFFT.
+
+    Returns
+    -------
+    Path or None
+        Path to flanked alignment file, or None if creation failed.
+    """
+    try:
+        # Prepare output file path
+        output_file = temp_dir / f'{cleanID(model_name)}_flanked_alignment.fasta'
+
+        # Run MAFFT alignment
+        flanked_alignment = run_mafft_alignment(
+            sequences=unique_sequences,
+            output_file=output_file,
+            threads=threads,
+        )
+
+        # Copy to output directory
+        output_flanked = output_dir / flanked_alignment.name
+        shutil.copy2(flanked_alignment, output_flanked)
+
+        return output_flanked
+
+    except Exception as e:
+        logging.warning(f'Failed to create flanked alignment: {e}')
+        return None
+
+
 def create_seed_parser() -> argparse.ArgumentParser:
     """
     Create standalone argument parser for seed command.
@@ -2357,12 +2756,23 @@ def _configure_seed_parser(parser: argparse.ArgumentParser) -> None:
     None
         Modifies parser in place.
     """
+    # Update mode arguments
+    parser.add_argument(
+        '--update',
+        action='store_true',
+        help='Update existing HMM mode: search genomes with existing HMM, extract hits, and rebuild HMM',
+    )
+    parser.add_argument(
+        '--hmm-file',
+        type=Path,
+        help='Path to existing HMM file to update (required when --update is specified)',
+    )
+
     # Input arguments
     parser.add_argument(
         '--left-seed',
         type=Path,
-        required=True,
-        help='FASTA file containing left terminal seed sequence(s)',
+        help='FASTA file containing left terminal seed sequence(s) (required unless --update is specified)',
     )
     parser.add_argument(
         '--right-seed',
@@ -2484,12 +2894,29 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if missing_tools:
             raise HMMBuildError(f'Missing required tools: {", ".join(missing_tools)}')
 
-        # Validate input files
-        if not args.left_seed.exists():
-            raise FileNotFoundError(f'Left seed file not found: {args.left_seed}')
-
-        if args.right_seed and not args.right_seed.exists():
-            raise FileNotFoundError(f'Right seed file not found: {args.right_seed}')
+        # Validate mode-specific requirements
+        if args.update:
+            # Update mode requires --hmm-file
+            if not args.hmm_file:
+                raise ValueError('--hmm-file is required when --update is specified')
+            if not args.hmm_file.exists():
+                raise FileNotFoundError(f'HMM file not found: {args.hmm_file}')
+            # Update mode doesn't use --left-seed or --right-seed
+            if args.left_seed or args.right_seed:
+                logging.warning(
+                    '--left-seed and --right-seed are ignored in --update mode'
+                )
+        else:
+            # Normal mode requires --left-seed
+            if not args.left_seed:
+                raise ValueError('--left-seed is required unless --update is specified')
+            if not args.left_seed.exists():
+                raise FileNotFoundError(f'Left seed file not found: {args.left_seed}')
+            if args.right_seed and not args.right_seed.exists():
+                raise FileNotFoundError(f'Right seed file not found: {args.right_seed}')
+            # Normal mode doesn't use --hmm-file
+            if args.hmm_file:
+                logging.warning('--hmm-file is ignored unless --update is specified')
 
         # Get genome files
         if args.genome:
@@ -2535,126 +2962,155 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             logging.info(f'Temporary directory: {temp_dir}')
             logging.info(f'Using {args.threads} CPU threads for alignment')
 
-            # Compare seeds if both provided
-            if args.right_seed:
-                seed_comparisons = compare_seeds(
-                    args.left_seed,
-                    args.right_seed,
-                    temp_dir,
-                    min_length=10,  # Minimum 10bp hits
-                    min_identity=50.0,  # Minimum 50% identity
-                    num_threads=args.threads,
-                )
+            # Route to appropriate workflow
+            if args.update:
+                # Update mode: search with existing HMM, extract hits, rebuild HMM
+                logging.info('Running HMM update workflow')
 
-                if seed_comparisons:
-                    logging.info(
-                        f'Found {len(seed_comparisons)} significant similarities between seeds:'
-                    )
-
-                    for i, (hit, alignment) in enumerate(
-                        seed_comparisons[:3], 1
-                    ):  # Show top 3
-                        logging.info(
-                            f'  Similarity {i}: {hit.length}bp, {hit.identity:.1f}% identity'
-                        )
-                        logging.info(
-                            f'    Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]'
-                        )
-                        logging.info(
-                            f'    Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}] ({hit.strand} strand)'
-                        )
-                        logging.info(f'    Alignment score: {alignment.score}')
-
-                        # Optionally print the alignment for the best hit
-                        if i == 1 and args.loglevel == 'DEBUG':
-                            logging.debug('Best seed alignment:')
-                            for line in str(alignment).split('\n'):
-                                logging.debug(f'    {line}')
-
-                    # Save detailed seed comparison results
-                    seed_comparison_file = (
-                        output_dir / f'{cleanID(args.model_name)}_seed_comparison.txt'
-                    )
-                    with open(seed_comparison_file, 'w') as f:
-                        f.write(f'Seed Comparison Results for {args.model_name}\n')
-                        f.write('=' * 50 + '\n\n')
-                        f.write(f'Left seed: {args.left_seed.name}\n')
-                        f.write(f'Right seed: {args.right_seed.name}\n')
-                        f.write(
-                            f'Total similarities found: {len(seed_comparisons)}\n\n'
-                        )
-
-                        for i, (hit, alignment) in enumerate(seed_comparisons, 1):
-                            f.write(f'Similarity {i}:\n')
-                            f.write(f'  Length: {hit.length}bp\n')
-                            f.write(f'  Identity: {hit.identity:.1f}%\n')
-                            f.write(f'  Query coverage: {hit.query_coverage:.3f}\n')
-                            f.write(f'  Subject coverage: {hit.subject_coverage:.3f}\n')
-                            f.write(
-                                f'  Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]\n'
-                            )
-                            f.write(
-                                f'  Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}]\n'
-                            )
-                            f.write(f'  Alignment score: {alignment.score}\n')
-                            f.write('  Alignment:\n')
-                            for line in str(alignment).split('\n'):
-                                f.write(f'    {line}\n')
-                            f.write('\n')
-
-                    logging.info(
-                        f'Detailed seed comparison saved to: {seed_comparison_file}'
-                    )
-
-                else:
-                    logging.info(
-                        'No significant similarity found between left and right seeds'
-                    )
-
-                    # Still proceed with asymmetric processing
-                    logging.info('Proceeding with fully asymmetric seed processing')
-
-            # Process asymmetric seeds if both provided
-            if args.right_seed:
-                left_hmm, right_hmm, left_aln, right_aln = process_asymmetric_seeds(
-                    args.left_seed,
-                    args.right_seed,
-                    args.model_name,
-                    genome_files,
-                    temp_dir,
-                    output_dir,
-                    args.min_coverage,
-                    args.min_identity,
-                    args.max_gap,
-                    args.save_blast_hits,
-                    args.flank_size,
-                    threads=args.threads,
+                updated_hmm, alignment, flanked_alignment = update_hmm_with_genome_hits(
+                    hmm_file=args.hmm_file,
+                    genome_files=genome_files,
+                    model_name=args.model_name,
+                    temp_dir=temp_dir,
+                    output_dir=output_dir,
+                    flank_size=args.flank_size,
                     evalue=args.evalue,
+                    threads=args.threads,
                 )
 
-                logging.info('Asymmetric processing completed:')
-                logging.info(f'  Left HMM: {left_hmm}')
-                logging.info(f'  Right HMM: {right_hmm}')
-                logging.info(f'  Left alignment: {left_aln}')
-                logging.info(f'  Right alignment: {right_aln}')
+                logging.info('HMM update workflow completed:')
+                logging.info(f'  Updated HMM: {updated_hmm}')
+                logging.info(f'  Alignment: {alignment}')
+                if flanked_alignment:
+                    logging.info(f'  Flanked alignment: {flanked_alignment}')
 
             else:
-                # Process single seed (existing logic)
-                left_hmm, left_aln, left_blast, left_flanked = process_seed_sequences(
-                    args.left_seed,
-                    args.model_name,
-                    genome_files,
-                    temp_dir,
-                    output_dir,
-                    args.min_coverage,
-                    args.min_identity,
-                    args.max_gap,
-                    args.save_blast_hits,
-                    args.flank_size,
-                    threads=args.threads,
-                    evalue=args.evalue,
-                )
-                logging.info(f'Single seed processing completed: {left_hmm}')
+                # Normal seed-based workflow
+                # Compare seeds if both provided
+                if args.right_seed:
+                    seed_comparisons = compare_seeds(
+                        args.left_seed,
+                        args.right_seed,
+                        temp_dir,
+                        min_length=10,  # Minimum 10bp hits
+                        min_identity=50.0,  # Minimum 50% identity
+                        num_threads=args.threads,
+                    )
+
+                    if seed_comparisons:
+                        logging.info(
+                            f'Found {len(seed_comparisons)} significant similarities between seeds:'
+                        )
+
+                        for i, (hit, alignment) in enumerate(
+                            seed_comparisons[:3], 1
+                        ):  # Show top 3
+                            logging.info(
+                                f'  Similarity {i}: {hit.length}bp, {hit.identity:.1f}% identity'
+                            )
+                            logging.info(
+                                f'    Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]'
+                            )
+                            logging.info(
+                                f'    Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}] ({hit.strand} strand)'
+                            )
+                            logging.info(f'    Alignment score: {alignment.score}')
+
+                            # Optionally print the alignment for the best hit
+                            if i == 1 and args.loglevel == 'DEBUG':
+                                logging.debug('Best seed alignment:')
+                                for line in str(alignment).split('\n'):
+                                    logging.debug(f'    {line}')
+
+                        # Save detailed seed comparison results
+                        seed_comparison_file = (
+                            output_dir
+                            / f'{cleanID(args.model_name)}_seed_comparison.txt'
+                        )
+                        with open(seed_comparison_file, 'w') as f:
+                            f.write(f'Seed Comparison Results for {args.model_name}\n')
+                            f.write('=' * 50 + '\n\n')
+                            f.write(f'Left seed: {args.left_seed.name}\n')
+                            f.write(f'Right seed: {args.right_seed.name}\n')
+                            f.write(
+                                f'Total similarities found: {len(seed_comparisons)}\n\n'
+                            )
+
+                            for i, (hit, alignment) in enumerate(seed_comparisons, 1):
+                                f.write(f'Similarity {i}:\n')
+                                f.write(f'  Length: {hit.length}bp\n')
+                                f.write(f'  Identity: {hit.identity:.1f}%\n')
+                                f.write(f'  Query coverage: {hit.query_coverage:.3f}\n')
+                                f.write(
+                                    f'  Subject coverage: {hit.subject_coverage:.3f}\n'
+                                )
+                                f.write(
+                                    f'  Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]\n'
+                                )
+                                f.write(
+                                    f'  Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}]\n'
+                                )
+                                f.write(f'  Alignment score: {alignment.score}\n')
+                                f.write('  Alignment:\n')
+                                for line in str(alignment).split('\n'):
+                                    f.write(f'    {line}\n')
+                                f.write('\n')
+
+                        logging.info(
+                            f'Detailed seed comparison saved to: {seed_comparison_file}'
+                        )
+
+                    else:
+                        logging.info(
+                            'No significant similarity found between left and right seeds'
+                        )
+
+                        # Still proceed with asymmetric processing
+                        logging.info('Proceeding with fully asymmetric seed processing')
+
+                # Process asymmetric seeds if both provided
+                if args.right_seed:
+                    left_hmm, right_hmm, left_aln, right_aln = process_asymmetric_seeds(
+                        args.left_seed,
+                        args.right_seed,
+                        args.model_name,
+                        genome_files,
+                        temp_dir,
+                        output_dir,
+                        args.min_coverage,
+                        args.min_identity,
+                        args.max_gap,
+                        args.save_blast_hits,
+                        args.flank_size,
+                        threads=args.threads,
+                        evalue=args.evalue,
+                    )
+
+                    logging.info('Asymmetric processing completed:')
+                    logging.info(f'  Left HMM: {left_hmm}')
+                    logging.info(f'  Right HMM: {right_hmm}')
+                    logging.info(f'  Left alignment: {left_aln}')
+                    logging.info(f'  Right alignment: {right_aln}')
+
+                else:
+                    # Process single seed (existing logic)
+                    left_hmm, left_aln, left_blast, left_flanked = (
+                        process_seed_sequences(
+                            args.left_seed,
+                            args.model_name,
+                            genome_files,
+                            temp_dir,
+                            output_dir,
+                            args.min_coverage,
+                            args.min_identity,
+                            args.max_gap,
+                            args.save_blast_hits,
+                            args.flank_size,
+                            threads=args.threads,
+                            evalue=args.evalue,
+                        )
+                    )
+                    logging.info(f'Single seed processing completed: {left_hmm}')
 
     except Exception as e:
         logging.error(f'HMM building failed: {e}')

@@ -16,14 +16,14 @@ import argparse
 import io
 import logging
 import os
-import shutil
 from pathlib import Path
+import shutil
 from typing import Any, Dict, List, Optional, Tuple, cast
 
-import pandas as pd  # type: ignore[import-untyped]
 from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
+import pandas as pd  # type: ignore[import-untyped]
 from pyhmmer.easel import (  # type: ignore[import-not-found]
     Alphabet,
     DigitalMSA,

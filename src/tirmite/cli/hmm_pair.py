@@ -786,12 +786,6 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 infile=args.blastFile, hitTable=None, prefix=args.prefix
             )
 
-            # If queryLen was provided, assign it now that we have the query name
-            if args.queryLen and hitTable is not None and len(hitTable) > 0:
-                query_name = hitTable['model'].iloc[0]
-                model_lengths[query_name] = args.queryLen
-                logging.info(f'Set length for query {query_name}: {args.queryLen}')
-
         elif args.leftBlast:
             # Asymmetric BLAST mode - import from both files
             logging.info('Importing BLAST hits from left and right queries...')
@@ -826,7 +820,24 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             cleanup_temp_directory(tempDir, args.keep_temp)
             sys.exit(1)
 
+        # Log import statistics
         logging.info(f'Imported {len(hitTable)} total hits')
+        
+        # Get unique models and log statistics
+        unique_models = check_multiple_models(hitTable)
+        logging.info(f'Found {len(unique_models)} unique query/model name(s)')
+        
+        # Log per-query hit counts at debug level
+        for model in unique_models:
+            hit_count = len(hitTable[hitTable['model'] == model])
+            logging.debug(f'Query/model "{model}": {hit_count} hits')
+        
+        # If queryLen was provided for BLAST input, assign it to ALL queries
+        if args.blastFile and args.queryLen:
+            for query_name in unique_models:
+                model_lengths[query_name] = args.queryLen
+                logging.debug(f'Set length for query {query_name}: {args.queryLen}')
+            logging.info(f'Applied query length {args.queryLen} to {len(unique_models)} query name(s)')
 
         # Validate that we have model lengths for all models in hitTable
         if not model_lengths:
@@ -885,9 +896,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         hitsDict, hitIndex = tirmite.table2dict(hitTable)
 
         # Check for multiple models and validate pairing map requirement
-        unique_models = check_multiple_models(hitTable)
-        logging.info(f'Found {len(unique_models)} unique models in input: {", ".join(unique_models)}')
-
+        # Note: unique_models was already determined and logged after import
         # Load pairing map if provided
         pairing_map = None
         if args.pairing_map:

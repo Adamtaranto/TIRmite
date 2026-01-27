@@ -756,22 +756,74 @@ def remove_nested_paired_hits(
 
 def write_hits_table(hit_table: pd.DataFrame, output_file: Path) -> None:
     """
-    Write hit table to BLAST-compatible tabular format.
+    Write hit table to BLAST-compatible tabular format (outfmt 6).
 
     Parameters
     ----------
     hit_table : pandas.DataFrame
-        Hit table to write.
+        Hit table to write with columns: model, target, hitStart, hitEnd, strand,
+        evalue, score, bias, hmmStart, hmmEnd.
     output_file : Path
         Path to output file.
+
+    Notes
+    -----
+    Output format is BLAST tabular format 6:
+    qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+
+    The internal hit table format is mapped to BLAST format as follows:
+    - qseqid = model
+    - sseqid = target
+    - pident = 100.0 (not available, set to 100)
+    - length = abs(hitEnd - hitStart) + 1
+    - mismatch = 0 (not available)
+    - gapopen = 0 (not available)
+    - qstart = hmmStart
+    - qend = hmmEnd
+    - sstart = hitStart (for + strand) or hitEnd (for - strand)
+    - send = hitEnd (for + strand) or hitStart (for - strand)
+    - evalue = evalue
+    - bitscore = score
     """
     # Write header
     with open(output_file, 'w') as f:
-        f.write('# TIRmite ensemble search output\n')
-        f.write('# Format: model target hitStart hitEnd strand evalue score bias hmmStart hmmEnd\n')
+        f.write('# TIRmite ensemble search output - BLAST tabular format 6\n')
+        f.write('# Fields: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore\n')
 
-    # Write data
-    hit_table.to_csv(output_file, sep='\t', index=False, header=False, mode='a')
+    # Convert hit table to BLAST format 6
+    blast_records = []
+    for _, row in hit_table.iterrows():
+        hit_start = int(row['hitStart'])
+        hit_end = int(row['hitEnd'])
+        length = abs(hit_end - hit_start) + 1
+
+        # Handle strand - BLAST uses swapped coordinates for reverse strand
+        if row['strand'] == '-':
+            sstart = hit_end
+            send = hit_start
+        else:
+            sstart = hit_start
+            send = hit_end
+
+        blast_records.append({
+            'qseqid': row['model'],
+            'sseqid': row['target'],
+            'pident': 100.0,  # Not available from merged hits
+            'length': length,
+            'mismatch': 0,
+            'gapopen': 0,
+            'qstart': row['hmmStart'],
+            'qend': row['hmmEnd'],
+            'sstart': sstart,
+            'send': send,
+            'evalue': row['evalue'],
+            'bitscore': row['score'],
+        })
+
+    # Write BLAST format output
+    blast_df = pd.DataFrame(blast_records)
+    if not blast_df.empty:
+        blast_df.to_csv(output_file, sep='\t', index=False, header=False, mode='a')
 
     logging.info(f'Wrote {len(hit_table)} hits to {output_file}')
 
@@ -825,7 +877,10 @@ def run_nhmmer_search(
         cores=threads,
     )
 
+    # Log the full command
+    cmd_str = ' '.join(command)
     logging.info(f'Running nhmmer search: {hmm_file.name} vs {target_file.name}')
+    logging.info(f'nhmmer command: {cmd_str}')
 
     try:
         result = run_command(command, verbose=True)
@@ -879,7 +934,18 @@ def run_blastn_search(
     EnsembleSearchError
         If BLAST fails.
     """
+    # Standard BLAST format 6 columns expected by import_blast:
+    # qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+    blast_outfmt = '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore'
+
+    # Build command for logging
+    cmd_str = (
+        f'blastn -query {query_file} -subject {target_file} -out {output_file} '
+        f'-outfmt "{blast_outfmt}" -word_size 4 -perc_identity {identity} '
+        f'-num_threads {threads} -evalue {evalue} -max_target_seqs 10000'
+    )
     logging.info(f'Running BLAST search: {query_file.name} vs {target_file.name}')
+    logging.info(f'BLAST command: {cmd_str}')
 
     try:
         run_blastn(
@@ -889,6 +955,7 @@ def run_blastn_search(
             word_size=4,
             perc_identity=identity,
             num_threads=threads,
+            outfmt=blast_outfmt,
             additional_args=['-evalue', str(evalue), '-max_target_seqs', '10000'],
         )
 
@@ -1029,7 +1096,19 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         '--max-evalue',
         type=validate_evalue,
         default=1e-3,
-        help='Maximum e-value threshold for filtering hits (default: 1e-3)',
+        help='Maximum e-value threshold for filtering precomputed hits (default: 1e-3)',
+    )
+    filter_group.add_argument(
+        '--blast-max-evalue',
+        type=validate_evalue,
+        default=1e-3,
+        help='Maximum e-value threshold for BLAST searches (default: 1e-3)',
+    )
+    filter_group.add_argument(
+        '--hmm-max-evalue',
+        type=validate_evalue,
+        default=1e-3,
+        help='Maximum e-value threshold for nhmmer searches (default: 1e-3)',
     )
     filter_group.add_argument(
         '--min-identity',
@@ -1154,7 +1233,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             query_file=fasta_file,
                             target_file=args.genome,
                             output_file=output_file,
-                            evalue=args.max_evalue,
+                            evalue=args.blast_max_evalue,
                             identity=args.min_identity,
                             threads=args.threads,
                         )
@@ -1171,7 +1250,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             hmm_file=hmm_file,
                             target_file=args.genome,
                             output_dir=temp_path,
-                            evalue=args.max_evalue,
+                            evalue=args.hmm_max_evalue,
                             threads=args.threads,
                         )
                         nhmmer_files.append(result_file)

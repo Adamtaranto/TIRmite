@@ -18,6 +18,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
+from Bio import SeqIO  # type: ignore[import-not-found]
 import pandas as pd  # type: ignore[import-untyped]
 
 from tirmite.runners.hmmer_wrappers import build_nhmmer_command
@@ -25,7 +26,7 @@ from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
 import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
-from tirmite.utils.utils import temporary_directory
+from tirmite.utils.utils import prepare_genome_file, temporary_directory
 
 
 class EnsembleSearchError(Exception):
@@ -35,8 +36,182 @@ class EnsembleSearchError(Exception):
 
 
 # -----------------------------------------------------------------------------
-# Cluster Mapping Functions
+# Query Length Functions
 # -----------------------------------------------------------------------------
+
+
+def get_fasta_sequence_lengths(fasta_file: Path) -> Dict[str, int]:
+    """
+    Get sequence lengths from a FASTA file.
+
+    Parameters
+    ----------
+    fasta_file : Path
+        Path to FASTA file.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping sequence IDs to their lengths.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If file cannot be read.
+    """
+    lengths: Dict[str, int] = {}
+
+    try:
+        for record in SeqIO.parse(str(fasta_file), 'fasta'):
+            lengths[record.id] = len(record.seq)
+        logging.debug(f'Loaded {len(lengths)} sequence lengths from {fasta_file.name}')
+    except Exception as e:
+        raise EnsembleSearchError(
+            f'Failed to read FASTA file {fasta_file}: {e}'
+        ) from e
+
+    return lengths
+
+
+def get_hmm_model_lengths(hmm_file: Path) -> Dict[str, int]:
+    """
+    Extract HMM model lengths from HMM file by parsing LENG fields.
+
+    Parameters
+    ----------
+    hmm_file : Path
+        Path to HMM file containing one or more models.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping model names to their lengths (in alignment columns).
+
+    Notes
+    -----
+    Parses HMM file format looking for NAME and LENG lines.
+    Handles multi-model HMM files, extracting length for each named model.
+    """
+    model_lengths: Dict[str, int] = {}
+
+    try:
+        with open(hmm_file, 'r') as f:
+            current_model = None
+            for line in f:
+                line = line.strip()
+                if line.startswith('NAME  '):
+                    current_model = line.split()[1]
+                elif line.startswith('LENG  '):
+                    if current_model:
+                        length = int(line.split()[1])
+                        model_lengths[current_model] = length
+                elif line == '//':
+                    current_model = None
+        logging.debug(f'Loaded {len(model_lengths)} model lengths from {hmm_file.name}')
+
+    except Exception as e:
+        logging.error(f'Error reading HMM file {hmm_file}: {e}')
+
+    return model_lengths
+
+
+def load_lengths_file(lengths_file: Path) -> Dict[str, int]:
+    """
+    Load model/query lengths from tab-delimited text file.
+
+    Parameters
+    ----------
+    lengths_file : Path
+        Path to tab-delimited file with format: model_name<TAB>model_length.
+
+    Returns
+    -------
+    dict
+        Dictionary mapping model names to integer lengths.
+
+    Notes
+    -----
+    Skips comment lines (starting with #) and blank lines.
+    Logs warnings for malformed lines but continues parsing.
+    """
+    model_lengths: Dict[str, int] = {}
+
+    try:
+        with open(lengths_file, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                parts = line.split('\t')
+                if len(parts) != 2:
+                    logging.warning(
+                        f'Skipping malformed line {line_num} in {lengths_file}: {line}'
+                    )
+                    continue
+
+                model_name, model_length_str = parts
+                try:
+                    model_length = int(model_length_str)
+                    model_lengths[model_name] = model_length
+                except ValueError:
+                    logging.warning(
+                        f'Invalid model length on line {line_num}: {model_length_str}'
+                    )
+
+    except Exception as e:
+        raise EnsembleSearchError(
+            f'Error reading model lengths file {lengths_file}: {e}'
+        ) from e
+
+    return model_lengths
+
+
+def parse_genome_list(genome_list_file: Path) -> List[Path]:
+    """
+    Parse a file containing a list of genome paths.
+
+    Parameters
+    ----------
+    genome_list_file : Path
+        Path to file with one genome path per line.
+
+    Returns
+    -------
+    list of Path
+        List of genome file paths.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If file cannot be read.
+    """
+    genomes: List[Path] = []
+
+    try:
+        with open(genome_list_file, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                genome_path = Path(line)
+                if not genome_path.exists():
+                    logging.warning(
+                        f'Genome file not found (line {line_num}): {genome_path}'
+                    )
+                    continue
+
+                genomes.append(genome_path)
+
+        logging.info(f'Loaded {len(genomes)} genome paths from {genome_list_file.name}')
+
+    except Exception as e:
+        raise EnsembleSearchError(
+            f'Failed to parse genome list file {genome_list_file}: {e}'
+        ) from e
+
+    return genomes
 
 
 def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
@@ -905,6 +1080,7 @@ def run_blastn_search(
     evalue: float = 1e-3,
     identity: float = 60.0,
     threads: int = 1,
+    word_size: int = 4,
 ) -> Path:
     """
     Run BLAST search with query sequences against a target genome.
@@ -923,6 +1099,8 @@ def run_blastn_search(
         Minimum percent identity threshold.
     threads : int, default 1
         Number of CPU threads to use.
+    word_size : int, default 4
+        Word size for initial matches.
 
     Returns
     -------
@@ -941,7 +1119,7 @@ def run_blastn_search(
     # Build command for logging
     cmd_str = (
         f'blastn -query {query_file} -subject {target_file} -out {output_file} '
-        f'-outfmt "{blast_outfmt}" -word_size 4 -perc_identity {identity} '
+        f'-outfmt "{blast_outfmt}" -word_size {word_size} -perc_identity {identity} '
         f'-num_threads {threads} -evalue {evalue} -max_target_seqs 10000'
     )
     logging.info(f'Running BLAST search: {query_file.name} vs {target_file.name}')
@@ -952,7 +1130,7 @@ def run_blastn_search(
             query=query_file,
             subject=target_file,
             output=output_file,
-            word_size=4,
+            word_size=word_size,
             perc_identity=identity,
             num_threads=threads,
             outfmt=blast_outfmt,
@@ -1005,6 +1183,19 @@ def validate_threads(value: str) -> int:
         return ivalue
     except ValueError as err:
         raise argparse.ArgumentTypeError(f'Invalid threads value: {value}') from err
+
+
+def validate_word_size(value: str) -> int:
+    """Validate word_size argument."""
+    try:
+        ivalue = int(value)
+        if ivalue < 4:
+            raise argparse.ArgumentTypeError(
+                f'Word size must be at least 4: {value}'
+            )
+        return ivalue
+    except ValueError as err:
+        raise argparse.ArgumentTypeError(f'Invalid word_size value: {value}') from err
 
 
 # -----------------------------------------------------------------------------
@@ -1060,7 +1251,17 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
     input_group.add_argument(
         '--genome',
         type=Path,
-        help='Target genome FASTA file (required if running searches)',
+        help='Target genome FASTA file (required if running nhmmer searches with --hmm)',
+    )
+    input_group.add_argument(
+        '--genome-list',
+        type=Path,
+        help='File containing list of genome FASTA paths (one per line, supports gzipped files)',
+    )
+    input_group.add_argument(
+        '--blast-db',
+        type=Path,
+        help='Pre-built BLAST database prefix (alternative to --genome for BLAST searches)',
     )
     input_group.add_argument(
         '--blast-results',
@@ -1073,6 +1274,12 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         type=Path,
         nargs='+',
         help='Precomputed nhmmer tabular output file(s)',
+    )
+    input_group.add_argument(
+        '--lengths-file',
+        type=Path,
+        help='Tab-delimited file with query lengths (model_name<TAB>length). '
+        'Required when using --blast-results or --nhmmer-results without query files.',
     )
 
     # Clustering options
@@ -1116,6 +1323,12 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         default=60.0,
         help='Minimum percent identity for BLAST searches (default: 60.0)',
     )
+    filter_group.add_argument(
+        '--word-size',
+        type=validate_word_size,
+        default=4,
+        help='BLAST word size for initial matches (default: 4)',
+    )
 
     # Output options
     output_group = parser.add_argument_group('Output Options')
@@ -1141,10 +1354,22 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         help='Number of CPU threads for searches (default: 1)',
     )
     proc_group.add_argument(
+        '--keep-temp',
+        action='store_true',
+        default=False,
+        help='Keep temporary files after completion (default: False)',
+    )
+    proc_group.add_argument(
         '--loglevel',
         default='INFO',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
         help='Set logging level (default: INFO)',
+    )
+    proc_group.add_argument(
+        '--logfile',
+        action='store_true',
+        default=False,
+        help='Write log messages to file in output directory',
     )
 
 
@@ -1190,8 +1415,16 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
     assert args is not None
 
-    # Set up logging
-    init_logging(loglevel=args.loglevel)
+    # Create output directory first (needed for logfile)
+    args.outdir.mkdir(parents=True, exist_ok=True)
+
+    # Set up logging with optional logfile
+    logfile_path = None
+    if args.logfile:
+        logfile_name = f'{args.prefix}_tirmite_search.log' if args.prefix else 'tirmite_search.log'
+        logfile_path = args.outdir / logfile_name
+
+    init_logging(loglevel=args.loglevel, logfile=logfile_path)
 
     try:
         # Validate inputs
@@ -1200,60 +1433,128 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         if not has_search_inputs and not has_precomputed:
             raise EnsembleSearchError(
-                'Must provide either search inputs (--fasta/--hmm + --genome) '
+                'Must provide either search inputs (--fasta/--hmm + --genome/--blast-db) '
                 'or precomputed results (--blast-results/--nhmmer-results)'
             )
 
-        if has_search_inputs and not args.genome:
+        # Validate genome requirements for searches
+        if args.fasta and not args.genome and not args.blast_db:
             raise EnsembleSearchError(
-                '--genome is required when running searches with --fasta or --hmm'
+                '--genome or --blast-db is required when running BLAST searches with --fasta'
             )
 
-        # Create output directory
-        args.outdir.mkdir(parents=True, exist_ok=True)
+        if args.hmm and not args.genome:
+            raise EnsembleSearchError(
+                '--genome is required when running nhmmer searches with --hmm'
+            )
+
+        # Validate lengths file requirement when using precomputed results without query files
+        if has_precomputed and not has_search_inputs:
+            if not args.lengths_file:
+                logging.warning(
+                    'No --lengths-file provided. Query coverage filtering will not be available.'
+                )
+
+        # Collect genome files
+        genomes: List[Path] = []
+        if args.genome:
+            genomes.append(args.genome)
+        if args.genome_list:
+            genomes.extend(parse_genome_list(args.genome_list))
 
         # Collect result files
         blast_files: List[Path] = list(args.blast_results) if args.blast_results else []
         nhmmer_files: List[Path] = list(args.nhmmer_results) if args.nhmmer_results else []
 
+        # Collect query lengths from input files
+        query_lengths: Dict[str, int] = {}
+        if args.fasta:
+            for fasta_file in args.fasta:
+                if fasta_file.exists():
+                    query_lengths.update(get_fasta_sequence_lengths(fasta_file))
+        if args.hmm:
+            for hmm_file in args.hmm:
+                if hmm_file.exists():
+                    query_lengths.update(get_hmm_model_lengths(hmm_file))
+        if args.lengths_file:
+            if args.lengths_file.exists():
+                query_lengths.update(load_lengths_file(args.lengths_file))
+            else:
+                raise EnsembleSearchError(
+                    f'Lengths file not found: {args.lengths_file}'
+                )
+
+        if query_lengths:
+            logging.info(f'Loaded query lengths for {len(query_lengths)} models')
+
         # Run searches if needed
         if has_search_inputs:
-            with temporary_directory(prefix='tirmite_search_') as temp_dir:
+            cleanup_temp = not args.keep_temp
+            with temporary_directory(prefix='tirmite_search_', cleanup=cleanup_temp) as temp_dir:
                 temp_path = Path(temp_dir)
 
-                # Run BLAST searches
-                if args.fasta:
-                    for fasta_file in args.fasta:
-                        if not fasta_file.exists():
-                            logging.warning(f'FASTA file not found: {fasta_file}')
-                            continue
+                if args.keep_temp:
+                    logging.info(f'Temporary files will be kept in: {temp_path}')
 
-                        output_file = temp_path / f'{fasta_file.stem}_blast.tab'
-                        result_file = run_blastn_search(
-                            query_file=fasta_file,
-                            target_file=args.genome,
-                            output_file=output_file,
-                            evalue=args.blast_max_evalue,
-                            identity=args.min_identity,
-                            threads=args.threads,
-                        )
-                        blast_files.append(result_file)
+                # Process each genome (or just run once if only using blast-db)
+                genome_list: List[Optional[Path]] = list(genomes) if genomes else [None]
+                for genome_file in genome_list:
+                    # Prepare genome file (decompress if gzipped)
+                    prepared_genome: Optional[Path] = None
+                    if genome_file:
+                        prepared_genome = prepare_genome_file(genome_file, temp_path)
 
-                # Run nhmmer searches
-                if args.hmm:
-                    for hmm_file in args.hmm:
-                        if not hmm_file.exists():
-                            logging.warning(f'HMM file not found: {hmm_file}')
-                            continue
+                    # Run BLAST searches
+                    if args.fasta:
+                        for fasta_file in args.fasta:
+                            if not fasta_file.exists():
+                                logging.warning(f'FASTA file not found: {fasta_file}')
+                                continue
 
-                        result_file = run_nhmmer_search(
-                            hmm_file=hmm_file,
-                            target_file=args.genome,
-                            output_dir=temp_path,
-                            evalue=args.hmm_max_evalue,
-                            threads=args.threads,
-                        )
-                        nhmmer_files.append(result_file)
+                            # Use blast-db if provided, otherwise use prepared genome
+                            if args.blast_db:
+                                target = args.blast_db
+                            elif prepared_genome:
+                                target = prepared_genome
+                            else:
+                                logging.warning('No target for BLAST search')
+                                continue
+
+                            genome_suffix = f'_{genome_file.stem}' if genome_file else ''
+                            output_file = temp_path / f'{fasta_file.stem}{genome_suffix}_blast.tab'
+                            result_file = run_blastn_search(
+                                query_file=fasta_file,
+                                target_file=target,
+                                output_file=output_file,
+                                evalue=args.blast_max_evalue,
+                                identity=args.min_identity,
+                                threads=args.threads,
+                                word_size=args.word_size,
+                            )
+                            blast_files.append(result_file)
+
+                    # Run nhmmer searches
+                    if args.hmm and prepared_genome:
+                        for hmm_file in args.hmm:
+                            if not hmm_file.exists():
+                                logging.warning(f'HMM file not found: {hmm_file}')
+                                continue
+
+                            genome_suffix = f'_{genome_file.stem}' if genome_file else ''
+                            result_file = run_nhmmer_search(
+                                hmm_file=hmm_file,
+                                target_file=prepared_genome,
+                                output_dir=temp_path,
+                                evalue=args.hmm_max_evalue,
+                                threads=args.threads,
+                            )
+                            # Rename output file to include genome suffix
+                            if genome_file:
+                                new_result_file = result_file.parent / f'{hmm_file.stem}{genome_suffix}.out'
+                                if result_file != new_result_file:
+                                    shutil.move(str(result_file), str(new_result_file))
+                                    result_file = new_result_file
+                            nhmmer_files.append(result_file)
 
                 # Load and process hits within temp context
                 hit_table = _process_hits(args, blast_files, nhmmer_files)
@@ -1265,6 +1566,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Write final output
         output_file = args.outdir / f'{args.prefix}_hits.tab'
         write_hits_table(hit_table, output_file)
+
+        # Log completion message with logfile location if enabled
+        if logfile_path and args.logfile:
+            logging.info(f'Log file saved to: {logfile_path}')
 
         logging.info('Ensemble search completed successfully')
         return 0

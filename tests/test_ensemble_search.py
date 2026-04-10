@@ -24,7 +24,6 @@ from tirmite.cli.ensemble_search import (
     validate_cluster_mapping,
 )
 
-
 # -----------------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------------
@@ -61,10 +60,16 @@ def blast_result_file():
     with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
         # Format: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
         f.write('ComponentA1\tchr1\t95.0\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n')
-        f.write('ComponentA2\tchr1\t93.0\t98\t7\t0\t1\t98\t1050\t1147\t1e-35\t180\n')  # Overlaps A1
-        f.write('ComponentA3\tchr1\t90.0\t95\t10\t0\t1\t95\t2000\t2094\t1e-30\t160\n')  # No overlap
+        f.write(
+            'ComponentA2\tchr1\t93.0\t98\t7\t0\t1\t98\t1050\t1147\t1e-35\t180\n'
+        )  # Overlaps A1
+        f.write(
+            'ComponentA3\tchr1\t90.0\t95\t10\t0\t1\t95\t2000\t2094\t1e-30\t160\n'
+        )  # No overlap
         f.write('ComponentB1\tchr2\t92.0\t100\t8\t0\t1\t100\t500\t599\t1e-38\t190\n')
-        f.write('ComponentB2\tchr2\t88.0\t96\t12\t0\t1\t96\t520\t615\t1e-32\t170\n')  # Overlaps B1
+        f.write(
+            'ComponentB2\tchr2\t88.0\t96\t12\t0\t1\t96\t520\t615\t1e-32\t170\n'
+        )  # Overlaps B1
         fname = f.name
     yield fname
     os.unlink(fname)

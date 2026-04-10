@@ -14,8 +14,8 @@ Supports both direct search execution and loading of precomputed search results.
 
 import argparse
 import logging
-import shutil
 from pathlib import Path
+import shutil
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from Bio import SeqIO  # type: ignore[import-not-found]
@@ -66,9 +66,7 @@ def get_fasta_sequence_lengths(fasta_file: Path) -> Dict[str, int]:
             lengths[record.id] = len(record.seq)
         logging.debug(f'Loaded {len(lengths)} sequence lengths from {fasta_file.name}')
     except Exception as e:
-        raise EnsembleSearchError(
-            f'Failed to read FASTA file {fasta_file}: {e}'
-        ) from e
+        raise EnsembleSearchError(f'Failed to read FASTA file {fasta_file}: {e}') from e
 
     return lengths
 
@@ -326,16 +324,12 @@ def validate_cluster_mapping(
     # Check for cluster components not in available features
     missing = all_components - available_features
     if missing:
-        warnings.append(
-            f'Cluster components not found in hit data: {sorted(missing)}'
-        )
+        warnings.append(f'Cluster components not found in hit data: {sorted(missing)}')
 
     return is_valid, warnings
 
 
-def build_component_to_cluster_map(
-    cluster_map: Dict[str, List[str]]
-) -> Dict[str, str]:
+def build_component_to_cluster_map(cluster_map: Dict[str, List[str]]) -> Dict[str, str]:
     """
     Build reverse mapping from component names to cluster names.
 
@@ -664,7 +658,9 @@ def merge_overlapping_cluster_hits(
             else:
                 # Non-overlapping - save current merged hit and start new one
                 merged_records.append(
-                    _create_merged_hit(current_hits, current_start, current_end, cluster)
+                    _create_merged_hit(
+                        current_hits, current_start, current_end, cluster
+                    )
                 )
                 current_start = hit_start
                 current_end = hit_end
@@ -807,8 +803,8 @@ def check_cross_cluster_overlaps(
                 if overlap >= min_overlap:
                     if warnings_reported < 10:  # Limit warnings
                         logging.warning(
-                            f"Cross-cluster overlap detected: {target}:{start1}-{end1} ({hit1['cluster']}) "
-                            f"overlaps with {target}:{start2}-{end2} ({hit2['cluster']})"
+                            f'Cross-cluster overlap detected: {target}:{start1}-{end1} ({hit1["cluster"]}) '
+                            f'overlaps with {target}:{start2}-{end2} ({hit2["cluster"]})'
                         )
                     warnings_reported += 1
 
@@ -851,7 +847,9 @@ def remove_nested_paired_hits(
     hit_table = hit_table.copy()
     hit_table['hitStart_int'] = hit_table['hitStart'].astype(int)
     hit_table['hitEnd_int'] = hit_table['hitEnd'].astype(int)
-    hit_table['score_float'] = pd.to_numeric(hit_table['score'], errors='coerce').fillna(0)
+    hit_table['score_float'] = pd.to_numeric(
+        hit_table['score'], errors='coerce'
+    ).fillna(0)
 
     hits_to_remove: Set[int] = set()
 
@@ -878,9 +876,8 @@ def remove_nested_paired_hits(
 
                 # Check if they are paired (left-right or right-left)
                 is_paired = (
-                    (model1 in pairing_map and pairing_map[model1] == model2)
-                    or (model2 in pairing_map and pairing_map[model2] == model1)
-                )
+                    model1 in pairing_map and pairing_map[model1] == model2
+                ) or (model2 in pairing_map and pairing_map[model2] == model1)
 
                 if not is_paired:
                     continue
@@ -915,7 +912,9 @@ def remove_nested_paired_hits(
 
     # Remove marked hits
     if hits_to_remove:
-        logging.info(f'Removed {len(hits_to_remove)} nested weak hits between paired features')
+        logging.info(
+            f'Removed {len(hits_to_remove)} nested weak hits between paired features'
+        )
         hit_table = hit_table.drop(index=list(hits_to_remove))
 
     # Clean up temporary columns
@@ -963,7 +962,9 @@ def write_hits_table(hit_table: pd.DataFrame, output_file: Path) -> None:
     # Write header
     with open(output_file, 'w') as f:
         f.write('# TIRmite ensemble search output - BLAST tabular format 6\n')
-        f.write('# Fields: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore\n')
+        f.write(
+            '# Fields: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore\n'
+        )
 
     # Convert hit table to BLAST format 6
     blast_records = []
@@ -980,20 +981,22 @@ def write_hits_table(hit_table: pd.DataFrame, output_file: Path) -> None:
             sstart = hit_start
             send = hit_end
 
-        blast_records.append({
-            'qseqid': row['model'],
-            'sseqid': row['target'],
-            'pident': 100.0,  # Not available from merged hits
-            'length': length,
-            'mismatch': 0,
-            'gapopen': 0,
-            'qstart': row['hmmStart'],
-            'qend': row['hmmEnd'],
-            'sstart': sstart,
-            'send': send,
-            'evalue': row['evalue'],
-            'bitscore': row['score'],
-        })
+        blast_records.append(
+            {
+                'qseqid': row['model'],
+                'sseqid': row['target'],
+                'pident': 100.0,  # Not available from merged hits
+                'length': length,
+                'mismatch': 0,
+                'gapopen': 0,
+                'qstart': row['hmmStart'],
+                'qend': row['hmmEnd'],
+                'sstart': sstart,
+                'send': send,
+                'evalue': row['evalue'],
+                'bitscore': row['score'],
+            }
+        )
 
     # Write BLAST format output
     blast_df = pd.DataFrame(blast_records)
@@ -1177,9 +1180,7 @@ def validate_threads(value: str) -> int:
     try:
         ivalue = int(value)
         if ivalue < 1:
-            raise argparse.ArgumentTypeError(
-                f'Threads must be at least 1: {value}'
-            )
+            raise argparse.ArgumentTypeError(f'Threads must be at least 1: {value}')
         return ivalue
     except ValueError as err:
         raise argparse.ArgumentTypeError(f'Invalid threads value: {value}') from err
@@ -1190,9 +1191,7 @@ def validate_word_size(value: str) -> int:
     try:
         ivalue = int(value)
         if ivalue < 4:
-            raise argparse.ArgumentTypeError(
-                f'Word size must be at least 4: {value}'
-            )
+            raise argparse.ArgumentTypeError(f'Word size must be at least 4: {value}')
         return ivalue
     except ValueError as err:
         raise argparse.ArgumentTypeError(f'Invalid word_size value: {value}') from err
@@ -1421,7 +1420,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     # Set up logging with optional logfile
     logfile_path = None
     if args.logfile:
-        logfile_name = f'{args.prefix}_tirmite_search.log' if args.prefix else 'tirmite_search.log'
+        logfile_name = (
+            f'{args.prefix}_tirmite_search.log' if args.prefix else 'tirmite_search.log'
+        )
         logfile_path = args.outdir / logfile_name
 
     init_logging(loglevel=args.loglevel, logfile=logfile_path)
@@ -1464,7 +1465,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Collect result files
         blast_files: List[Path] = list(args.blast_results) if args.blast_results else []
-        nhmmer_files: List[Path] = list(args.nhmmer_results) if args.nhmmer_results else []
+        nhmmer_files: List[Path] = (
+            list(args.nhmmer_results) if args.nhmmer_results else []
+        )
 
         # Collect query lengths from input files
         query_lengths: Dict[str, int] = {}
@@ -1490,7 +1493,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Run searches if needed
         if has_search_inputs:
             cleanup_temp = not args.keep_temp
-            with temporary_directory(prefix='tirmite_search_', cleanup=cleanup_temp) as temp_dir:
+            with temporary_directory(
+                prefix='tirmite_search_', cleanup=cleanup_temp
+            ) as temp_dir:
                 temp_path = Path(temp_dir)
 
                 if args.keep_temp:
@@ -1520,8 +1525,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                                 logging.warning('No target for BLAST search')
                                 continue
 
-                            genome_suffix = f'_{genome_file.stem}' if genome_file else ''
-                            output_file = temp_path / f'{fasta_file.stem}{genome_suffix}_blast.tab'
+                            genome_suffix = (
+                                f'_{genome_file.stem}' if genome_file else ''
+                            )
+                            output_file = (
+                                temp_path
+                                / f'{fasta_file.stem}{genome_suffix}_blast.tab'
+                            )
                             result_file = run_blastn_search(
                                 query_file=fasta_file,
                                 target_file=target,
@@ -1540,7 +1550,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                                 logging.warning(f'HMM file not found: {hmm_file}')
                                 continue
 
-                            genome_suffix = f'_{genome_file.stem}' if genome_file else ''
+                            genome_suffix = (
+                                f'_{genome_file.stem}' if genome_file else ''
+                            )
                             result_file = run_nhmmer_search(
                                 hmm_file=hmm_file,
                                 target_file=prepared_genome,
@@ -1550,7 +1562,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             )
                             # Rename output file to include genome suffix
                             if genome_file:
-                                new_result_file = result_file.parent / f'{hmm_file.stem}{genome_suffix}.out'
+                                new_result_file = (
+                                    result_file.parent
+                                    / f'{hmm_file.stem}{genome_suffix}.out'
+                                )
                                 if result_file != new_result_file:
                                     shutil.move(str(result_file), str(new_result_file))
                                     result_file = new_result_file
@@ -1637,7 +1652,9 @@ def _process_hits(
             available_features = set(hit_table['model'].unique())
 
             # Validate cluster mapping
-            is_valid, warnings = validate_cluster_mapping(cluster_map, available_features)
+            is_valid, warnings = validate_cluster_mapping(
+                cluster_map, available_features
+            )
             for warning in warnings:
                 logging.warning(warning)
 
@@ -1658,9 +1675,7 @@ def _process_hits(
     # Remove nested weak hits if pairing map provided
     if args.pairing_map:
         if not args.pairing_map.exists():
-            raise EnsembleSearchError(
-                f'Pairing map file not found: {args.pairing_map}'
-            )
+            raise EnsembleSearchError(f'Pairing map file not found: {args.pairing_map}')
 
         pairing_map = parse_pairing_map(args.pairing_map)
 

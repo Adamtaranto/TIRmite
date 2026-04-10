@@ -9,7 +9,7 @@ authors:
     orcid: https://orcid.org/0000-0003-4759-3475
     affiliation: "The University of Melbourne"
 repository-code: "https://github.com/Adamtaranto/TIRmite"
-license: MIT
+license: GPL-3
 abstract: >-
   "TIRmite enables the annotation of cryptic transposon variants by using profile Hidden Markov Models of conserved termini to identify highly divergent family members."
 keywords:

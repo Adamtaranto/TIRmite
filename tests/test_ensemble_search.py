@@ -556,8 +556,6 @@ class TestCrossClusterOverlaps:
 class TestComputeOuterEdgeOffset:
     """Tests for compute_outer_edge_offset."""
 
-    from tirmite.cli.ensemble_search import compute_outer_edge_offset
-
     def test_left_plus_at_edge(self):
         """Left terminus, + strand: hmmStart=1 → offset 0."""
         from tirmite.cli.ensemble_search import compute_outer_edge_offset
@@ -609,8 +607,6 @@ class TestComputeOuterEdgeOffset:
 
 class TestFilterHitsByAnchor:
     """Tests for filter_hits_by_anchor."""
-
-    from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
     def _make_hit_table(self, rows):
         """Helper to build a hit DataFrame."""

@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import tirmite.tirmitetools as tirmite
+from tirmite.runners.runBlastn import blast_db_exists, run_blastn
 
 
 @pytest.fixture
@@ -193,3 +194,99 @@ def test_import_blast_multiple_queries():
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# -----------------------------------------------------------------------------
+# Tests for blast_db_exists
+# -----------------------------------------------------------------------------
+
+
+def test_blast_db_exists_returns_false_for_missing_prefix():
+    """blast_db_exists returns False when no DB files exist for prefix."""
+    assert blast_db_exists('/nonexistent/path/no_db') is False
+
+
+def test_blast_db_exists_returns_true_for_nhr_file(tmp_path):
+    """blast_db_exists returns True when a .nhr file exists for the prefix."""
+    db_prefix = tmp_path / 'mydb'
+    (tmp_path / 'mydb.nhr').touch()
+    assert blast_db_exists(db_prefix) is True
+
+
+def test_blast_db_exists_returns_true_for_nin_file(tmp_path):
+    """blast_db_exists returns True when a .nin file exists for the prefix."""
+    db_prefix = tmp_path / 'mydb'
+    (tmp_path / 'mydb.nin').touch()
+    assert blast_db_exists(db_prefix) is True
+
+
+def test_blast_db_exists_returns_true_for_nsq_file(tmp_path):
+    """blast_db_exists returns True when a .nsq file exists for the prefix."""
+    db_prefix = tmp_path / 'mydb'
+    (tmp_path / 'mydb.nsq').touch()
+    assert blast_db_exists(db_prefix) is True
+
+
+def test_blast_db_exists_string_prefix(tmp_path):
+    """blast_db_exists accepts a string path prefix."""
+    db_prefix = str(tmp_path / 'mydb')
+    (tmp_path / 'mydb.nhr').touch()
+    assert blast_db_exists(db_prefix) is True
+
+
+# -----------------------------------------------------------------------------
+# Tests for run_blastn subject validation
+# -----------------------------------------------------------------------------
+
+
+def test_run_blastn_raises_for_missing_subject(tmp_path):
+    """run_blastn raises FileNotFoundError when subject is neither a file nor a DB."""
+    query_file = tmp_path / 'query.fa'
+    query_file.write_text('>seq1\nACGT\n')
+    output_file = tmp_path / 'out.tab'
+
+    with pytest.raises(FileNotFoundError, match='Subject file or BLAST database not found'):
+        run_blastn(
+            query=query_file,
+            subject=tmp_path / 'nonexistent_db',
+            output=output_file,
+        )
+
+
+def test_run_blastn_raises_for_missing_query(tmp_path):
+    """run_blastn raises FileNotFoundError when query file is missing."""
+    output_file = tmp_path / 'out.tab'
+
+    with pytest.raises(FileNotFoundError, match='Query file not found'):
+        run_blastn(
+            query=tmp_path / 'nonexistent_query.fa',
+            subject=tmp_path / 'subject.fa',
+            output=output_file,
+        )
+
+
+def test_run_blastn_accepts_blast_db_prefix(tmp_path, monkeypatch):
+    """run_blastn does not raise FileNotFoundError when subject is a valid BLAST DB prefix."""
+    from tirmite.runners import runBlastn
+
+    query_file = tmp_path / 'query.fa'
+    query_file.write_text('>seq1\nACGT\n')
+    output_file = tmp_path / 'out.tab'
+
+    # Create fake BLAST DB files
+    db_prefix = tmp_path / 'mydb'
+    (tmp_path / 'mydb.nhr').touch()
+    (tmp_path / 'mydb.nin').touch()
+    (tmp_path / 'mydb.nsq').touch()
+
+    # Mock check_blast_available to avoid requiring BLAST installed
+    monkeypatch.setattr(runBlastn, 'check_blast_available', lambda: False)
+
+    # Should raise BlastError (not available) rather than FileNotFoundError
+    from tirmite.runners.runBlastn import BlastError
+    with pytest.raises(BlastError, match='blastn not found in PATH'):
+        run_blastn(
+            query=query_file,
+            subject=db_prefix,
+            output=output_file,
+        )

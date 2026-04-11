@@ -712,7 +712,9 @@ def filter_hits_by_anchor(
             kept.append(True)
             continue
 
-        offset = compute_outer_edge_offset(hmm_start, hmm_end, model_len, strand, terminus_type)
+        offset = compute_outer_edge_offset(
+            hmm_start, hmm_end, model_len, strand, terminus_type
+        )
 
         if offset <= max_offset:
             kept.append(True)
@@ -1801,7 +1803,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             nhmmer_files.append(result_file)
 
                 # Load and process hits within temp context
-                hit_table = _process_hits(args, blast_files, nhmmer_files, query_lengths)
+                hit_table = _process_hits(
+                    args, blast_files, nhmmer_files, query_lengths
+                )
 
         else:
             # Just load precomputed results

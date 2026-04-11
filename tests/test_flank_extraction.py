@@ -9,9 +9,9 @@ Validates:
 3. writeFlanks: end-to-end integration using an in-memory pyfaidx genome.
 """
 
+from collections import namedtuple
 import os
 import tempfile
-from collections import namedtuple
 
 import pandas as pd
 
@@ -27,7 +27,9 @@ from tirmite.tirmitetools import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-HitRec = namedtuple('HitRec', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue'])
+HitRec = namedtuple(
+    'HitRec', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue']
+)
 
 
 def _make_hitTable(rows):
@@ -76,8 +78,8 @@ class TestComputeFlankCoordinates:
             flank_len=10,
         )
         assert offset == 0
-        assert fe == 999   # external_pos - 1 = 1000 - 1
-        assert fs == 990   # external_pos - flank_len = 1000 - 10
+        assert fe == 999  # external_pos - 1 = 1000 - 1
+        assert fs == 990  # external_pos - flank_len = 1000 - 10
 
     def test_left_plus_partial_hit_offset(self):
         """Left terminus, + strand, hmmStart=3 means 2bp gap → offset=2."""
@@ -93,8 +95,8 @@ class TestComputeFlankCoordinates:
         )
         # external_pos = 1000 - (3-1) = 998
         assert offset == 2
-        assert fe == 997   # 998 - 1
-        assert fs == 988   # 998 - 10
+        assert fe == 997  # 998 - 1
+        assert fs == 988  # 998 - 10
 
     # ---- LEFT terminus, - strand -----------------------------------------
 
@@ -234,8 +236,15 @@ class TestDetermineTerminusType:
     """Tests for _determine_terminus_type terminus inference."""
 
     def _hit(self, model, strand):
-        return HitRec(model=model, target='chr1', hitStart=100, hitEnd=200,
-                      strand=strand, idx=0, evalue='1e-10')
+        return HitRec(
+            model=model,
+            target='chr1',
+            hitStart=100,
+            hitEnd=200,
+            strand=strand,
+            idx=0,
+            evalue='1e-10',
+        )
 
     def test_asymmetric_left_model(self):
         config = PairingConfig(orientation='F,R', left_model='L', right_model='R')
@@ -393,7 +402,9 @@ class TestWriteFlanks:
             seq_lines = [line for line in lines if not line.startswith('>')]
             right_seq = ''.join(seq_lines)
             assert len(right_seq) == 10
-            assert right_seq == 'C' * 10, f'Expected all-C right flank, got {right_seq!r}'
+            assert right_seq == 'C' * 10, (
+                f'Expected all-C right flank, got {right_seq!r}'
+            )
 
     def test_FF_orientation_paired_flanks(self):
         """F,F asymmetric: left model + strand, right model + strand."""
@@ -455,7 +466,7 @@ class TestWriteFlanks:
                 'model': 'TIR',
                 'target': 'chr1',
                 'hit_start': 200,
-                'hit_end': 297,   # 98bp match, hmmStart=3
+                'hit_end': 297,  # 98bp match, hmmStart=3
                 'strand': '+',
                 'hmm_start': 3,
                 'hmm_end': 100,
@@ -495,7 +506,9 @@ class TestWriteFlanks:
                 content = fh.read()
             # Left flank: external_pos = 200 - 2 = 198; flank is [193, 197]
             # All 'A' in mock genome
-            seq = ''.join(line for line in content.splitlines() if not line.startswith('>'))
+            seq = ''.join(
+                line for line in content.splitlines() if not line.startswith('>')
+            )
             assert len(seq) == 5
 
     def test_flank_max_offset_skips_hit(self):
@@ -505,7 +518,7 @@ class TestWriteFlanks:
                 'model': 'TIR',
                 'target': 'chr1',
                 'hit_start': 200,
-                'hit_end': 295,   # hmmStart=6 → offset=5
+                'hit_end': 295,  # hmmStart=6 → offset=5
                 'strand': '+',
                 'hmm_start': 6,
                 'hmm_end': 100,

@@ -668,9 +668,10 @@ def filter_hits_by_anchor(
             model_terminus[right_model] = 'right'
 
     kept: List[bool] = []
-    skipped_no_length = 0
     skipped_no_terminus = 0
     removed = 0
+    removed_per_model: Dict[str, int] = {}
+    missing_lengths: Set[str] = set()
 
     for _, row in hit_table.iterrows():
         model = row['model']
@@ -693,15 +694,15 @@ def filter_hits_by_anchor(
             terminus_type = None
 
         if terminus_type is None:
-            # Cannot determine terminus type – keep the hit and warn once
+            # Cannot determine terminus type – keep the hit and note once
             skipped_no_terminus += 1
             kept.append(True)
             continue
 
         model_len = query_lengths.get(model)
         if model_len is None:
-            # No length available – keep the hit
-            skipped_no_length += 1
+            # Length required but not available – collect and report as error
+            missing_lengths.add(model)
             kept.append(True)
             continue
 
@@ -721,12 +722,17 @@ def filter_hits_by_anchor(
         else:
             kept.append(False)
             removed += 1
+            removed_per_model[model] = removed_per_model.get(model, 0) + 1
 
-    if skipped_no_length:
-        logging.warning(
-            f'Anchor filter: {skipped_no_length} hit(s) kept without checking – '
-            'model length not available. Provide --lengths-file to enable full filtering.'
+    # Raise immediately if any model lengths were needed but missing
+    if missing_lengths:
+        missing_list = ', '.join(sorted(missing_lengths))
+        raise EnsembleSearchError(
+            f'Anchor filter requires model lengths for {len(missing_lengths)} model(s) '
+            f'that are not available: {missing_list}. '
+            'Provide lengths via --fasta, --hmm, or --lengths-file.'
         )
+
     if skipped_no_terminus:
         logging.debug(
             f'Anchor filter: {skipped_no_terminus} hit(s) kept without checking – '
@@ -740,6 +746,9 @@ def filter_hits_by_anchor(
         f'Anchor filter (max_offset={max_offset}): {len(hit_table)} -> {len(result)} hits '
         f'({removed} removed)'
     )
+    if removed_per_model:
+        for model_name, count in sorted(removed_per_model.items()):
+            logging.info(f'  {model_name}: {count} hit(s) excluded by anchor filter')
     return result
 
 

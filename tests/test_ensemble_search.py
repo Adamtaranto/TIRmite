@@ -787,7 +787,10 @@ class TestFilterHitsByAnchor:
 
     def test_missing_model_length_raises_error(self):
         """Raises EnsembleSearchError when model length is required but unavailable."""
-        from tirmite.cli.ensemble_search import EnsembleSearchError, filter_hits_by_anchor
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            filter_hits_by_anchor,
+        )
 
         df = self._make_hit_table(
             [
@@ -935,7 +938,9 @@ class TestAnchorFilterFR:
 
         # hmmStart=50 would give offset=49 - would fail with any reasonable max_offset
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=50, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_left_plus_exact_edge_passes(self):
@@ -943,7 +948,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=1, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_left_plus_exact_edge_fails_if_one_off(self):
@@ -951,7 +958,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=2, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
         assert len(result) == 0
 
     def test_left_plus_intermediate_passes(self):
@@ -959,7 +968,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=6, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_left_plus_intermediate_fails(self):
@@ -967,7 +978,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=20, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
         assert len(result) == 0
 
     def test_left_plus_over_model_passes(self):
@@ -975,7 +988,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=99, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     # --- right terminus (- strand): outer edge = position 1, offset = hmmStart-1 ---
@@ -985,7 +1000,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_right_minus_intermediate_passes(self):
@@ -993,7 +1010,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=6, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_right_minus_intermediate_fails(self):
@@ -1001,7 +1020,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=20, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
         assert len(result) == 0
 
     def test_right_minus_over_model_passes(self):
@@ -1009,7 +1030,9 @@ class TestAnchorFilterFR:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=99, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
 
@@ -1027,7 +1050,9 @@ class TestAnchorFilterRF:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_left_minus_exact_edge_fails_if_one_off(self):
@@ -1035,7 +1060,9 @@ class TestAnchorFilterRF:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=99)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
         assert len(result) == 0
 
     def test_left_minus_intermediate_passes(self):
@@ -1043,7 +1070,9 @@ class TestAnchorFilterRF:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=95)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_left_minus_intermediate_fails(self):
@@ -1051,7 +1080,9 @@ class TestAnchorFilterRF:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=80)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
         assert len(result) == 0
 
     def test_left_minus_over_model_passes(self):
@@ -1059,7 +1090,9 @@ class TestAnchorFilterRF:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=5)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     # --- right terminus (+ strand): outer edge = position model_len, offset = model_len - hmmEnd ---
@@ -1069,7 +1102,9 @@ class TestAnchorFilterRF:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=1, hmm_end=100)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_right_plus_intermediate_passes(self):
@@ -1077,7 +1112,9 @@ class TestAnchorFilterRF:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=1, hmm_end=95)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
         assert len(result) == 1
 
     def test_right_plus_intermediate_fails(self):
@@ -1085,7 +1122,9 @@ class TestAnchorFilterRF:
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
         df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=1, hmm_end=80)])
-        result = filter_hits_by_anchor(df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION)
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
         assert len(result) == 0
 
 
@@ -1104,7 +1143,11 @@ class TestAnchorFilterFF:
 
         df = _anchor_df([_make_row('LeftTIR', '+', hmm_start=1, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=0,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1114,7 +1157,11 @@ class TestAnchorFilterFF:
 
         df = _anchor_df([_make_row('LeftTIR', '+', hmm_start=6, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1124,7 +1171,11 @@ class TestAnchorFilterFF:
 
         df = _anchor_df([_make_row('LeftTIR', '+', hmm_start=20, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 0
 
@@ -1134,7 +1185,11 @@ class TestAnchorFilterFF:
 
         df = _anchor_df([_make_row('LeftTIR', '+', hmm_start=99, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=200,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1146,7 +1201,11 @@ class TestAnchorFilterFF:
 
         df = _anchor_df([_make_row('RightTIR', '+', hmm_start=1, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=0,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1156,7 +1215,11 @@ class TestAnchorFilterFF:
 
         df = _anchor_df([_make_row('RightTIR', '+', hmm_start=1, hmm_end=95)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1166,7 +1229,11 @@ class TestAnchorFilterFF:
 
         df = _anchor_df([_make_row('RightTIR', '+', hmm_start=1, hmm_end=80)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 0
 
@@ -1176,7 +1243,11 @@ class TestAnchorFilterFF:
 
         df = _anchor_df([_make_row('RightTIR', '+', hmm_start=1, hmm_end=5)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=200,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1207,7 +1278,11 @@ class TestAnchorFilterRR:
 
         df = _anchor_df([_make_row('LeftTIR', '-', hmm_start=1, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=0,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1217,7 +1292,11 @@ class TestAnchorFilterRR:
 
         df = _anchor_df([_make_row('LeftTIR', '-', hmm_start=1, hmm_end=95)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1227,7 +1306,11 @@ class TestAnchorFilterRR:
 
         df = _anchor_df([_make_row('LeftTIR', '-', hmm_start=1, hmm_end=80)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 0
 
@@ -1237,7 +1320,11 @@ class TestAnchorFilterRR:
 
         df = _anchor_df([_make_row('LeftTIR', '-', hmm_start=1, hmm_end=5)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=200,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1249,7 +1336,11 @@ class TestAnchorFilterRR:
 
         df = _anchor_df([_make_row('RightTIR', '-', hmm_start=1, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=0,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1259,7 +1350,11 @@ class TestAnchorFilterRR:
 
         df = _anchor_df([_make_row('RightTIR', '-', hmm_start=6, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1269,7 +1364,11 @@ class TestAnchorFilterRR:
 
         df = _anchor_df([_make_row('RightTIR', '-', hmm_start=20, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 0
 
@@ -1279,7 +1378,11 @@ class TestAnchorFilterRR:
 
         df = _anchor_df([_make_row('RightTIR', '-', hmm_start=99, hmm_end=100)])
         result = filter_hits_by_anchor(
-            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION, pairing_map=self.PAIRING
+            df,
+            self.LENGTHS,
+            max_offset=200,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
         )
         assert len(result) == 1
 
@@ -1289,7 +1392,10 @@ class TestAnchorFilterMissingLength:
 
     def test_raises_error_when_length_missing_fr(self):
         """Raises EnsembleSearchError when F,R hit has no model length."""
-        from tirmite.cli.ensemble_search import EnsembleSearchError, filter_hits_by_anchor
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            filter_hits_by_anchor,
+        )
 
         df = _anchor_df([_make_row('TIR', '+', hmm_start=1, hmm_end=80)])
         with pytest.raises(EnsembleSearchError, match='model length'):
@@ -1297,7 +1403,10 @@ class TestAnchorFilterMissingLength:
 
     def test_raises_error_names_missing_model(self):
         """Error message includes the name of the missing model."""
-        from tirmite.cli.ensemble_search import EnsembleSearchError, filter_hits_by_anchor
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            filter_hits_by_anchor,
+        )
 
         df = _anchor_df([_make_row('MyMissingModel', '+', hmm_start=1, hmm_end=80)])
         with pytest.raises(EnsembleSearchError, match='MyMissingModel'):
@@ -1322,10 +1431,12 @@ class TestAnchorFilterLogging:
 
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
-        df = _anchor_df([
-            _make_row('TIR', '+', hmm_start=1, hmm_end=100),   # passes (offset=0)
-            _make_row('TIR', '+', hmm_start=50, hmm_end=100),  # fails (offset=49)
-        ])
+        df = _anchor_df(
+            [
+                _make_row('TIR', '+', hmm_start=1, hmm_end=100),  # passes (offset=0)
+                _make_row('TIR', '+', hmm_start=50, hmm_end=100),  # fails (offset=49)
+            ]
+        )
         with caplog.at_level(stdlib_logging.INFO):
             filter_hits_by_anchor(df, {'TIR': 100}, max_offset=5, orientation='F,R')
 
@@ -1337,10 +1448,12 @@ class TestAnchorFilterLogging:
 
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
-        df = _anchor_df([
-            _make_row('LeftTIR', '+', hmm_start=50, hmm_end=100),   # fails
-            _make_row('RightTIR', '-', hmm_start=50, hmm_end=100),  # fails
-        ])
+        df = _anchor_df(
+            [
+                _make_row('LeftTIR', '+', hmm_start=50, hmm_end=100),  # fails
+                _make_row('RightTIR', '-', hmm_start=50, hmm_end=100),  # fails
+            ]
+        )
         with caplog.at_level(stdlib_logging.INFO):
             filter_hits_by_anchor(
                 df,

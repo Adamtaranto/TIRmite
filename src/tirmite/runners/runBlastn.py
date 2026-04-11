@@ -24,6 +24,29 @@ class BlastError(Exception):
     pass
 
 
+def blast_db_exists(db_prefix: Union[str, Path]) -> bool:
+    """
+    Check if BLAST database files exist for the given prefix.
+
+    Parameters
+    ----------
+    db_prefix : str or Path
+        Path prefix for BLAST database files (without extension).
+
+    Returns
+    -------
+    bool
+        True if any of the expected BLAST database files exist, False otherwise.
+
+    Notes
+    -----
+    Checks for BLAST+ nucleotide database extensions: .nhr, .nin, .nsq,
+    .ndb, .not, .ntf, .nto.
+    """
+    db_extensions = ['.nhr', '.nin', '.nsq', '.ndb', '.not', '.ntf', '.nto']
+    return any(Path(f'{db_prefix}{ext}').exists() for ext in db_extensions)
+
+
 def check_blast_available() -> bool:
     """
     Check if blastn executable is available in system PATH.
@@ -65,7 +88,9 @@ def run_blastn(
     query : str or Path
         Path to query sequence file (FASTA format).
     subject : str or Path
-        Path to subject/database sequence file (FASTA format).
+        Path to subject sequence file (FASTA format) or BLAST database prefix.
+        If a pre-built BLAST database is provided (prefix without extension),
+        the ``-db`` flag is used instead of ``-subject``.
     output : str or Path
         Path to output file for BLAST results.
     word_size : int, default 4
@@ -89,7 +114,8 @@ def run_blastn(
     Raises
     ------
     FileNotFoundError
-        If query or subject files don't exist.
+        If query file doesn't exist, or subject is neither an existing file
+        nor a valid BLAST database prefix.
     BlastError
         If blastn is not available, execution fails, or output file not created.
 
@@ -104,8 +130,13 @@ def run_blastn(
 
     if not query_path.exists():
         raise FileNotFoundError(f'Query file not found: {query_path}')
-    if not subject_path.exists():
-        raise FileNotFoundError(f'Subject file not found: {subject_path}')
+
+    # Determine whether subject is a FASTA file or a BLAST database prefix
+    subject_is_db = blast_db_exists(subject_path)
+    if not subject_path.exists() and not subject_is_db:
+        raise FileNotFoundError(
+            f'Subject file or BLAST database not found: {subject_path}'
+        )
 
     # Ensure output directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -123,15 +154,22 @@ def run_blastn(
         outfmt,
         '-query',
         str(query_path),
-        '-subject',
-        str(subject_path),
+    ]
+
+    # Use -db for BLAST database prefix, -subject for FASTA file
+    if subject_is_db:
+        cmd.extend(['-db', str(subject_path)])
+    else:
+        cmd.extend(['-subject', str(subject_path)])
+
+    cmd.extend([
         '-out',
         str(output_path),
         '-perc_identity',
         str(perc_identity),
         '-num_threads',
         str(num_threads),
-    ]
+    ])
 
     # Add any additional arguments
     if additional_args:
@@ -141,7 +179,10 @@ def run_blastn(
         logging.info('Running blastn with the following parameters:')
         logging.info(f'  Command: {" ".join(cmd)}')
         logging.info(f'  Query: {query_path}')
-        logging.info(f'  Subject: {subject_path}')
+        if subject_is_db:
+            logging.info(f'  BLAST database: {subject_path}')
+        else:
+            logging.info(f'  Subject: {subject_path}')
         logging.info(f'  Output: {output_path}')
         logging.info(f'  Word size: {word_size}')
         logging.info(f'  Percent identity: {perc_identity}%')

@@ -759,7 +759,7 @@ def isfirstUnpaired(
         if (
             candidate_model in index
             and candidate_idx in index[candidate_model]
-            and not index[candidate_model][candidate_idx]['partner']
+            and index[candidate_model][candidate_idx]['partner'] is None
             and candidate_idx == ref
         ):
             found = {candidate_idx, mate}
@@ -771,7 +771,7 @@ def isfirstUnpaired(
         elif (
             candidate_model in index
             and candidate_idx in index[candidate_model]
-            and not index[candidate_model][candidate_idx]['partner']
+            and index[candidate_model][candidate_idx]['partner'] is None
         ):
             mateFUP = candidate_idx
             return found, index, mateFUP
@@ -826,11 +826,11 @@ def getPairs(
         # Ask each hit in genome
         for refID in hitIndex[model].keys():
             # If it has been asigned a partner
-            if not hitIndex[model][refID]['partner']:
+            if hitIndex[model][refID]['partner'] is None:
                 # If not partnered, start checking candidate partners
                 for Can1 in hitIndex[model][refID]['candidates']:
                     # For a candidate that is also unpartnered
-                    if not hitIndex[model][Can1.idx]['partner']:
+                    if hitIndex[model][Can1.idx]['partner'] is None:
                         # Check if unpartnered candidate is a reciprocal
                         # match for our hit
                         found, hitIndex, mateFUP = isfirstUnpaired(
@@ -869,7 +869,7 @@ def countUnpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> int:
     count = 0
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
-            if not hitIndex[model][hitID]['partner']:
+            if hitIndex[model][hitID]['partner'] is None:
                 count += 1
     return count
 
@@ -891,7 +891,7 @@ def listunpaired(hitIndex: Dict[str, Dict[int, Dict[str, Any]]]) -> List[int]:
     unpaired = []
     for model in hitIndex.keys():
         for hitID in hitIndex[model].keys():
-            if not hitIndex[model][hitID]['partner']:
+            if hitIndex[model][hitID]['partner'] is None:
                 unpaired.append(hitID)
     return unpaired
 
@@ -1921,7 +1921,7 @@ def fetchUnpaired(
     )
     for model in hitIndex.keys():
         for recID in hitIndex[model].keys():
-            if not hitIndex[model][recID]['partner']:
+            if hitIndex[model][recID]['partner'] is None:
                 x = hitIndex[model][recID]['rec']
                 orphan = gffTup(
                     x.model,
@@ -2405,13 +2405,16 @@ def parseHitsGeneral(
                         ref = hitIndex[right_model][UID]['rec']
 
                         if ref.strand == right_strand:
-                            # Determine search direction (opposite of left)
-                            if right_strand == '+':
-                                search_direction = 'right_to_left'  # Search upstream
+                            # The right model looks for the left model in the opposite
+                            # genomic direction from where the left model looks for it.
+                            # The direction is determined by the left_strand (where the
+                            # left terminus sits relative to the right):
+                            #   left(+) is at lower coords  → right looks right_to_left
+                            #   left(-) is at higher coords → right looks left_to_right
+                            if left_strand == '+':
+                                search_direction = 'right_to_left'
                             else:
-                                search_direction = (
-                                    'left_to_right'  # Search downstream (neg strand)
-                                )
+                                search_direction = 'left_to_right'
 
                             logging.debug(
                                 f'Right model hit {UID} ({right_strand}) searching {search_direction} for left model on {left_strand}'
@@ -2862,7 +2865,7 @@ def getPairsAsymmetric(
     # Get hits from left model looking for right model partners
     if config.left_model in hitIndex:
         for leftID in hitIndex[config.left_model].keys():
-            if not hitIndex[config.left_model][leftID]['partner']:
+            if hitIndex[config.left_model][leftID]['partner'] is None:
                 left_hit = hitIndex[config.left_model][leftID]['rec']
 
                 # REMOVED: Strand restriction check
@@ -2881,7 +2884,7 @@ def getPairsAsymmetric(
                     if (
                         candidate.model == config.right_model
                         and candidate.idx in hitIndex[config.right_model]
-                        and not hitIndex[config.right_model][candidate.idx]['partner']
+                        and hitIndex[config.right_model][candidate.idx]['partner'] is None
                     ):
                         # Check if this left hit is also the best candidate for the right hit
                         found = checkAsymmetricReciprocity(
@@ -2963,7 +2966,7 @@ def checkAsymmetricReciprocity(
             candidate.model == left_model
             # REMOVED: strand compatibility check - already filtered
             and candidate.idx in hitIndex[left_model]
-            and not hitIndex[left_model][candidate.idx]['partner']
+            and hitIndex[left_model][candidate.idx]['partner'] is None
         ):
             if candidate.idx == left_id:
                 logging.debug(
@@ -3116,7 +3119,7 @@ def getPairsSymmetric(
     pairs_found = 0
 
     for refID in hitIndex[model_name].keys():
-        if not hitIndex[model_name][refID]['partner']:
+        if hitIndex[model_name][refID]['partner'] is None:
             ref_hit = hitIndex[model_name][refID]['rec']
 
             # Check if this hit can act as a left or right terminus based on strand
@@ -3143,7 +3146,7 @@ def getPairsSymmetric(
                 if (
                     candidate.model == model_name
                     and candidate.idx in hitIndex[model_name]
-                    and not hitIndex[model_name][candidate.idx]['partner']
+                    and hitIndex[model_name][candidate.idx]['partner'] is None
                 ):
                     # Check strand compatibility for symmetric pairing
                     candidate_can_be_left = candidate.strand == config.left_strand
@@ -3223,7 +3226,7 @@ def checkSymmetricReciprocity(
     for mate_candidate in hitIndex[model_name][candidate_id]['candidates']:
         if (
             mate_candidate.idx in hitIndex[model_name]
-            and not hitIndex[model_name][mate_candidate.idx]['partner']
+            and hitIndex[model_name][mate_candidate.idx]['partner'] is None
         ):
             # Check strand compatibility
             mate_hit = hitIndex[model_name][mate_candidate.idx]['rec']
@@ -3274,7 +3277,7 @@ def countUnpairedAsymmetric(
     for model in [config.left_model, config.right_model]:
         if model in hitIndex:
             for hitID in hitIndex[model].keys():
-                if not hitIndex[model][hitID]['partner']:
+                if hitIndex[model][hitID]['partner'] is None:
                     count += 1  # Count all unpaired hits regardless of strand
     return count
 
@@ -3301,7 +3304,7 @@ def listunpairedAsymmetric(
     for model in [config.left_model, config.right_model]:
         if model in hitIndex:
             for hitID in hitIndex[model].keys():
-                if not hitIndex[model][hitID]['partner']:
+                if hitIndex[model][hitID]['partner'] is None:
                     unpaired.append(
                         hitID
                     )  # Include all unpaired hits regardless of strand
@@ -3338,7 +3341,7 @@ def countUnpairedSymmetric(
 
     count = 0
     for hitID in hitIndex[model_name].keys():
-        if not hitIndex[model_name][hitID]['partner']:
+        if hitIndex[model_name][hitID]['partner'] is None:
             hit = hitIndex[model_name][hitID]['rec']
             # Only count hits that can participate in pairing
             if hit.strand in [config.left_strand, config.right_strand]:
@@ -3376,7 +3379,7 @@ def listunpairedSymmetric(
 
     unpaired = []
     for hitID in hitIndex[model_name].keys():
-        if not hitIndex[model_name][hitID]['partner']:
+        if hitIndex[model_name][hitID]['partner'] is None:
             hit = hitIndex[model_name][hitID]['rec']
             # Only include hits that can participate in pairing
             if hit.strand in [config.left_strand, config.right_strand]:

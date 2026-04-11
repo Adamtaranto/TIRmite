@@ -1120,28 +1120,28 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 right_model=right_model_name,
             )
         elif args.leftBlast and args.rightBlast:
-            # Asymmetric BLAST pairing - extract model names from hitTable
-            blast_models = hitTable['model'].unique()
-            if len(blast_models) < 2:
+            # Asymmetric BLAST pairing - extract model names from each file's hitTable
+            # Use left_hitTable and right_hitTable (imported earlier) to ensure the
+            # left model comes from --leftBlast and right model from --rightBlast.
+            # Do NOT use hitTable['model'].unique() here because the combined table is
+            # sorted alphabetically, which would assign models based on query name order
+            # rather than which file they came from.
+            left_model_names = left_hitTable['model'].unique()
+            right_model_names = right_hitTable['model'].unique()
+
+            if len(left_model_names) == 0 or len(right_model_names) == 0:
                 logging.error(
-                    f'Expected 2 models for asymmetric pairing, found {len(blast_models)}'
+                    'Expected at least 1 model in each BLAST file for asymmetric pairing'
                 )
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
-            # Note: Model assignment is based on order of appearance in combined hit table
-            # The first model encountered becomes 'left', second becomes 'right'
-            # For deterministic results, ensure leftBlast file contains only left query hits
-            # and rightBlast file contains only right query hits
-            left_model_name = blast_models[0]
-            right_model_name = blast_models[1]
+            left_model_name = left_model_names[0]
+            right_model_name = right_model_names[0]
             logging.info(
                 f'Assigning models for asymmetric pairing: '
-                f'left={left_model_name}, right={right_model_name}'
-            )
-            logging.info(
-                'Note: First unique model becomes "left", second becomes "right" '
-                'based on order in input files'
+                f'left={left_model_name} (from --leftBlast), '
+                f'right={right_model_name} (from --rightBlast)'
             )
 
             config = tirmite.PairingConfig(

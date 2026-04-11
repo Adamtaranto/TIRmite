@@ -11,8 +11,8 @@ import tempfile
 import pandas as pd
 import pytest
 
-import tirmite.tirmitetools as tirmite
 from tirmite.runners.runBlastn import BlastError, blast_db_exists, run_blastn
+import tirmite.tirmitetools as tirmite
 
 
 @pytest.fixture
@@ -245,7 +245,9 @@ def test_run_blastn_raises_for_missing_subject(tmp_path):
     query_file.write_text('>seq1\nACGT\n')
     output_file = tmp_path / 'out.tab'
 
-    with pytest.raises(FileNotFoundError, match='Subject file or BLAST database not found'):
+    with pytest.raises(
+        FileNotFoundError, match='Subject file or BLAST database not found'
+    ):
         run_blastn(
             query=query_file,
             subject=tmp_path / 'nonexistent_db',

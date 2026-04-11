@@ -548,5 +548,923 @@ class TestCrossClusterOverlaps:
         assert 'Cross-cluster overlap' in caplog.text
 
 
+# -----------------------------------------------------------------------------
+# Anchor (Outer-Edge) Filter Tests
+# -----------------------------------------------------------------------------
+
+
+class TestComputeOuterEdgeOffset:
+    """Tests for compute_outer_edge_offset."""
+
+    def test_left_plus_at_edge(self):
+        """Left terminus, + strand: hmmStart=1 → offset 0."""
+        from tirmite.cli.ensemble_search import compute_outer_edge_offset
+
+        assert compute_outer_edge_offset(1, 100, 100, '+', 'left') == 0
+
+    def test_left_plus_offset_5(self):
+        """Left terminus, + strand: hmmStart=6 → offset 5."""
+        from tirmite.cli.ensemble_search import compute_outer_edge_offset
+
+        assert compute_outer_edge_offset(6, 100, 100, '+', 'left') == 5
+
+    def test_left_minus_at_edge(self):
+        """Left terminus, - strand: hmmEnd=model_len → offset 0."""
+        from tirmite.cli.ensemble_search import compute_outer_edge_offset
+
+        assert compute_outer_edge_offset(1, 100, 100, '-', 'left') == 0
+
+    def test_left_minus_offset_5(self):
+        """Left terminus, - strand: hmmEnd=95 with model_len=100 → offset 5."""
+        from tirmite.cli.ensemble_search import compute_outer_edge_offset
+
+        assert compute_outer_edge_offset(1, 95, 100, '-', 'left') == 5
+
+    def test_right_plus_at_edge(self):
+        """Right terminus, + strand: hmmEnd=model_len → offset 0."""
+        from tirmite.cli.ensemble_search import compute_outer_edge_offset
+
+        assert compute_outer_edge_offset(1, 100, 100, '+', 'right') == 0
+
+    def test_right_plus_offset_5(self):
+        """Right terminus, + strand: hmmEnd=95, model_len=100 → offset 5."""
+        from tirmite.cli.ensemble_search import compute_outer_edge_offset
+
+        assert compute_outer_edge_offset(1, 95, 100, '+', 'right') == 5
+
+    def test_right_minus_at_edge(self):
+        """Right terminus, - strand: hmmStart=1 → offset 0."""
+        from tirmite.cli.ensemble_search import compute_outer_edge_offset
+
+        assert compute_outer_edge_offset(1, 100, 100, '-', 'right') == 0
+
+    def test_right_minus_offset_5(self):
+        """Right terminus, - strand: hmmStart=6 → offset 5."""
+        from tirmite.cli.ensemble_search import compute_outer_edge_offset
+
+        assert compute_outer_edge_offset(6, 100, 100, '-', 'right') == 5
+
+
+class TestFilterHitsByAnchor:
+    """Tests for filter_hits_by_anchor."""
+
+    def _make_hit_table(self, rows):
+        """Helper to build a hit DataFrame."""
+        return pd.DataFrame(rows)
+
+    # ------------------------------------------------------------------
+    # F,R orientation (canonical TIR): + strand = left, - strand = right
+    # ------------------------------------------------------------------
+
+    def test_fr_left_plus_passes_within_offset(self):
+        """F,R: left(+) hit with hmmStart=6 passes when max_offset=10."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '6',
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
+        assert len(result) == 1
+
+    def test_fr_left_plus_removed_exceeds_offset(self):
+        """F,R: left(+) hit with hmmStart=16 (offset=15) is removed when max_offset=10."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '16',
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
+        assert len(result) == 0
+
+    def test_fr_right_minus_passes_within_offset(self):
+        """F,R: right(-) hit with hmmStart=1 (offset=0) passes when max_offset=10."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '-',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
+        assert len(result) == 1
+
+    def test_fr_right_minus_removed_exceeds_offset(self):
+        """F,R: right(-) hit with hmmStart=20 (offset=19) is removed when max_offset=10."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '-',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '20',
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
+        assert len(result) == 0
+
+    # ------------------------------------------------------------------
+    # Asymmetric pairing: model name determines terminus type
+    # ------------------------------------------------------------------
+
+    def test_asymmetric_left_model_filtered(self):
+        """Asymmetric: left model with large offset is removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'LeftModel',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '20',  # offset = 19 > max_offset=10
+                    'hmmEnd': '100',
+                },
+                {
+                    'model': 'RightModel',
+                    'target': 'chr1',
+                    'hitStart': '300',
+                    'hitEnd': '400',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '95',  # offset = 5 <= max_offset=10
+                },
+            ]
+        )
+        pairing = {'LeftModel': 'RightModel'}
+        lengths = {'LeftModel': 100, 'RightModel': 100}
+        result = filter_hits_by_anchor(
+            df, lengths, max_offset=10, orientation='F,F', pairing_map=pairing
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'RightModel'
+
+    # ------------------------------------------------------------------
+    # Edge cases
+    # ------------------------------------------------------------------
+
+    def test_empty_table_returned_unchanged(self):
+        """Empty hit table is returned unchanged."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = pd.DataFrame(
+            columns=[
+                'model',
+                'target',
+                'hitStart',
+                'hitEnd',
+                'strand',
+                'evalue',
+                'score',
+                'bias',
+                'hmmStart',
+                'hmmEnd',
+            ]
+        )
+        result = filter_hits_by_anchor(df, {}, max_offset=5)
+        assert result.empty
+
+    def test_missing_model_length_raises_error(self):
+        """Raises EnsembleSearchError when model length is required but unavailable."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            filter_hits_by_anchor,
+        )
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'UnknownModel',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '50',
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        with pytest.raises(EnsembleSearchError, match='model length'):
+            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+
+    def test_ff_symmetric_no_pairing_map_keeps_hits(self):
+        """F,F symmetric without pairing map: terminus type unknown → hits kept."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '50',  # Large offset – would be removed if type known
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        # F,F: same strand, no pairing map → terminus type = None → kept
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation='F,F'
+        )
+        assert len(result) == 1
+
+    def test_rf_orientation_left_minus_filtered(self):
+        """R,F: left(-) hit outer edge at position model_len; hmmEnd=80 → offset=20 > 10."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '-',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '80',  # left(-): offset = model_len - hmmEnd = 100-80 = 20
+                }
+            ]
+        )
+        # R,F: left_strand='-', right_strand='+'
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='R,F'
+        )
+        assert len(result) == 0
+
+    def test_exact_offset_boundary_kept(self):
+        """Hit with offset exactly equal to max_offset is kept."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '11',  # offset = 10 = max_offset → kept
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
+        assert len(result) == 1
+
+
+# -----------------------------------------------------------------------------
+# Comprehensive Anchor Filter Tests – All Orientations & Offset Values
+# -----------------------------------------------------------------------------
+
+# Helper: a standard 100-bp model with hits that start/end at various positions.
+# hmmStart/hmmEnd are 1-based positions in the query (BLAST qstart/qend or hmmer).
+#
+# Offset scenarios tested per orientation:
+#   - no_anchor  : max_offset is None → filter not applied (all hits pass)
+#   - exact_zero : max_offset=0 → only hits at the outer edge pass
+#   - intermediate: max_offset=10 → hits within 10 bp of outer edge pass
+#   - over_model : max_offset=200 (> model len 100) → all hits pass
+
+
+def _make_row(model, strand, hmm_start, hmm_end, target='chr1', model_len=100):
+    """Create a single hit-table row dict."""
+    return {
+        'model': model,
+        'target': target,
+        'hitStart': '100',
+        'hitEnd': str(100 + model_len - 1),
+        'strand': strand,
+        'evalue': '1e-10',
+        'score': '100',
+        'bias': 'NA',
+        'hmmStart': str(hmm_start),
+        'hmmEnd': str(hmm_end),
+    }
+
+
+def _anchor_df(rows):
+    return pd.DataFrame(rows)
+
+
+class TestAnchorFilterFR:
+    """Comprehensive anchor tests for F,R orientation (+ = left, - = right)."""
+
+    ORIENTATION = 'F,R'
+    MODEL = 'TIR'
+    LENGTHS = {'TIR': 100}
+
+    # --- left terminus (+ strand): outer edge = position 1, offset = hmmStart-1 ---
+
+    def test_left_plus_no_anchor_passes(self):
+        """No anchor filter: all hits pass regardless of offset."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        # hmmStart=50 would give offset=49 - would fail with any reasonable max_offset
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=50, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_left_plus_exact_edge_passes(self):
+        """Left(+): hmmStart=1 (offset=0), max_offset=0 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=1, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_left_plus_exact_edge_fails_if_one_off(self):
+        """Left(+): hmmStart=2 (offset=1), max_offset=0 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=2, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
+        assert len(result) == 0
+
+    def test_left_plus_intermediate_passes(self):
+        """Left(+): hmmStart=6 (offset=5), max_offset=10 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=6, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_left_plus_intermediate_fails(self):
+        """Left(+): hmmStart=20 (offset=19), max_offset=10 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=20, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
+        assert len(result) == 0
+
+    def test_left_plus_over_model_passes(self):
+        """Left(+): max_offset=200 (larger than model) → all hits pass."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=99, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    # --- right terminus (- strand): outer edge = position 1, offset = hmmStart-1 ---
+
+    def test_right_minus_exact_edge_passes(self):
+        """Right(-): hmmStart=1 (offset=0), max_offset=0 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_right_minus_intermediate_passes(self):
+        """Right(-): hmmStart=6 (offset=5), max_offset=10 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=6, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_right_minus_intermediate_fails(self):
+        """Right(-): hmmStart=20 (offset=19), max_offset=10 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=20, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
+        assert len(result) == 0
+
+    def test_right_minus_over_model_passes(self):
+        """Right(-): max_offset=200 → all hits pass."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=99, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+
+class TestAnchorFilterRF:
+    """Comprehensive anchor tests for R,F orientation (- = left, + = right)."""
+
+    ORIENTATION = 'R,F'
+    MODEL = 'TIR'
+    LENGTHS = {'TIR': 100}
+
+    # --- left terminus (- strand): outer edge = position model_len, offset = model_len - hmmEnd ---
+
+    def test_left_minus_exact_edge_passes(self):
+        """Left(-): hmmEnd=100 (offset=0), max_offset=0 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_left_minus_exact_edge_fails_if_one_off(self):
+        """Left(-): hmmEnd=99 (offset=1), max_offset=0 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=99)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
+        assert len(result) == 0
+
+    def test_left_minus_intermediate_passes(self):
+        """Left(-): hmmEnd=95 (offset=5), max_offset=10 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=95)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_left_minus_intermediate_fails(self):
+        """Left(-): hmmEnd=80 (offset=20), max_offset=10 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=80)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
+        assert len(result) == 0
+
+    def test_left_minus_over_model_passes(self):
+        """Left(-): max_offset=200 → all hits pass."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '-', hmm_start=1, hmm_end=5)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=200, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    # --- right terminus (+ strand): outer edge = position model_len, offset = model_len - hmmEnd ---
+
+    def test_right_plus_exact_edge_passes(self):
+        """Right(+): hmmEnd=100 (offset=0), max_offset=0 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=1, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=0, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_right_plus_intermediate_passes(self):
+        """Right(+): hmmEnd=95 (offset=5), max_offset=10 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=1, hmm_end=95)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+    def test_right_plus_intermediate_fails(self):
+        """Right(+): hmmEnd=80 (offset=20), max_offset=10 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row(self.MODEL, '+', hmm_start=1, hmm_end=80)])
+        result = filter_hits_by_anchor(
+            df, self.LENGTHS, max_offset=10, orientation=self.ORIENTATION
+        )
+        assert len(result) == 0
+
+
+class TestAnchorFilterFF:
+    """Comprehensive anchor tests for F,F orientation with asymmetric pairing map."""
+
+    ORIENTATION = 'F,F'
+    LENGTHS = {'LeftTIR': 100, 'RightTIR': 100}
+    PAIRING = {'LeftTIR': 'RightTIR'}
+
+    # --- left terminus (LeftTIR, + strand): outer edge = pos 1, offset = hmmStart-1 ---
+
+    def test_ff_left_exact_edge_passes(self):
+        """F,F left: hmmStart=1 (offset=0), max_offset=0 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('LeftTIR', '+', hmm_start=1, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=0,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_ff_left_intermediate_passes(self):
+        """F,F left: hmmStart=6 (offset=5), max_offset=10 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('LeftTIR', '+', hmm_start=6, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_ff_left_intermediate_fails(self):
+        """F,F left: hmmStart=20 (offset=19), max_offset=10 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('LeftTIR', '+', hmm_start=20, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 0
+
+    def test_ff_left_over_model_passes(self):
+        """F,F left: max_offset=200 → all hits pass."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('LeftTIR', '+', hmm_start=99, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=200,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    # --- right terminus (RightTIR, + strand): outer edge = pos model_len, offset = model_len - hmmEnd ---
+
+    def test_ff_right_exact_edge_passes(self):
+        """F,F right: hmmEnd=100 (offset=0), max_offset=0 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('RightTIR', '+', hmm_start=1, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=0,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_ff_right_intermediate_passes(self):
+        """F,F right: hmmEnd=95 (offset=5), max_offset=10 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('RightTIR', '+', hmm_start=1, hmm_end=95)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_ff_right_intermediate_fails(self):
+        """F,F right: hmmEnd=80 (offset=20), max_offset=10 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('RightTIR', '+', hmm_start=1, hmm_end=80)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 0
+
+    def test_ff_right_over_model_passes(self):
+        """F,F right: max_offset=200 → all hits pass."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('RightTIR', '+', hmm_start=1, hmm_end=5)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=200,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_ff_no_pairing_map_keeps_hits(self):
+        """F,F without pairing map: terminus type unknown → hits kept unchanged."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        # Large offset that would be removed if terminus type were known
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation=self.ORIENTATION
+        )
+        assert len(result) == 1
+
+
+class TestAnchorFilterRR:
+    """Comprehensive anchor tests for R,R orientation with asymmetric pairing map."""
+
+    ORIENTATION = 'R,R'
+    LENGTHS = {'LeftTIR': 100, 'RightTIR': 100}
+    PAIRING = {'LeftTIR': 'RightTIR'}
+
+    # --- left terminus (LeftTIR, - strand): outer edge = pos model_len, offset = model_len - hmmEnd ---
+
+    def test_rr_left_exact_edge_passes(self):
+        """R,R left(-): hmmEnd=100 (offset=0), max_offset=0 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('LeftTIR', '-', hmm_start=1, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=0,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_rr_left_intermediate_passes(self):
+        """R,R left(-): hmmEnd=95 (offset=5), max_offset=10 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('LeftTIR', '-', hmm_start=1, hmm_end=95)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_rr_left_intermediate_fails(self):
+        """R,R left(-): hmmEnd=80 (offset=20), max_offset=10 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('LeftTIR', '-', hmm_start=1, hmm_end=80)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 0
+
+    def test_rr_left_over_model_passes(self):
+        """R,R left(-): max_offset=200 → all hits pass."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('LeftTIR', '-', hmm_start=1, hmm_end=5)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=200,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    # --- right terminus (RightTIR, - strand): outer edge = pos 1, offset = hmmStart-1 ---
+
+    def test_rr_right_exact_edge_passes(self):
+        """R,R right(-): hmmStart=1 (offset=0), max_offset=0 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('RightTIR', '-', hmm_start=1, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=0,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_rr_right_intermediate_passes(self):
+        """R,R right(-): hmmStart=6 (offset=5), max_offset=10 → passes."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('RightTIR', '-', hmm_start=6, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+    def test_rr_right_intermediate_fails(self):
+        """R,R right(-): hmmStart=20 (offset=19), max_offset=10 → removed."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('RightTIR', '-', hmm_start=20, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=10,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 0
+
+    def test_rr_right_over_model_passes(self):
+        """R,R right(-): max_offset=200 → all hits pass."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('RightTIR', '-', hmm_start=99, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df,
+            self.LENGTHS,
+            max_offset=200,
+            orientation=self.ORIENTATION,
+            pairing_map=self.PAIRING,
+        )
+        assert len(result) == 1
+
+
+class TestAnchorFilterMissingLength:
+    """Tests for error behaviour when model lengths are unavailable."""
+
+    def test_raises_error_when_length_missing_fr(self):
+        """Raises EnsembleSearchError when F,R hit has no model length."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            filter_hits_by_anchor,
+        )
+
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=1, hmm_end=80)])
+        with pytest.raises(EnsembleSearchError, match='model length'):
+            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+
+    def test_raises_error_names_missing_model(self):
+        """Error message includes the name of the missing model."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            filter_hits_by_anchor,
+        )
+
+        df = _anchor_df([_make_row('MyMissingModel', '+', hmm_start=1, hmm_end=80)])
+        with pytest.raises(EnsembleSearchError, match='MyMissingModel'):
+            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+
+    def test_ff_same_strand_no_pairing_map_no_error(self):
+        """F,F without pairing map: terminus type unknown → no error even if length missing."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        # Terminus type cannot be determined → hit is kept without length check
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
+        result = filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,F')
+        assert len(result) == 1
+
+
+class TestAnchorFilterLogging:
+    """Tests for logging output from anchor filter."""
+
+    def test_logging_reports_removed_count(self, caplog):
+        """Anchor filter logs how many hits were excluded."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df(
+            [
+                _make_row('TIR', '+', hmm_start=1, hmm_end=100),  # passes (offset=0)
+                _make_row('TIR', '+', hmm_start=50, hmm_end=100),  # fails (offset=49)
+            ]
+        )
+        with caplog.at_level(stdlib_logging.INFO):
+            filter_hits_by_anchor(df, {'TIR': 100}, max_offset=5, orientation='F,R')
+
+        assert '1 removed' in caplog.text
+
+    def test_logging_reports_per_model_counts(self, caplog):
+        """Anchor filter logs per-model exclusion counts."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df(
+            [
+                _make_row('LeftTIR', '+', hmm_start=50, hmm_end=100),  # fails
+                _make_row('RightTIR', '-', hmm_start=50, hmm_end=100),  # fails
+            ]
+        )
+        with caplog.at_level(stdlib_logging.INFO):
+            filter_hits_by_anchor(
+                df,
+                {'LeftTIR': 100, 'RightTIR': 100},
+                max_offset=5,
+                orientation='F,R',
+            )
+
+        assert 'LeftTIR' in caplog.text
+        assert 'RightTIR' in caplog.text
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

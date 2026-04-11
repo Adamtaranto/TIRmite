@@ -162,14 +162,16 @@ def run_blastn(
     else:
         cmd.extend(['-subject', str(subject_path)])
 
-    cmd.extend([
-        '-out',
-        str(output_path),
-        '-perc_identity',
-        str(perc_identity),
-        '-num_threads',
-        str(num_threads),
-    ])
+    cmd.extend(
+        [
+            '-out',
+            str(output_path),
+            '-perc_identity',
+            str(perc_identity),
+            '-num_threads',
+            str(num_threads),
+        ]
+    )
 
     # Add any additional arguments
     if additional_args:

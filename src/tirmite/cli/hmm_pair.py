@@ -572,6 +572,7 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument(
         '--pairing-map',
+        '--pairing_map',  # underscore alias for backward compatibility
         type=str,
         default=None,
         dest='pairing_map',

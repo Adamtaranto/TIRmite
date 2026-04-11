@@ -11,7 +11,6 @@ Covers:
 - Pairing map file loading with expected formats
 """
 
-import logging
 import os
 import tempfile
 
@@ -137,11 +136,35 @@ class TestPairingMapMultiModel:
         """Two pairs in map → each produces 1 pair on its own contig."""
         rows = [
             # Pair A: left_A upstream of right_A on chr1
-            {'model': 'left_A', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_A', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
+            {
+                'model': 'left_A',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_A',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
             # Pair B: left_B upstream of right_B on chr2
-            {'model': 'left_B', 'target': 'chr2', 'hit_start': 500, 'hit_end': 600, 'strand': '+'},
-            {'model': 'right_B', 'target': 'chr2', 'hit_start': 700, 'hit_end': 800, 'strand': '+'},
+            {
+                'model': 'left_B',
+                'target': 'chr2',
+                'hit_start': 500,
+                'hit_end': 600,
+                'strand': '+',
+            },
+            {
+                'model': 'right_B',
+                'target': 'chr2',
+                'hit_start': 700,
+                'hit_end': 800,
+                'strand': '+',
+            },
         ]
         pairing_list = [('left_A', 'right_A'), ('left_B', 'right_B')]
 
@@ -149,18 +172,46 @@ class TestPairingMapMultiModel:
             rows, pairing_list, orientation='F,F'
         )
 
-        assert len(all_paired.get('left_A', [])) == 1, 'Expected 1 pair for left_A → right_A'
-        assert len(all_paired.get('left_B', [])) == 1, 'Expected 1 pair for left_B → right_B'
+        assert len(all_paired.get('left_A', [])) == 1, (
+            'Expected 1 pair for left_A → right_A'
+        )
+        assert len(all_paired.get('left_B', [])) == 1, (
+            'Expected 1 pair for left_B → right_B'
+        )
         assert len(unpaired) == 0, 'All hits should be paired'
         assert warned == []
 
     def test_pairing_map_multiple_hits_per_model(self):
         """Two left_A hits + two right_A hits → 2 pairs from map."""
         rows = [
-            {'model': 'left_A', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_A', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
-            {'model': 'left_A', 'target': 'chr1', 'hit_start': 1000, 'hit_end': 1100, 'strand': '+'},
-            {'model': 'right_A', 'target': 'chr1', 'hit_start': 1200, 'hit_end': 1300, 'strand': '+'},
+            {
+                'model': 'left_A',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_A',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
+            {
+                'model': 'left_A',
+                'target': 'chr1',
+                'hit_start': 1000,
+                'hit_end': 1100,
+                'strand': '+',
+            },
+            {
+                'model': 'right_A',
+                'target': 'chr1',
+                'hit_start': 1200,
+                'hit_end': 1300,
+                'strand': '+',
+            },
         ]
         pairing_list = [('left_A', 'right_A')]
 
@@ -174,8 +225,20 @@ class TestPairingMapMultiModel:
     def test_pairing_map_fr_orientation(self):
         """Pairing map respects F,R orientation (left on +, right on -)."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '-'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '-',
+            },
         ]
         pairing_list = [('left_q', 'right_q')]
 
@@ -189,8 +252,20 @@ class TestPairingMapMultiModel:
     def test_pairing_map_rr_orientation(self):
         """Pairing map respects R,R orientation (both on - strand)."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '-'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '-'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '-',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '-',
+            },
         ]
         pairing_list = [('left_q', 'right_q')]
 
@@ -214,15 +289,29 @@ class TestPairingMapMissingModels:
         """Pairing entry with missing left model is skipped; others proceed."""
         rows = [
             # Only Pair A is present
-            {'model': 'left_A', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_A', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
+            {
+                'model': 'left_A',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_A',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
         ]
         pairing_list = [
             ('left_B', 'right_B'),  # Both missing
             ('left_A', 'right_A'),  # Present
         ]
 
-        all_paired, _, unpaired, warned = _run_pairing_with_map(rows, pairing_list, orientation='F,F')
+        all_paired, _, unpaired, warned = _run_pairing_with_map(
+            rows, pairing_list, orientation='F,F'
+        )
 
         # left_B is not in hitsDict → should be in warned and skipped
         assert 'left_B' in warned, 'left_B should be warned as missing'
@@ -232,15 +321,29 @@ class TestPairingMapMissingModels:
     def test_missing_right_model_is_skipped(self):
         """Pairing entry with missing right model is skipped."""
         rows = [
-            {'model': 'left_A', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_A', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
+            {
+                'model': 'left_A',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_A',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
         ]
         pairing_list = [
             ('left_A', 'right_missing'),  # right_missing absent
             ('left_A', 'right_A'),
         ]
 
-        all_paired, _, _, warned = _run_pairing_with_map(rows, pairing_list, orientation='F,F')
+        all_paired, _, _, warned = _run_pairing_with_map(
+            rows, pairing_list, orientation='F,F'
+        )
 
         assert 'right_missing' in warned
         assert len(all_paired.get('left_A', [])) == 1
@@ -248,16 +351,26 @@ class TestPairingMapMissingModels:
     def test_all_map_models_missing_produces_no_pairs(self):
         """If every entry in map references missing models, zero pairs produced."""
         rows = [
-            {'model': 'model_X', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
+            {
+                'model': 'model_X',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
         ]
         pairing_list = [('left_A', 'right_A'), ('left_B', 'right_B')]
 
-        all_paired, _, unpaired, warned = _run_pairing_with_map(rows, pairing_list, orientation='F,F')
+        all_paired, _, unpaired, warned = _run_pairing_with_map(
+            rows, pairing_list, orientation='F,F'
+        )
 
         total_pairs = sum(len(p) for p in all_paired.values())
         assert total_pairs == 0, 'No pairs when all map models are absent'
         # Each entry warns for the FIRST missing model it encounters (left before right)
-        assert len(warned) == len(pairing_list)  # One warning per entry (left model missing)
+        assert len(warned) == len(
+            pairing_list
+        )  # One warning per entry (left model missing)
 
 
 # ---------------------------------------------------------------------------
@@ -271,10 +384,28 @@ class TestPairingMapIgnoresUnlistedModels:
     def test_extra_model_not_paired(self):
         """Model 'extra' not in map → its hits remain unpaired."""
         rows = [
-            {'model': 'left_A', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_A', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
+            {
+                'model': 'left_A',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_A',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
             # 'extra' model not mentioned in map
-            {'model': 'extra', 'target': 'chr1', 'hit_start': 500, 'hit_end': 600, 'strand': '+'},
+            {
+                'model': 'extra',
+                'target': 'chr1',
+                'hit_start': 500,
+                'hit_end': 600,
+                'strand': '+',
+            },
         ]
         pairing_list = [('left_A', 'right_A')]
 
@@ -285,7 +416,7 @@ class TestPairingMapIgnoresUnlistedModels:
         assert len(all_paired.get('left_A', [])) == 1
         # The extra model hit should not appear in any pair
         for pair_set in all_paired.get('left_A', []):
-            for hit_idx in pair_set:
+            for _hit_idx in pair_set:
                 # Get that hit's model from the original rows (by index)
                 pass
         # At minimum: total paired hits == 2 (left_A + right_A), extra is unpaired
@@ -294,10 +425,34 @@ class TestPairingMapIgnoresUnlistedModels:
     def test_map_defines_only_subset_of_models(self):
         """With 4 models and map for 1 pair, only that pair's hits are paired."""
         rows = [
-            {'model': 'left_A', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_A', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
-            {'model': 'left_B', 'target': 'chr2', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_B', 'target': 'chr2', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
+            {
+                'model': 'left_A',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_A',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
+            {
+                'model': 'left_B',
+                'target': 'chr2',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_B',
+                'target': 'chr2',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
         ]
         # Only pair A is in the map
         pairing_list = [('left_A', 'right_A')]
@@ -365,10 +520,24 @@ class TestMultipleModelsWarning:
         """Simulates the warning path: check_multiple_models detects >1 model."""
         from tirmite.cli.hmm_pair import check_multiple_models
 
-        left_table = _make_hit_table([
-            {'model': 'query_5p', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'extra_left', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '+'},
-        ])
+        left_table = _make_hit_table(
+            [
+                {
+                    'model': 'query_5p',
+                    'target': 'chr1',
+                    'hit_start': 100,
+                    'hit_end': 200,
+                    'strand': '+',
+                },
+                {
+                    'model': 'extra_left',
+                    'target': 'chr1',
+                    'hit_start': 400,
+                    'hit_end': 500,
+                    'strand': '+',
+                },
+            ]
+        )
 
         models = check_multiple_models(left_table)
         assert len(models) == 2
@@ -379,10 +548,24 @@ class TestMultipleModelsWarning:
         """Single model per file → check_multiple_models returns 1 model."""
         from tirmite.cli.hmm_pair import check_multiple_models
 
-        left_table = _make_hit_table([
-            {'model': 'query_5p', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'query_5p', 'target': 'chr2', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-        ])
+        left_table = _make_hit_table(
+            [
+                {
+                    'model': 'query_5p',
+                    'target': 'chr1',
+                    'hit_start': 100,
+                    'hit_end': 200,
+                    'strand': '+',
+                },
+                {
+                    'model': 'query_5p',
+                    'target': 'chr2',
+                    'hit_start': 100,
+                    'hit_end': 200,
+                    'strand': '+',
+                },
+            ]
+        )
 
         models = check_multiple_models(left_table)
         assert len(models) == 1
@@ -409,11 +592,35 @@ class TestMultiModelPairingIntegration:
         """
         rows = [
             # hphi pair on JANCMO
-            {'model': 'hphi_5p', 'target': 'JANCMO01', 'hit_start': 57230, 'hit_end': 58229, 'strand': '+'},
-            {'model': 'hphi_3p', 'target': 'JANCMO01', 'hit_start': 140875, 'hit_end': 141874, 'strand': '+'},
+            {
+                'model': 'hphi_5p',
+                'target': 'JANCMO01',
+                'hit_start': 57230,
+                'hit_end': 58229,
+                'strand': '+',
+            },
+            {
+                'model': 'hphi_3p',
+                'target': 'JANCMO01',
+                'hit_start': 140875,
+                'hit_end': 141874,
+                'strand': '+',
+            },
             # ltr pair on RHLL
-            {'model': 'ltr_5p', 'target': 'RHLL01', 'hit_start': 98017, 'hit_end': 99016, 'strand': '+'},
-            {'model': 'ltr_3p', 'target': 'RHLL01', 'hit_start': 174581, 'hit_end': 175580, 'strand': '+'},
+            {
+                'model': 'ltr_5p',
+                'target': 'RHLL01',
+                'hit_start': 98017,
+                'hit_end': 99016,
+                'strand': '+',
+            },
+            {
+                'model': 'ltr_3p',
+                'target': 'RHLL01',
+                'hit_start': 174581,
+                'hit_end': 175580,
+                'strand': '+',
+            },
         ]
         pairing_list = [('hphi_5p', 'hphi_3p'), ('ltr_5p', 'ltr_3p')]
 
@@ -421,7 +628,9 @@ class TestMultiModelPairingIntegration:
             rows, pairing_list, orientation='F,F'
         )
 
-        assert len(all_paired.get('hphi_5p', [])) == 1, 'hphi pair should produce 1 pair'
+        assert len(all_paired.get('hphi_5p', [])) == 1, (
+            'hphi pair should produce 1 pair'
+        )
         assert len(all_paired.get('ltr_5p', [])) == 1, 'ltr pair should produce 1 pair'
         assert len(unpaired) == 0, 'All hits should be paired'
         assert warned == []
@@ -435,8 +644,20 @@ class TestMultiModelPairingIntegration:
         query_5p (alphabetically later, left)
         """
         rows = [
-            {'model': 'query_5p', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'query_3p', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '+'},
+            {
+                'model': 'query_5p',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'query_3p',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '+',
+            },
         ]
         pairing_list = [('query_5p', 'query_3p')]  # explicit left=5p, right=3p
 

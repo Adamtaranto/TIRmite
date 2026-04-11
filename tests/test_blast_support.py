@@ -12,7 +12,7 @@ import pandas as pd
 import pytest
 
 import tirmite.tirmitetools as tirmite
-from tirmite.runners.runBlastn import blast_db_exists, run_blastn
+from tirmite.runners.runBlastn import BlastError, blast_db_exists, run_blastn
 
 
 @pytest.fixture
@@ -267,7 +267,7 @@ def test_run_blastn_raises_for_missing_query(tmp_path):
 
 def test_run_blastn_accepts_blast_db_prefix(tmp_path, monkeypatch):
     """run_blastn does not raise FileNotFoundError when subject is a valid BLAST DB prefix."""
-    from tirmite.runners import runBlastn
+    import tirmite.runners.runBlastn as runBlastn_mod
 
     query_file = tmp_path / 'query.fa'
     query_file.write_text('>seq1\nACGT\n')
@@ -280,10 +280,9 @@ def test_run_blastn_accepts_blast_db_prefix(tmp_path, monkeypatch):
     (tmp_path / 'mydb.nsq').touch()
 
     # Mock check_blast_available to avoid requiring BLAST installed
-    monkeypatch.setattr(runBlastn, 'check_blast_available', lambda: False)
+    monkeypatch.setattr(runBlastn_mod, 'check_blast_available', lambda: False)
 
     # Should raise BlastError (not available) rather than FileNotFoundError
-    from tirmite.runners.runBlastn import BlastError
     with pytest.raises(BlastError, match='blastn not found in PATH'):
         run_blastn(
             query=query_file,

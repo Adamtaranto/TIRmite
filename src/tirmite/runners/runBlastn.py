@@ -36,7 +36,7 @@ def blast_db_exists(db_prefix: Union[str, Path]) -> bool:
     Returns
     -------
     bool
-        True if any expected BLAST database file exists, False otherwise.
+        True if any of the expected BLAST database files exist, False otherwise.
 
     Notes
     -----

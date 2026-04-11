@@ -17,9 +17,8 @@ import tempfile
 import pandas as pd
 import pytest
 
-import tirmite.tirmitetools as tirmite
 from tirmite.cli.hmm_pair import load_pairing_map
-
+import tirmite.tirmitetools as tirmite
 
 # ---------------------------------------------------------------------------
 # Helpers

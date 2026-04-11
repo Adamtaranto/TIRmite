@@ -571,10 +571,17 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
-        '--pairing_map',
+        '--pairing-map',
         type=str,
         default=None,
-        help='Tab-delimited file mapping left to right feature names for pairing. Required when input contains multiple models/queries.',
+        dest='pairing_map',
+        help=(
+            'Tab-delimited file mapping left to right feature names for pairing. '
+            'Each row: left_model<TAB>right_model. '
+            'When provided, independent pairing is performed for each pair; '
+            'models not listed in the map are skipped. '
+            'Required when either input file contains hits to multiple query/model names.'
+        ),
     )
 
     # Output options
@@ -879,13 +886,23 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     'with overlapping genomic coordinates'
                 )
 
-            # Validate single query per file or require pairing_map
+            # Validate single query per file or require --pairing-map
             if len(left_models) > 1 or len(right_models) > 1:
+                if len(left_models) > 1:
+                    logging.warning(
+                        f'Left nhmmer file contains {len(left_models)} query/model names: '
+                        + ', '.join(sorted(left_models))
+                    )
+                if len(right_models) > 1:
+                    logging.warning(
+                        f'Right nhmmer file contains {len(right_models)} query/model names: '
+                        + ', '.join(sorted(right_models))
+                    )
                 if not args.pairing_map:
                     raise ValueError(
                         f'Left file contains {len(left_models)} query/model name(s), '
                         f'right file contains {len(right_models)} query/model name(s). '
-                        'When either file contains multiple queries, --pairing_map is required.'
+                        'When either file contains multiple queries, --pairing-map is required.'
                     )
 
             # Combine hit tables
@@ -979,13 +996,23 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     'with overlapping genomic coordinates'
                 )
 
-            # Validate single query per file or require pairing_map
+            # Validate single query per file or require --pairing-map
             if len(left_models) > 1 or len(right_models) > 1:
+                if len(left_models) > 1:
+                    logging.warning(
+                        f'Left BLAST file contains {len(left_models)} query/model names: '
+                        + ', '.join(sorted(left_models))
+                    )
+                if len(right_models) > 1:
+                    logging.warning(
+                        f'Right BLAST file contains {len(right_models)} query/model names: '
+                        + ', '.join(sorted(right_models))
+                    )
                 if not args.pairing_map:
                     raise ValueError(
                         f'Left file contains {len(left_models)} query/model name(s), '
                         f'right file contains {len(right_models)} query/model name(s). '
-                        'When either file contains multiple queries, --pairing_map is required.'
+                        'When either file contains multiple queries, --pairing-map is required.'
                     )
 
             # Combine hit tables
@@ -1094,11 +1121,15 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if args.pairing_map:
             pairing_map = load_pairing_map(args.pairing_map)
         elif len(unique_models) > 1 and not is_asymmetric:
-            # Multiple models in single file without pairing map - raise error
+            # Multiple models in single file without pairing map - warn and raise error
             # (Asymmetric mode already validated per-file)
+            logging.warning(
+                f'Input contains {len(unique_models)} distinct models/queries: '
+                + ', '.join(sorted(unique_models))
+            )
             raise ValueError(
-                f'Input contains {len(unique_models)} distinct models/queries: {", ".join(unique_models)}. '
-                'Multiple models require --pairing_map to specify which features should be paired together.'
+                f'Input contains {len(unique_models)} distinct models/queries: {", ".join(sorted(unique_models))}. '
+                'Multiple models require --pairing-map to specify which features should be paired together.'
             )
 
         # Create pairing configuration

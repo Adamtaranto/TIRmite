@@ -17,12 +17,14 @@ import pytest
 
 import tirmite.tirmitetools as tirmite
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_hit_df(model: str, target: str, hit_start: int, hit_end: int, strand: str) -> pd.DataFrame:
+
+def _make_hit_df(
+    model: str, target: str, hit_start: int, hit_end: int, strand: str
+) -> pd.DataFrame:
     """Build a single-row hit DataFrame matching the table2dict expected schema."""
     return pd.DataFrame(
         [
@@ -66,7 +68,9 @@ def _make_hit_table(rows):
     return pd.DataFrame(records)
 
 
-def _run_asymmetric_pairing(hit_rows, orientation, left_model, right_model, maxdist=None):
+def _run_asymmetric_pairing(
+    hit_rows, orientation, left_model, right_model, maxdist=None
+):
     """Set up and run the full asymmetric pairing pipeline.
 
     Returns
@@ -103,6 +107,7 @@ def _run_asymmetric_pairing(hit_rows, orientation, left_model, right_model, maxd
 # F,F orientation tests (the reported bug scenario)
 # ---------------------------------------------------------------------------
 
+
 class TestFFOrientation:
     """Both left and right queries are on the forward (+) strand."""
 
@@ -111,8 +116,20 @@ class TestFFOrientation:
         # Modelled on the reported bug:
         # left query at ~57000, right query at ~140000 on same contig, F,F
         rows = [
-            {'model': 'query_3p', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
-            {'model': 'query_5p', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
+            {
+                'model': 'query_3p',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
+            {
+                'model': 'query_5p',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
         ]
         # Assign left/right explicitly from file origin, NOT alphabetical order.
         # 'query_3p' sorts before 'query_5p', but the left model is 'query_5p'.
@@ -128,8 +145,20 @@ class TestFFOrientation:
     def test_ff_wrong_order_not_paired(self):
         """Left (downstream) + Right (upstream) should NOT pair under F,F."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'F,F', left_model='left_q', right_model='right_q'
@@ -144,10 +173,28 @@ class TestFFOrientation:
         """With multiple hits, each should be paired with its closest valid partner."""
         rows = [
             # Two left hits
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 500, 'hit_end': 600, 'strand': '+'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 500,
+                'hit_end': 600,
+                'strand': '+',
+            },
             # One right hit between the two left hits
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'F,F', left_model='left_q', right_model='right_q'
@@ -160,8 +207,20 @@ class TestFFOrientation:
     def test_ff_max_distance_respected(self):
         """Hits beyond maxDist should not be paired."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 1000, 'hit_end': 1100, 'strand': '+'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 1000,
+                'hit_end': 1100,
+                'strand': '+',
+            },
         ]
         # Distance = 1000 - 200 = 800; set maxdist=100 to exclude it
         paired_excluded, unpaired_excluded = _run_asymmetric_pairing(
@@ -178,8 +237,20 @@ class TestFFOrientation:
     def test_ff_different_chromosomes_not_paired(self):
         """Hits on different chromosomes must not be paired."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr2', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr2',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'F,F', left_model='left_q', right_model='right_q'
@@ -189,10 +260,34 @@ class TestFFOrientation:
     def test_ff_two_independent_pairs_on_same_contig(self):
         """Two independent left+right pairs on the same contig should both be detected."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 300, 'hit_end': 400, 'strand': '+'},
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 1000, 'hit_end': 1100, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 1200, 'hit_end': 1300, 'strand': '+'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 300,
+                'hit_end': 400,
+                'strand': '+',
+            },
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 1000,
+                'hit_end': 1100,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 1200,
+                'hit_end': 1300,
+                'strand': '+',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'F,F', left_model='left_q', right_model='right_q'
@@ -205,14 +300,27 @@ class TestFFOrientation:
 # F,R orientation tests (canonical TIR)
 # ---------------------------------------------------------------------------
 
+
 class TestFROrientation:
     """Left query on + strand, right query on - strand (canonical TIR)."""
 
     def test_fr_basic_pair(self):
         """Left (+) upstream, Right (-) downstream – canonical TIR pairing."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '-'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '-',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'F,R', left_model='left_q', right_model='right_q'
@@ -223,8 +331,20 @@ class TestFROrientation:
     def test_fr_wrong_strand_not_paired(self):
         """Right hit on + strand should not pair in F,R mode."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '+'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '+',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'F,R', left_model='left_q', right_model='right_q'
@@ -234,8 +354,20 @@ class TestFROrientation:
     def test_fr_wrong_order_not_paired(self):
         """Left (+) downstream of Right (-) should not pair in F,R mode."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 600, 'hit_end': 700, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '-'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 600,
+                'hit_end': 700,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '-',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'F,R', left_model='left_q', right_model='right_q'
@@ -247,6 +379,7 @@ class TestFROrientation:
 # R,F orientation tests
 # ---------------------------------------------------------------------------
 
+
 class TestRFOrientation:
     """Left query on - strand, right query on + strand."""
 
@@ -256,8 +389,20 @@ class TestRFOrientation:
         # Biologically, the right (+) terminus at lower genomic coords is 'upstream' of
         # the left (-) terminus at higher genomic coords when reading the minus strand.
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '-'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '-',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'R,F', left_model='left_q', right_model='right_q'
@@ -268,8 +413,20 @@ class TestRFOrientation:
     def test_rf_wrong_strand_not_paired(self):
         """Left hit on + strand should not pair in R,F mode."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '+'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '+'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '+',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'R,F', left_model='left_q', right_model='right_q'
@@ -281,6 +438,7 @@ class TestRFOrientation:
 # R,R orientation tests
 # ---------------------------------------------------------------------------
 
+
 class TestRROrientation:
     """Both left and right queries on - strand (element on minus strand)."""
 
@@ -288,8 +446,20 @@ class TestRROrientation:
         """Left (-) at higher coords, Right (-) at lower coords – should pair in R,R mode."""
         # Element is on minus strand: left terminus has higher genomic coords.
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '-'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '-'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '-',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '-',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'R,R', left_model='left_q', right_model='right_q'
@@ -300,8 +470,20 @@ class TestRROrientation:
     def test_rr_wrong_order_not_paired(self):
         """Left (-) at lower coords than Right (-) should not pair in R,R mode."""
         rows = [
-            {'model': 'left_q', 'target': 'chr1', 'hit_start': 100, 'hit_end': 200, 'strand': '-'},
-            {'model': 'right_q', 'target': 'chr1', 'hit_start': 400, 'hit_end': 500, 'strand': '-'},
+            {
+                'model': 'left_q',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '-',
+            },
+            {
+                'model': 'right_q',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 500,
+                'strand': '-',
+            },
         ]
         paired, unpaired = _run_asymmetric_pairing(
             rows, 'R,R', left_model='left_q', right_model='right_q'
@@ -312,6 +494,7 @@ class TestRROrientation:
 # ---------------------------------------------------------------------------
 # Model assignment tests (validates the bug fix in hmm_pair.py)
 # ---------------------------------------------------------------------------
+
 
 class TestModelAssignment:
     """Validate that left/right model names are correctly assigned from separate files."""
@@ -364,7 +547,9 @@ class TestModelAssignment:
             'Right model should be query_3p (from rightBlast file)'
         )
 
-    def test_correct_pairing_with_alphabetically_inverted_names(self, left_blast_file, right_blast_file):
+    def test_correct_pairing_with_alphabetically_inverted_names(
+        self, left_blast_file, right_blast_file
+    ):
         """End-to-end pairing with file-based (not alphabetical) model assignment.
 
         query_5p (left, alphabetically later) at 100-199
@@ -391,8 +576,8 @@ class TestModelAssignment:
         # CORRECT assignment (file-based, the fix)
         correct_config = tirmite.PairingConfig(
             orientation='F,F',
-            left_model=left_hitTable['model'].unique()[0],   # query_5p
-            right_model=right_hitTable['model'].unique()[0], # query_3p
+            left_model=left_hitTable['model'].unique()[0],  # query_5p
+            right_model=right_hitTable['model'].unique()[0],  # query_3p
         )
 
         hitIndex_correct = tirmite.parseHitsGeneral(
@@ -410,7 +595,7 @@ class TestModelAssignment:
         assert len(unpaired_correct) == 0
 
         # BUGGY assignment (alphabetical, what the bug did)
-        buggy_left = hitTable['model'].unique()[0]   # query_3p (wrong)
+        buggy_left = hitTable['model'].unique()[0]  # query_3p (wrong)
         buggy_right = hitTable['model'].unique()[1]  # query_5p (wrong)
         buggy_config = tirmite.PairingConfig(
             orientation='F,F',

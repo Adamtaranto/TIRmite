@@ -2884,7 +2884,8 @@ def getPairsAsymmetric(
                     if (
                         candidate.model == config.right_model
                         and candidate.idx in hitIndex[config.right_model]
-                        and hitIndex[config.right_model][candidate.idx]['partner'] is None
+                        and hitIndex[config.right_model][candidate.idx]['partner']
+                        is None
                     ):
                         # Check if this left hit is also the best candidate for the right hit
                         found = checkAsymmetricReciprocity(

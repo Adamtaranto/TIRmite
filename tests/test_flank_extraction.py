@@ -28,7 +28,7 @@ from tirmite.tirmitetools import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-HitRec = namedtuple('hitTup', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue'])
+HitRec = namedtuple('HitRec', ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue'])
 
 
 def _make_hitTable(rows):

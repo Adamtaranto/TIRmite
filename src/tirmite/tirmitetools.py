@@ -2135,7 +2135,7 @@ def writeFlanks(
     # ------------------------------------------------------------------
     # Helper: retrieve hit record from nested or flat hitIndex
     # ------------------------------------------------------------------
-    is_nested = isinstance(next(iter(hitIndex.values())), dict)
+    is_nested = bool(hitIndex) and isinstance(next(iter(hitIndex.values())), dict)
 
     def get_hit_record(hit_id: int) -> Any:
         """

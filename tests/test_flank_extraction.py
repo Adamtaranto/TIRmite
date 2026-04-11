@@ -14,7 +14,6 @@ import tempfile
 from collections import namedtuple
 
 import pandas as pd
-import pytest
 
 import tirmite.tirmitetools as tirmite
 from tirmite.tirmitetools import (
@@ -382,7 +381,7 @@ class TestWriteFlanks:
             # All 'A' in our mock genome
             with open(os.path.join(tmpdir, left_files[0])) as fh:
                 lines = fh.read().splitlines()
-            seq_lines = [l for l in lines if not l.startswith('>')]
+            seq_lines = [line for line in lines if not line.startswith('>')]
             left_seq = ''.join(seq_lines)
             assert len(left_seq) == 10
             assert left_seq == 'A' * 10, f'Expected all-A left flank, got {left_seq!r}'
@@ -391,7 +390,7 @@ class TestWriteFlanks:
             # Our mock has C's from pos 501 onwards
             with open(os.path.join(tmpdir, right_files[0])) as fh:
                 lines = fh.read().splitlines()
-            seq_lines = [l for l in lines if not l.startswith('>')]
+            seq_lines = [line for line in lines if not line.startswith('>')]
             right_seq = ''.join(seq_lines)
             assert len(right_seq) == 10
             assert right_seq == 'C' * 10, f'Expected all-C right flank, got {right_seq!r}'
@@ -496,7 +495,7 @@ class TestWriteFlanks:
                 content = fh.read()
             # Left flank: external_pos = 200 - 2 = 198; flank is [193, 197]
             # All 'A' in mock genome
-            seq = ''.join(l for l in content.splitlines() if not l.startswith('>'))
+            seq = ''.join(line for line in content.splitlines() if not line.startswith('>'))
             assert len(seq) == 5
 
     def test_flank_max_offset_skips_hit(self):
@@ -609,7 +608,7 @@ class TestWriteFlanks:
             assert len(right_files) == 1
 
             with open(os.path.join(tmpdir, left_files[0])) as fh:
-                seqs = [l for l in fh.read().splitlines() if l.startswith('>')]
+                seqs = [line for line in fh.read().splitlines() if line.startswith('>')]
             # Only 1 sequence (from the single pair), not 2
             assert len(seqs) == 1
 
@@ -674,7 +673,7 @@ class TestWriteFlanks:
             assert len(left_files) == 1
 
             with open(os.path.join(tmpdir, left_files[0])) as fh:
-                seqs = [l for l in fh.read().splitlines() if l.startswith('>')]
+                seqs = [line for line in fh.read().splitlines() if line.startswith('>')]
             # 1 from paired + 1 from unpaired = 2 left flank seqs
             assert len(seqs) == 2
 

@@ -628,6 +628,44 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         help='Extract N bases flanking each hit in FASTA output.',
     )
 
+    parser.add_argument(
+        '--flank-len',
+        '--flank_len',
+        type=int,
+        default=None,
+        dest='flank_len',
+        help=(
+            'Length of the external flanking region to extract (in bases). '
+            'The flank is the genomic sequence immediately outside each terminus hit '
+            '(upstream of the left terminus, downstream of the right terminus). '
+            'If not set, flanks are not extracted.'
+        ),
+    )
+
+    parser.add_argument(
+        '--flank-max-offset',
+        '--flank_max_offset',
+        type=int,
+        default=None,
+        dest='flank_max_offset',
+        help=(
+            'Maximum allowed offset (in bases) between the hit alignment end and '
+            'the external end of the query model. When a hit does not reach position 1 '
+            'of the query, the flank start is corrected by this offset. '
+            'Hits with offset greater than this value are skipped. '
+            'Default: no limit.'
+        ),
+    )
+
+    parser.add_argument(
+        '--flank-paired-only',
+        '--flank_paired_only',
+        action='store_true',
+        default=False,
+        dest='flank_paired_only',
+        help='Only extract flanks from paired hits. Default: extract from all hits.',
+    )
+
     # Utility options
     parser.add_argument(
         '--tempdir',
@@ -1379,6 +1417,25 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         logging.info('Writing paired elements to FASTA...')
         tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
+
+        # Extract and write external flanks if requested
+        if args.flank_len:
+            logging.info('Extracting external flanking sequences...')
+            tirmite.writeFlanks(
+                outDir=outDir,
+                hitTable=hitTable,
+                model_lengths=model_lengths,
+                paired=paired,
+                hitIndex=hitIndex,
+                config=config,
+                genome=genome,
+                prefix=args.prefix,
+                flank_len=args.flank_len,
+                flank_max_offset=args.flank_max_offset,
+                paired_only=args.flank_paired_only,
+                genome_descriptions=genome_descriptions,
+                blastdb=args.blastdb if args.blastdb else None,
+            )
 
         # Write GFF if requested
         if args.gffOut:

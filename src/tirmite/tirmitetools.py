@@ -1878,6 +1878,463 @@ def writePairedTIRs(
                         SeqIO.write(seq, handle, 'fasta')
 
 
+def compute_flank_coordinates(
+    hit_start: int,
+    hit_end: int,
+    strand: str,
+    is_left_terminus: bool,
+    hmm_start: int,
+    hmm_end: int,
+    model_len: int,
+    flank_len: int,
+) -> Tuple[int, int, int]:
+    """
+    Compute genomic coordinates for the external flanking region of a terminus hit.
+
+    The "external" end of a terminus hit is the side that faces away from the TE
+    body. For the left terminus this is the side at lower genomic coordinates; for
+    the right terminus it is the side at higher genomic coordinates.
+
+    When a hit does not cover position 1 of the model (hmmStart > 1) the external
+    boundary must be shifted by the number of uncovered model positions so that the
+    reported flank begins at the correct genomic position.
+
+    Parameters
+    ----------
+    hit_start : int
+        1-based start coordinate of the hit in genomic coordinates (always < hit_end).
+    hit_end : int
+        1-based end coordinate of the hit in genomic coordinates.
+    strand : str
+        Strand of the hit: '+' or '-'.
+    is_left_terminus : bool
+        True if the hit represents the left (5') terminus of the element.
+    hmm_start : int
+        Alignment start position on the HMM model (1-based).
+        For + strand hits this aligns to hit_start; for - strand hits it aligns to hit_end.
+    hmm_end : int
+        Alignment end position on the HMM model (1-based).
+        For + strand hits this aligns to hit_end; for - strand hits it aligns to hit_start.
+    model_len : int
+        Total length of the HMM model in positions.
+    flank_len : int
+        Number of bases to extract in the flanking region.
+
+    Returns
+    -------
+    flank_start : int
+        1-based start coordinate of the flank region.
+    flank_end : int
+        1-based end coordinate of the flank region (inclusive).
+    offset : int
+        Number of model positions between the hit alignment and the external
+        end of the model (0 means the alignment reaches the model end).
+
+    Notes
+    -----
+    Coordinate system:
+      - For + strand: hmmStart aligns to hit_start, hmmEnd aligns to hit_end.
+      - For - strand: hmmStart aligns to hit_end (higher coord), hmmEnd aligns to hit_start.
+
+    Left terminus external boundary:
+      - + strand: external_pos = hit_start - (hmm_start - 1)
+      - - strand: external_pos = hit_start - (model_len - hmm_end)
+
+    Right terminus external boundary:
+      - + strand: external_pos = hit_end + (model_len - hmm_end)
+      - - strand: external_pos = hit_end + (hmm_start - 1)
+    """
+    if is_left_terminus:
+        # External end faces LEFT (lower genomic coordinates)
+        if strand == '+':
+            offset = hmm_start - 1
+            external_pos = hit_start - offset
+        else:  # '-'
+            # hmmStart aligns to hit_end (higher coord); hmmEnd aligns to hit_start
+            offset = model_len - hmm_end
+            external_pos = hit_start - offset
+        flank_start = external_pos - flank_len
+        flank_end = external_pos - 1
+    else:
+        # External end faces RIGHT (higher genomic coordinates)
+        if strand == '+':
+            offset = model_len - hmm_end
+            external_pos = hit_end + offset
+        else:  # '-'
+            # hmmStart aligns to hit_end; external end is at hit_end side
+            offset = hmm_start - 1
+            external_pos = hit_end + offset
+        flank_start = external_pos + 1
+        flank_end = external_pos + flank_len
+
+    return flank_start, flank_end, offset
+
+
+def _determine_terminus_type(hit: Any, config: Any) -> Optional[str]:
+    """
+    Determine whether a hit is a left or right terminus based on pairing config.
+
+    Parameters
+    ----------
+    hit : namedtuple
+        Hit record with model and strand attributes.
+    config : PairingConfig
+        Configuration specifying orientation and model assignments.
+
+    Returns
+    -------
+    str or None
+        'left' if the hit is a left terminus, 'right' if right terminus,
+        or None if the terminus type cannot be determined (e.g. same-strand
+        symmetric pairing without paired context).
+    """
+    if config.is_asymmetric:
+        if hit.model == config.left_model:
+            return 'left'
+        elif hit.model == config.right_model:
+            return 'right'
+        return None
+    else:
+        # Symmetric model – distinguish by strand when strands differ
+        if config.left_strand != config.right_strand:
+            if hit.strand == config.left_strand:
+                return 'left'
+            elif hit.strand == config.right_strand:
+                return 'right'
+        # Same-strand symmetric pairing (F,F or R,R) – can't determine without pair
+        return None
+
+
+def writeFlanks(
+    outDir: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    model_lengths: Optional[Dict[str, int]] = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    config: Any = None,
+    genome: Any = None,
+    prefix: Optional[str] = None,
+    flank_len: int = 0,
+    flank_max_offset: Optional[int] = None,
+    paired_only: bool = False,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+    blastdb: Optional[str] = None,
+) -> None:
+    """
+    Extract and write external flanking sequences for terminus hits to FASTA files.
+
+    The "external flank" is the genomic sequence immediately outside each terminus
+    hit, i.e. upstream of the left terminus and downstream of the right terminus.
+    Flank coordinates are corrected for any gap between the hit alignment and the
+    external end of the model (offset correction).
+
+    Parameters
+    ----------
+    outDir : str, optional
+        Output directory for flank FASTA files.
+    hitTable : pandas.DataFrame
+        DataFrame with columns model, target, hitStart, hitEnd, strand, evalue,
+        hmmStart, hmmEnd. Used to look up HMM alignment coordinates by hit index.
+    model_lengths : dict
+        Dictionary mapping model name to model length in positions.
+    paired : dict
+        Dictionary of paired hits: paired[model] = [list of pair sets {id1, id2}].
+    hitIndex : dict
+        Hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    config : PairingConfig
+        Configuration with orientation and model assignments.
+    genome : pyfaidx.Fasta, optional
+        Indexed genome for sequence extraction. Required if blastdb is None.
+    prefix : str, optional
+        Prefix for output filenames and sequence IDs.
+    flank_len : int, default 0
+        Number of bases to extract in each flanking region.
+    flank_max_offset : int, optional
+        Maximum allowed offset (uncovered model positions) between hit alignment
+        and model end. Hits with offset > this value are skipped.
+    paired_only : bool, default False
+        If True, only extract flanks for hits that are part of a pair.
+        If False, also extract flanks for unpaired hits.
+    genome_descriptions : dict, optional
+        Dictionary mapping sequence IDs to their descriptions.
+    blastdb : str, optional
+        Path to BLAST database. Alternative to genome.
+
+    Returns
+    -------
+    None
+        Writes FASTA files to disk.
+
+    Notes
+    -----
+    Output files are named:
+      {prefix}{model}_left_flank_{count}.fasta  – flanks for left terminus hits
+      {prefix}{model}_right_flank_{count}.fasta – flanks for right terminus hits
+
+    For asymmetric pairings the left and right model names may differ, so each
+    model gets its own pair of files. For symmetric pairings the same model name
+    is used for both files (distinguished by the _left_/_right_ suffix).
+
+    Flanking sequences are always reported in the forward (+) genomic strand
+    orientation. Coordinates are 1-based.
+    """
+    assert outDir is not None, 'outDir cannot be None'
+    assert hitTable is not None, 'hitTable cannot be None'
+    assert model_lengths is not None, 'model_lengths cannot be None'
+    assert paired is not None, 'paired cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert genome is not None or blastdb is not None, (
+        'Either genome or blastdb must be provided'
+    )
+
+    # When config is None (e.g. pairing-map mode with multiple configs) unpaired
+    # hits cannot be attributed to a terminus; fall back to paired-only processing.
+    if config is None and not paired_only:
+        logging.debug(
+            'config is None: cannot determine terminus type for unpaired hits; '
+            'processing paired hits only.'
+        )
+        paired_only = True
+
+    if prefix:
+        prefix = cleanID(prefix) + '_'
+    else:
+        prefix = ''
+
+    # left_flanks[model] and right_flanks[model] accumulate SeqRecords
+    left_flanks: Dict[str, List[Any]] = {}
+    right_flanks: Dict[str, List[Any]] = {}
+
+    # ------------------------------------------------------------------
+    # Helper: look up hmmStart / hmmEnd for a hit by its DataFrame index
+    # ------------------------------------------------------------------
+    def get_hmm_coords(hit_idx: int) -> Tuple[Optional[int], Optional[int]]:
+        """
+        Retrieve HMM alignment coordinates for a hit.
+
+        Parameters
+        ----------
+        hit_idx : int
+            DataFrame row index for the hit.
+
+        Returns
+        -------
+        tuple of (int or None, int or None)
+            (hmmStart, hmmEnd) as integers, or (None, None) if unavailable.
+        """
+        if hit_idx not in hitTable.index:  # type: ignore[union-attr]
+            return None, None
+        row = hitTable.loc[hit_idx]  # type: ignore[union-attr]
+        try:
+            h_start = int(row['hmmStart'])
+            h_end = int(row['hmmEnd'])
+        except (ValueError, TypeError):
+            return None, None
+        return h_start, h_end
+
+    # ------------------------------------------------------------------
+    # Helper: retrieve hit record from nested or flat hitIndex
+    # ------------------------------------------------------------------
+    is_nested = isinstance(next(iter(hitIndex.values())), dict)
+
+    def get_hit_record(hit_id: int) -> Any:
+        """
+        Retrieve hit record from hitIndex (handles nested or flat structure).
+
+        Parameters
+        ----------
+        hit_id : int
+            Index of the hit record.
+
+        Returns
+        -------
+        namedtuple
+            Hit record with model, target, hitStart, hitEnd, strand, idx, evalue.
+        """
+        if is_nested:
+            for _m, model_hits in hitIndex.items():
+                if hit_id in model_hits:
+                    return model_hits[hit_id]['rec']
+            raise KeyError(f'Hit ID {hit_id} not found in hitIndex')
+        return hitIndex[hit_id]['rec']  # type: ignore[index]
+
+    # ------------------------------------------------------------------
+    # Helper: extract a flank SeqRecord for one hit
+    # ------------------------------------------------------------------
+    def build_flank_record(
+        hit: Any,
+        is_left: bool,
+        record_id: str,
+    ) -> Optional[SeqRecord]:
+        """
+        Build a SeqRecord for the external flank of a single terminus hit.
+
+        Parameters
+        ----------
+        hit : namedtuple
+            Hit record with model, target, hitStart, hitEnd, strand, idx.
+        is_left : bool
+            True if the hit is a left terminus; False for right terminus.
+        record_id : str
+            Identifier to assign to the resulting SeqRecord.
+
+        Returns
+        -------
+        SeqRecord or None
+            The flank SeqRecord, or None if the flank cannot be extracted
+            (missing model length, missing HMM coords, offset exceeds max,
+            or sequence extraction failure).
+        """
+        model = hit.model
+        model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
+        if model_len is None:
+            logging.warning(f'Model length not found for {model}, skipping flank')
+            return None
+
+        hmm_start, hmm_end = get_hmm_coords(hit.idx)
+        if hmm_start is None or hmm_end is None:
+            logging.debug(f'HMM coordinates unavailable for hit {hit.idx}, skipping')
+            return None
+
+        flank_start, flank_end, offset = compute_flank_coordinates(
+            hit_start=int(hit.hitStart),
+            hit_end=int(hit.hitEnd),
+            strand=hit.strand,
+            is_left_terminus=is_left,
+            hmm_start=hmm_start,
+            hmm_end=hmm_end,
+            model_len=model_len,
+            flank_len=flank_len,
+        )
+
+        if flank_max_offset is not None and offset > flank_max_offset:
+            logging.debug(
+                f'Skipping flank for hit {hit.idx}: offset {offset} > max {flank_max_offset}'
+            )
+            return None
+
+        # Clamp to valid 1-based range
+        flank_start = max(1, flank_start)
+        flank_end = max(1, flank_end)
+
+        if flank_start > flank_end:
+            logging.debug(f'Empty flank region for hit {hit.idx}, skipping')
+            return None
+
+        # Extract sequence (always on + strand for genomic orientation)
+        if blastdb:
+            seq_str = extract_from_blastdb(
+                blastdb, hit.target, flank_start, flank_end, '+'
+            )
+        else:
+            chrom = genome[hit.target]
+            # Clamp end to chromosome length
+            chrom_len = len(chrom)
+            flank_end = min(flank_end, chrom_len)
+            if flank_start > flank_end:
+                return None
+            seq_str = str(chrom[flank_start - 1 : flank_end])
+
+        if seq_str is None:
+            logging.warning(
+                f'Failed to extract flank sequence for hit {hit.idx}, skipping'
+            )
+            return None
+
+        record = SeqRecord(Seq.Seq(seq_str))
+        side = 'L' if is_left else 'R'
+        record.id = f'{record_id}_{side}'
+        record.name = record.id
+
+        coord_info = (
+            f'[{hit.target}:+ {flank_start}_{flank_end}'
+            f' hit:{hit.strand}:{hit.hitStart}_{hit.hitEnd}'
+            f' offset:{offset}]'
+        )
+        if genome_descriptions and hit.target in genome_descriptions:
+            record.description = f'{coord_info} {genome_descriptions[hit.target]}'
+        else:
+            record.description = coord_info
+
+        return record
+
+    # ------------------------------------------------------------------
+    # Process paired hits
+    # ------------------------------------------------------------------
+    paired_hit_ids: Set[int] = set()
+
+    for model in paired.keys():
+        model_counter = 0
+        for pair in paired[model]:
+            model_counter += 1
+            hit_ids = list(pair)
+            x_id, y_id = hit_ids[0], hit_ids[1]
+            x = get_hit_record(x_id)
+            y = get_hit_record(y_id)
+            leftHit, rightHit = flipTIRs(x, y)
+            pair_id = f'{model}_{model_counter}'
+
+            left_rec = build_flank_record(leftHit, is_left=True, record_id=pair_id)
+            right_rec = build_flank_record(rightHit, is_left=False, record_id=pair_id)
+
+            if left_rec:
+                left_flanks.setdefault(leftHit.model, []).append(left_rec)
+            if right_rec:
+                right_flanks.setdefault(rightHit.model, []).append(right_rec)
+
+            paired_hit_ids.add(leftHit.idx)
+            paired_hit_ids.add(rightHit.idx)
+
+    # ------------------------------------------------------------------
+    # Process unpaired hits (only when paired_only=False)
+    # ------------------------------------------------------------------
+    if not paired_only:
+        for model in hitIndex.keys():
+            for hit_id, hit_data in hitIndex[model].items():
+                if hit_data['partner'] is not None:
+                    continue  # already handled above
+                hit = hit_data['rec']
+                terminus_type = _determine_terminus_type(hit, config)
+                if terminus_type is None:
+                    logging.debug(
+                        f'Cannot determine terminus type for unpaired hit {hit.idx} '
+                        f'(model={hit.model}, strand={hit.strand}), skipping'
+                    )
+                    continue
+
+                is_left = terminus_type == 'left'
+                record_id = f'{model}_{hit_id}_unpaired'
+                rec = build_flank_record(hit, is_left=is_left, record_id=record_id)
+                if rec:
+                    if is_left:
+                        left_flanks.setdefault(hit.model, []).append(rec)
+                    else:
+                        right_flanks.setdefault(hit.model, []).append(rec)
+
+    # ------------------------------------------------------------------
+    # Write output files
+    # ------------------------------------------------------------------
+    for model, flanks in left_flanks.items():
+        if flanks:
+            outfile = os.path.join(
+                outDir, prefix + model + '_left_flank_' + str(len(flanks)) + '.fasta'
+            )
+            with open(outfile, 'w') as handle:
+                for seq in flanks:
+                    seq.id = prefix + str(seq.id)
+                    SeqIO.write(seq, handle, 'fasta')
+
+    for model, flanks in right_flanks.items():
+        if flanks:
+            outfile = os.path.join(
+                outDir, prefix + model + '_right_flank_' + str(len(flanks)) + '.fasta'
+            )
+            with open(outfile, 'w') as handle:
+                for seq in flanks:
+                    seq.id = prefix + str(seq.id)
+                    SeqIO.write(seq, handle, 'fasta')
+
+
 def fetchUnpaired(
     hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
 ) -> List[Any]:

@@ -13,12 +13,14 @@ transposon terminus models.
 """
 
 import argparse
+import glob as _glob
 import io
 import logging
 import os
 from pathlib import Path
 import shutil
-from typing import Any, Dict, List, Optional, Tuple, cast
+import subprocess
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
@@ -823,6 +825,229 @@ def chain_fragmented_hits(
     return chains
 
 
+def warn_multiple_queries(hits: List[BlastHit], context: str = '') -> None:
+    """
+    Warn if hits contain multiple distinct query sequence identifiers.
+
+    Parameters
+    ----------
+    hits : list of BlastHit
+        BLAST hits to inspect.
+    context : str, optional
+        Label used in log messages to identify which hit table is being checked.
+
+    Returns
+    -------
+    None
+    """
+    query_ids: Set[str] = {h.query_id for h in hits}
+    if len(query_ids) > 1:
+        label = f' ({context})' if context else ''
+        logging.warning(
+            f'Multiple query names detected in blast hit table{label}: '
+            f'{", ".join(sorted(query_ids))}. '
+            'Consider using a hit table derived from a single seed sequence.'
+        )
+
+
+def check_targets_in_blastdb(hits: List[BlastHit], blast_db: Path) -> List[str]:
+    """
+    Check that all target sequences in hits are present in a BLAST database.
+
+    Parameters
+    ----------
+    hits : list of BlastHit
+        BLAST hits whose subject IDs should be validated.
+    blast_db : Path
+        Path to BLAST database (without extension).
+
+    Returns
+    -------
+    list of str
+        Subject IDs that could NOT be found in the database.
+    """
+    seen: Set[str] = set()
+    missing: List[str] = []
+
+    for hit in hits:
+        sid = hit.subject_id
+        if sid in seen:
+            continue
+        seen.add(sid)
+
+        try:
+            result = subprocess.run(
+                ['blastdbcmd', '-db', str(blast_db), '-entry', sid, '-range', '1-1'],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                missing.append(sid)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            logging.warning(
+                f'blastdbcmd not available or timed out when checking target {sid}'
+            )
+            break
+
+    return missing
+
+
+def extract_sequences_from_hits_blastdb(
+    hits: List[BlastHit], blast_db: Path, model_name: str
+) -> List[SeqRecord]:
+    """
+    Extract sequences from BLAST hits using blastdbcmd.
+
+    Parameters
+    ----------
+    hits : list of BlastHit
+        BLAST hits to extract sequences for.
+    blast_db : Path
+        Path to BLAST database created with ``-parse_seqids``.
+    model_name : str
+        Name of model used to generate sequence IDs.
+
+    Returns
+    -------
+    list of Bio.SeqRecord.SeqRecord
+        Extracted sequences.  Hits that cannot be retrieved are skipped with
+        a warning.
+    """
+    sequences = []
+
+    for hit in hits:
+        # blastdbcmd uses 1-based inclusive coordinates; take genomic extent
+        start = min(hit.subject_start, hit.subject_end)
+        end = max(hit.subject_start, hit.subject_end)
+
+        cmd = [
+            'blastdbcmd',
+            '-db',
+            str(blast_db),
+            '-entry',
+            hit.subject_id,
+            '-range',
+            f'{start}-{end}',
+        ]
+        if hit.strand == '-':
+            cmd += ['-strand', 'minus']
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=True, timeout=60
+            )
+            lines = result.stdout.strip().split('\n')
+            if len(lines) < 2 or not lines[0].startswith('>'):
+                logging.warning(
+                    f'Unexpected blastdbcmd output for '
+                    f'{hit.subject_id}:{start}-{end}. Skipping.'
+                )
+                continue
+
+            seq_str = ''.join(lines[1:]).upper()
+            seq_id = f'{model_name}_{hit.subject_id}_{start}_{end}_{hit.strand}'
+            sequences.append(SeqRecord(Seq(seq_str), id=seq_id, description=''))
+
+        except subprocess.CalledProcessError as e:
+            logging.warning(
+                f'blastdbcmd failed for {hit.subject_id}:{start}-{end}: '
+                f'{e.stderr.strip()}. Skipping.'
+            )
+        except subprocess.TimeoutExpired:
+            logging.warning(
+                f'blastdbcmd timed out for {hit.subject_id}:{start}-{end}. Skipping.'
+            )
+        except FileNotFoundError:
+            raise HMMBuildError(
+                'blastdbcmd not found. Is BLAST+ installed and on PATH?'
+            )
+
+    return sequences
+
+
+def extract_flanked_sequences_from_hits_blastdb(
+    hits: List[BlastHit], blast_db: Path, model_name: str, flank_size: int
+) -> List[SeqRecord]:
+    """
+    Extract sequences with flanking regions from BLAST hits using blastdbcmd.
+
+    Parameters
+    ----------
+    hits : list of BlastHit
+        BLAST hits to extract sequences for.
+    blast_db : Path
+        Path to BLAST database created with ``-parse_seqids``.
+    model_name : str
+        Name of model used to generate sequence IDs.
+    flank_size : int
+        Number of flanking bases to include on each side of the hit.
+
+    Returns
+    -------
+    list of Bio.SeqRecord.SeqRecord
+        Extracted sequences with flanking regions.
+    """
+    sequences = []
+
+    for hit in hits:
+        start = min(hit.subject_start, hit.subject_end)
+        end = max(hit.subject_start, hit.subject_end)
+
+        # Expand coordinates by flank_size (blastdbcmd clips to sequence boundaries)
+        flanked_start = max(1, start - flank_size)
+        flanked_end = end + flank_size
+
+        cmd = [
+            'blastdbcmd',
+            '-db',
+            str(blast_db),
+            '-entry',
+            hit.subject_id,
+            '-range',
+            f'{flanked_start}-{flanked_end}',
+        ]
+        if hit.strand == '-':
+            cmd += ['-strand', 'minus']
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, check=True, timeout=60
+            )
+            lines = result.stdout.strip().split('\n')
+            if len(lines) < 2 or not lines[0].startswith('>'):
+                logging.warning(
+                    f'Unexpected blastdbcmd output for flanked '
+                    f'{hit.subject_id}:{flanked_start}-{flanked_end}. Skipping.'
+                )
+                continue
+
+            seq_str = ''.join(lines[1:]).upper()
+            seq_id = (
+                f'{model_name}_{hit.subject_id}_{flanked_start}_{flanked_end}'
+                f'_{hit.strand}_flanked{flank_size}'
+            )
+            sequences.append(SeqRecord(Seq(seq_str), id=seq_id, description=''))
+
+        except subprocess.CalledProcessError as e:
+            logging.warning(
+                f'blastdbcmd failed for flanked '
+                f'{hit.subject_id}:{flanked_start}-{flanked_end}: '
+                f'{e.stderr.strip()}. Skipping.'
+            )
+        except subprocess.TimeoutExpired:
+            logging.warning(
+                f'blastdbcmd timed out for flanked '
+                f'{hit.subject_id}:{flanked_start}-{flanked_end}. Skipping.'
+            )
+        except FileNotFoundError:
+            raise HMMBuildError(
+                'blastdbcmd not found. Is BLAST+ installed and on PATH?'
+            )
+
+    return sequences
+
+
 def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
     chains: List[List[BlastHit]], genome_index, model_name: str
 ) -> List[SeqRecord]:
@@ -1569,11 +1794,12 @@ def process_seed_sequences(
     output_dir: Path,
     min_coverage: float,
     min_identity: float,
-    max_gap: int = 10,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
     threads: int = 1,
     evalue: float = 1e-3,
+    blast_db: Optional[Path] = None,
+    blast_hits_file: Optional[Path] = None,
 ) -> Tuple[Path, Path, Optional[Path], Optional[Path]]:
     """
     Process a seed file against genomes to build HMM.
@@ -1585,7 +1811,8 @@ def process_seed_sequences(
     model_name : str
         Name for the HMM model.
     genome_files : list of Path
-        List of genome files to search against.
+        List of genome FASTA files to search against.  May be empty when
+        ``blast_db`` is provided.
     temp_dir : Path
         Directory for temporary files.
     output_dir : Path
@@ -1594,8 +1821,6 @@ def process_seed_sequences(
         Minimum coverage threshold (0.0 to 1.0).
     min_identity : float
         Minimum percent identity threshold (0.0 to 100.0).
-    max_gap : int, default 10
-        Maximum gap for chaining fragmented hits.
     save_blast_hits : bool, default False
         If True, save all BLAST hits to file.
     flank_size : int, optional
@@ -1604,6 +1829,17 @@ def process_seed_sequences(
         Number of CPU threads for BLAST.
     evalue : float, default 1e-3
         E-value threshold for BLAST hits.
+    blast_db : Path, optional
+        Path to a pre-built BLAST database (without extension).  When provided,
+        blastn is run against this database and hit sequences are extracted via
+        ``blastdbcmd`` rather than from a FASTA index.  Mutually exclusive with
+        ``genome_files`` as the search target; the database must have been
+        created with ``-parse_seqids``.
+    blast_hits_file : Path, optional
+        Path to a pre-computed BLAST hit table in the TIRmite tabular format
+        (generated with ``--save-blast-hits``).  When provided the BLAST search
+        step is skipped and these hits are used directly.  Sequence extraction
+        still requires either ``genome_files`` or ``blast_db``.
 
     Returns
     -------
@@ -1613,20 +1849,48 @@ def process_seed_sequences(
     """
     logging.info(f'Processing {model_name} seed: {seed_file.name}')
 
-    all_hits = []
+    # ------------------------------------------------------------------ #
+    # Step 1 – Obtain BLAST hits                                           #
+    # ------------------------------------------------------------------ #
+    if blast_hits_file is not None:
+        # Use pre-computed hit table
+        logging.info(f'Loading pre-computed BLAST hits from {blast_hits_file}')
+        all_hits = parse_blast_output(blast_hits_file)
+        logging.info(f'Loaded {len(all_hits)} hits from {blast_hits_file}')
 
-    # BLAST against each genome
-    for genome_file in genome_files:
-        logging.info(f'Searching {model_name} against {genome_file.name}')
+        if not all_hits:
+            raise HMMBuildError(f'No hits found in provided blast-hits file: {blast_hits_file}')
 
-        # Create BLAST database
-        db_dir = temp_dir / f'blast_dbs_{genome_file.stem}'
-        db_dir.mkdir(exist_ok=True)
-        blast_db = create_blast_database(genome_file, db_dir)
+        # Warn about multiple query names
+        warn_multiple_queries(all_hits, context=model_name)
 
-        # Run BLAST search
-        blast_output = temp_dir / f'{model_name}_{genome_file.stem}_blast.tab'
-        hits = blast_seed_against_genome(
+        # Validate that all target sequences are reachable
+        if blast_db is not None:
+            missing = check_targets_in_blastdb(all_hits, blast_db)
+            if missing:
+                logging.warning(
+                    f'The following target sequences from the blast-hits table '
+                    f'could not be found in the blast database: '
+                    f'{", ".join(missing)}'
+                )
+        elif genome_files:
+            genome_index, _ = indexGenome(genome_files[0])
+            missing = [
+                h.subject_id for h in all_hits
+                if h.subject_id not in genome_index
+            ]
+            if missing:
+                logging.warning(
+                    f'The following target sequences from the blast-hits table '
+                    f'could not be found in the genome index: '
+                    f'{", ".join(set(missing))}'
+                )
+
+    elif blast_db is not None:
+        # Run BLAST against user-supplied pre-built database
+        logging.info(f'Running BLAST against pre-built database: {blast_db}')
+        blast_output = temp_dir / f'{model_name}_blast.tab'
+        all_hits = blast_seed_against_genome(
             seed_file,
             blast_db,
             blast_output,
@@ -1634,7 +1898,27 @@ def process_seed_sequences(
             num_threads=threads,
             evalue=evalue,
         )
-        all_hits.extend(hits)
+
+    else:
+        # Build databases from genome FASTA files and run BLAST
+        all_hits = []
+        for genome_file in genome_files:
+            logging.info(f'Searching {model_name} against {genome_file.name}')
+
+            db_dir = temp_dir / f'blast_dbs_{genome_file.stem}'
+            db_dir.mkdir(exist_ok=True)
+            db_path = create_blast_database(genome_file, db_dir)
+
+            blast_output = temp_dir / f'{model_name}_{genome_file.stem}_blast.tab'
+            hits = blast_seed_against_genome(
+                seed_file,
+                db_path,
+                blast_output,
+                min_identity,
+                num_threads=threads,
+                evalue=evalue,
+            )
+            all_hits.extend(hits)
 
     logging.info(f'Total BLAST hits for {model_name}: {len(all_hits)}')
 
@@ -1642,37 +1926,43 @@ def process_seed_sequences(
         raise HMMBuildError(f'No BLAST hits found for {model_name}')
 
     # Save all BLAST hits in tabular format if requested
-    blast_hits_file = None
+    saved_blast_hits_file = None
     if save_blast_hits:
-        blast_hits_file = output_dir / f'{cleanID(model_name)}_all_blast_hits.tab'
-        save_all_blast_hits(all_hits, blast_hits_file)
+        saved_blast_hits_file = output_dir / f'{cleanID(model_name)}_all_blast_hits.tab'
+        save_all_blast_hits(all_hits, saved_blast_hits_file)
 
-    # Filter hits by thresholds
+    # ------------------------------------------------------------------ #
+    # Step 2 – Filter and resolve hits                                     #
+    # ------------------------------------------------------------------ #
     filtered_hits = filter_hits_by_thresholds(all_hits, min_coverage, min_identity)
 
     if not filtered_hits:
         raise HMMBuildError(f'No hits passed thresholds for {model_name}')
 
-    # Resolve overlapping hits
     resolved_hits = resolve_overlapping_hits(filtered_hits)
 
-    # Chain fragmented hits (with warning message)
-    hit_chains = chain_fragmented_hits(resolved_hits, max_gap)
-
-    # Extract sequences with proper error handling
+    # ------------------------------------------------------------------ #
+    # Step 3 – Extract sequences                                           #
+    # ------------------------------------------------------------------ #
     try:
-        # Use first genome for extraction (assuming all genomes are provided)
-        genome_index, _ = indexGenome(genome_files[0])  # Fix: unpack the tuple
-        sequences = extract_sequences_from_chains(hit_chains, genome_index, model_name)
+        if blast_db is not None:
+            sequences = extract_sequences_from_hits_blastdb(
+                resolved_hits, blast_db, model_name
+            )
+        else:
+            genome_index, _ = indexGenome(genome_files[0])
+            hit_chains = [[h] for h in resolved_hits]
+            sequences = extract_sequences_from_chains(hit_chains, genome_index, model_name)
+    except HMMBuildError:
+        raise
     except Exception as e:
-        raise HMMBuildError(f'Failed to extract sequences from genome: {e}') from e
+        raise HMMBuildError(f'Failed to extract sequences: {e}') from e
 
     # Add original seed sequence(s) - convert to uppercase and add BEFORE deduplication
     seed_records = list(SeqIO.parse(seed_file, 'fasta'))
     logging.info(f'Adding {len(seed_records)} seed sequence(s) to extracted sequences')
 
     for seed_record in seed_records:
-        # Convert seed sequence to uppercase
         uppercase_seed = SeqRecord(
             Seq(str(seed_record.seq).upper()),
             id=seed_record.id,
@@ -1681,16 +1971,18 @@ def process_seed_sequences(
         sequences.append(uppercase_seed)
 
     logging.info(
-        f'Total sequences before deduplication: {len(sequences)} (including {len(seed_records)} seed sequences)'
+        f'Total sequences before deduplication: {len(sequences)} '
+        f'(including {len(seed_records)} seed sequences)'
     )
 
-    # Deduplicate - this will now prioritize seed sequences over extracted sequences
     unique_sequences = deduplicate_sequences(sequences)
 
     if len(unique_sequences) < 2:
         raise HMMBuildError(f'Not enough unique sequences for {model_name} alignment')
 
-    # Create standard alignment
+    # ------------------------------------------------------------------ #
+    # Step 4 – Alignment and HMM building                                  #
+    # ------------------------------------------------------------------ #
     alignment_file = output_dir / f'{cleanID(model_name)}_alignment.fasta'
     run_mafft_alignment(unique_sequences, alignment_file, threads=threads)
 
@@ -1701,16 +1993,20 @@ def process_seed_sequences(
             f'Creating flanked alignment with {flank_size}bp flanking sequence'
         )
 
-        # Extract flanked sequences
         try:
-            flanked_sequences = extract_flanked_sequences_from_chains(
-                hit_chains,
-                genome_index,
-                model_name,
-                flank_size,  # Use existing genome_index
-            )
+            if blast_db is not None:
+                flanked_sequences = extract_flanked_sequences_from_hits_blastdb(
+                    resolved_hits, blast_db, model_name, flank_size
+                )
+            else:
+                hit_chains = [[h] for h in resolved_hits]
+                flanked_sequences = extract_flanked_sequences_from_chains(
+                    hit_chains,
+                    genome_index,  # type: ignore[possibly-undefined]
+                    model_name,
+                    flank_size,
+                )
 
-            # Add seed sequences to flanked sequences as well
             for seed_record in seed_records:
                 uppercase_seed = SeqRecord(
                     Seq(str(seed_record.seq).upper()),
@@ -1719,7 +2015,6 @@ def process_seed_sequences(
                 )
                 flanked_sequences.append(uppercase_seed)
 
-            # Deduplicate flanked sequences
             unique_flanked_sequences = deduplicate_sequences(flanked_sequences)
 
             if len(unique_flanked_sequences) >= 2:
@@ -1749,7 +2044,7 @@ def process_seed_sequences(
     # Build HMM from standard alignment (not flanked) using pyhmmer
     hmm_file = build_hmm_from_alignment_pyhmmer(alignment_file, model_name, output_dir)
 
-    return hmm_file, alignment_file, blast_hits_file, flanked_alignment_file
+    return hmm_file, alignment_file, saved_blast_hits_file, flanked_alignment_file
 
 
 def process_asymmetric_seeds(
@@ -1761,11 +2056,13 @@ def process_asymmetric_seeds(
     output_dir: Path,
     min_coverage: float,
     min_identity: float,
-    max_gap: int = 10,
     save_blast_hits: bool = False,
     flank_size: Optional[int] = None,
     threads: int = 1,
     evalue: float = 1e-3,
+    blast_db: Optional[Path] = None,
+    left_blast_hits_file: Optional[Path] = None,
+    right_blast_hits_file: Optional[Path] = None,
 ) -> Tuple[Path, Path, Path, Path]:
     """
     Process asymmetric left and right seeds together to avoid filtering conflicts.
@@ -1779,7 +2076,8 @@ def process_asymmetric_seeds(
     model_name : str
         Base name for the models.
     genome_files : list of Path
-        List of genome files to search against.
+        List of genome FASTA files to search against.  May be empty when
+        ``blast_db`` is provided.
     temp_dir : Path
         Directory for temporary files.
     output_dir : Path
@@ -1788,8 +2086,6 @@ def process_asymmetric_seeds(
         Minimum coverage threshold (0.0 to 1.0).
     min_identity : float
         Minimum percent identity threshold (0.0 to 100.0).
-    max_gap : int, default 10
-        Maximum gap for resolving asymmetric conflicts.
     save_blast_hits : bool, default False
         If True, save all BLAST hits to file.
     flank_size : int, optional
@@ -1798,6 +2094,17 @@ def process_asymmetric_seeds(
         Number of CPU threads for BLAST.
     evalue : float, default 1e-3
         E-value threshold for BLAST hits.
+    blast_db : Path, optional
+        Path to a pre-built BLAST database (without extension).  When provided,
+        blastn is run against this database and hit sequences are extracted via
+        ``blastdbcmd``.  The database must have been created with
+        ``-parse_seqids``.
+    left_blast_hits_file : Path, optional
+        Pre-computed BLAST hit table for the left seed.  When provided the
+        BLAST search for the left seed is skipped.
+    right_blast_hits_file : Path, optional
+        Pre-computed BLAST hit table for the right seed.  When provided the
+        BLAST search for the right seed is skipped.
 
     Returns
     -------
@@ -1806,43 +2113,110 @@ def process_asymmetric_seeds(
     """
     logging.info(f'Processing asymmetric seeds for {model_name}')
 
-    all_left_hits = []
-    all_right_hits = []
-
-    # BLAST both seeds against all genomes first
-    for genome_file in genome_files:
-        logging.info(f'Searching both seeds against {genome_file.name}')
-
-        # Create BLAST database
-        db_dir = temp_dir / f'blast_dbs_{genome_file.stem}'
-        db_dir.mkdir(exist_ok=True)
-        blast_db = create_blast_database(genome_file, db_dir)
-
-        # BLAST left seed
-        left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
-        left_hits = blast_seed_against_genome(
-            left_seed,
-            blast_db,
-            left_output,
-            min_identity,
-            num_threads=threads,
-            evalue=evalue,
+    # ------------------------------------------------------------------ #
+    # Step 1 – Obtain BLAST hits for left seed                             #
+    # ------------------------------------------------------------------ #
+    if left_blast_hits_file is not None:
+        logging.info(
+            f'Loading pre-computed left BLAST hits from {left_blast_hits_file}'
         )
-        all_left_hits.extend(left_hits)
-
-        # BLAST right seed
-        right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
-        right_hits = blast_seed_against_genome(
-            right_seed,
-            blast_db,
-            right_output,
-            min_identity,
-            num_threads=threads,
-            evalue=evalue,
+        all_left_hits = parse_blast_output(left_blast_hits_file)
+        logging.info(f'Loaded {len(all_left_hits)} left hits')
+        if not all_left_hits:
+            raise HMMBuildError(
+                f'No hits in provided left-blast-hits file: {left_blast_hits_file}'
+            )
+        warn_multiple_queries(all_left_hits, context=f'{model_name}_left')
+        if blast_db is not None:
+            missing = check_targets_in_blastdb(all_left_hits, blast_db)
+            if missing:
+                logging.warning(
+                    f'Left hit targets not found in blast database: '
+                    f'{", ".join(missing)}'
+                )
+        elif genome_files:
+            genome_index_check, _ = indexGenome(genome_files[0])
+            missing_left = [
+                h.subject_id for h in all_left_hits
+                if h.subject_id not in genome_index_check
+            ]
+            if missing_left:
+                logging.warning(
+                    f'Left hit targets not found in genome: '
+                    f'{", ".join(set(missing_left))}'
+                )
+    elif blast_db is not None:
+        logging.info(f'Running left BLAST against pre-built database: {blast_db}')
+        left_output = temp_dir / f'{model_name}_left_blast.tab'
+        all_left_hits = blast_seed_against_genome(
+            left_seed, blast_db, left_output, min_identity,
+            num_threads=threads, evalue=evalue,
         )
-        all_right_hits.extend(right_hits)
+    else:
+        all_left_hits = []
+        for genome_file in genome_files:
+            db_dir = temp_dir / f'blast_dbs_{genome_file.stem}'
+            db_dir.mkdir(exist_ok=True)
+            db_path = create_blast_database(genome_file, db_dir)
+            left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
+            hits = blast_seed_against_genome(
+                left_seed, db_path, left_output, min_identity,
+                num_threads=threads, evalue=evalue,
+            )
+            all_left_hits.extend(hits)
 
-    # Check if we have hits for both seeds
+    # ------------------------------------------------------------------ #
+    # Step 2 – Obtain BLAST hits for right seed                            #
+    # ------------------------------------------------------------------ #
+    if right_blast_hits_file is not None:
+        logging.info(
+            f'Loading pre-computed right BLAST hits from {right_blast_hits_file}'
+        )
+        all_right_hits = parse_blast_output(right_blast_hits_file)
+        logging.info(f'Loaded {len(all_right_hits)} right hits')
+        if not all_right_hits:
+            raise HMMBuildError(
+                f'No hits in provided right-blast-hits file: {right_blast_hits_file}'
+            )
+        warn_multiple_queries(all_right_hits, context=f'{model_name}_right')
+        if blast_db is not None:
+            missing = check_targets_in_blastdb(all_right_hits, blast_db)
+            if missing:
+                logging.warning(
+                    f'Right hit targets not found in blast database: '
+                    f'{", ".join(missing)}'
+                )
+        elif genome_files:
+            genome_index_check, _ = indexGenome(genome_files[0])
+            missing_right = [
+                h.subject_id for h in all_right_hits
+                if h.subject_id not in genome_index_check
+            ]
+            if missing_right:
+                logging.warning(
+                    f'Right hit targets not found in genome: '
+                    f'{", ".join(set(missing_right))}'
+                )
+    elif blast_db is not None:
+        logging.info(f'Running right BLAST against pre-built database: {blast_db}')
+        right_output = temp_dir / f'{model_name}_right_blast.tab'
+        all_right_hits = blast_seed_against_genome(
+            right_seed, blast_db, right_output, min_identity,
+            num_threads=threads, evalue=evalue,
+        )
+    else:
+        all_right_hits = []
+        for genome_file in genome_files:
+            db_dir = temp_dir / f'blast_dbs_{genome_file.stem}'
+            db_dir.mkdir(exist_ok=True)
+            db_path = create_blast_database(genome_file, db_dir)
+            right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
+            hits = blast_seed_against_genome(
+                right_seed, db_path, right_output, min_identity,
+                num_threads=threads, evalue=evalue,
+            )
+            all_right_hits.extend(hits)
+
     if not all_left_hits:
         raise HMMBuildError(f'No BLAST hits found for {model_name}_left')
     if not all_right_hits:
@@ -1857,53 +2231,69 @@ def process_asymmetric_seeds(
         save_all_blast_hits(all_left_hits, left_blast_file)
         save_all_blast_hits(all_right_hits, right_blast_file)
 
-    # Apply intelligent filtering considering both seed results
+    # ------------------------------------------------------------------ #
+    # Step 3 – Filter and resolve hits                                     #
+    # ------------------------------------------------------------------ #
     filtered_left = filter_hits_by_thresholds(all_left_hits, min_coverage, min_identity)
     filtered_right = filter_hits_by_thresholds(
         all_right_hits, min_coverage, min_identity
     )
 
-    # Check if we have filtered hits
     if not filtered_left:
         raise HMMBuildError(f'No hits passed thresholds for {model_name}_left')
     if not filtered_right:
         raise HMMBuildError(f'No hits passed thresholds for {model_name}_right')
 
-    # Resolve overlaps within each seed type first
     resolved_left = resolve_overlapping_hits(filtered_left)
     resolved_right = resolve_overlapping_hits(filtered_right)
 
-    # Then resolve conflicts between left and right hits
+    # Resolve conflicts between left and right hits
     resolved_left, resolved_right = resolve_asymmetric_conflicts(
-        resolved_left, resolved_right, max_gap
+        resolved_left, resolved_right
     )
+
+    # ------------------------------------------------------------------ #
+    # Step 4 – Extract sequences                                           #
+    # ------------------------------------------------------------------ #
+    # Determine genome index for non-blastdb path
+    genome_index = None
+    if blast_db is None and genome_files:
+        try:
+            genome_index, _ = indexGenome(genome_files[0])
+        except Exception as e:
+            raise HMMBuildError(
+                f'Failed to index genome for sequence extraction: {e}'
+            ) from e
 
     # Process left seed
     logging.info(f'Processing left seed sequences for {model_name}_left')
-
-    # Chain fragmented hits for left seed
-    left_chains = chain_fragmented_hits(resolved_left, max_gap)
-
-    # Extract sequences from left hits
     try:
-        genome_index, _ = indexGenome(genome_files[0])  # Fix: unpack the tuple
-        left_sequences = extract_sequences_from_chains(
-            left_chains, genome_index, f'{model_name}_left'
-        )
+        if blast_db is not None:
+            left_sequences = extract_sequences_from_hits_blastdb(
+                resolved_left, blast_db, f'{model_name}_left'
+            )
+        else:
+            left_chains = [[h] for h in resolved_left]
+            left_sequences = extract_sequences_from_chains(
+                left_chains, genome_index, f'{model_name}_left'
+            )
+    except HMMBuildError:
+        raise
     except Exception as e:
-        raise HMMBuildError(f'Failed to extract left sequences from genome: {e}') from e
+        raise HMMBuildError(
+            f'Failed to extract left sequences: {e}'
+        ) from e
 
-    # Add original left seed sequence
     left_seed_records = list(SeqIO.parse(left_seed, 'fasta'))
     for seed_record in left_seed_records:
-        uppercase_seed = SeqRecord(
-            Seq(str(seed_record.seq).upper()),
-            id=seed_record.id,
-            description=seed_record.description,
+        left_sequences.append(
+            SeqRecord(
+                Seq(str(seed_record.seq).upper()),
+                id=seed_record.id,
+                description=seed_record.description,
+            )
         )
-        left_sequences.append(uppercase_seed)
 
-    # Deduplicate left sequences
     unique_left_sequences = deduplicate_sequences(left_sequences)
 
     if len(unique_left_sequences) < 2:
@@ -1911,44 +2301,44 @@ def process_asymmetric_seeds(
             f'Not enough unique sequences for {model_name}_left alignment'
         )
 
-    # Create left alignment with threading
     left_alignment_file = output_dir / f'{cleanID(model_name)}_left_alignment.fasta'
     run_mafft_alignment(unique_left_sequences, left_alignment_file, threads=threads)
 
-    # Build left HMM using pyhmmer
     left_hmm_file = build_hmm_from_alignment_pyhmmer(
         left_alignment_file, f'{model_name}_left', output_dir
     )
 
     # Process right seed
     logging.info(f'Processing right seed sequences for {model_name}_right')
-
-    # Chain fragmented hits for right seed
-    right_chains = chain_fragmented_hits(resolved_right, max_gap)
-
-    # Extract sequences from right hits
     try:
-        right_sequences = extract_sequences_from_chains(
-            right_chains,
-            genome_index,
-            f'{model_name}_right',  # genome_index already defined above
-        )
+        if blast_db is not None:
+            right_sequences = extract_sequences_from_hits_blastdb(
+                resolved_right, blast_db, f'{model_name}_right'
+            )
+        else:
+            right_chains = [[h] for h in resolved_right]
+            right_sequences = extract_sequences_from_chains(
+                right_chains,
+                genome_index,
+                f'{model_name}_right',
+            )
+    except HMMBuildError:
+        raise
     except Exception as e:
         raise HMMBuildError(
-            f'Failed to extract right sequences from genome: {e}'
+            f'Failed to extract right sequences: {e}'
         ) from e
 
-    # Add original right seed sequence
     right_seed_records = list(SeqIO.parse(right_seed, 'fasta'))
     for seed_record in right_seed_records:
-        uppercase_seed = SeqRecord(
-            Seq(str(seed_record.seq).upper()),
-            id=seed_record.id,
-            description=seed_record.description,
+        right_sequences.append(
+            SeqRecord(
+                Seq(str(seed_record.seq).upper()),
+                id=seed_record.id,
+                description=seed_record.description,
+            )
         )
-        right_sequences.append(uppercase_seed)
 
-    # Deduplicate right sequences
     unique_right_sequences = deduplicate_sequences(right_sequences)
 
     if len(unique_right_sequences) < 2:
@@ -1956,16 +2346,16 @@ def process_asymmetric_seeds(
             f'Not enough unique sequences for {model_name}_right alignment'
         )
 
-    # Create right alignment with threading
     right_alignment_file = output_dir / f'{cleanID(model_name)}_right_alignment.fasta'
     run_mafft_alignment(unique_right_sequences, right_alignment_file, threads=threads)
 
-    # Build right HMM using pyhmmer
     right_hmm_file = build_hmm_from_alignment_pyhmmer(
         right_alignment_file, f'{model_name}_right', output_dir
     )
 
-    # Calculate pairwise identity matrices
+    # ------------------------------------------------------------------ #
+    # Step 5 – Pairwise identity matrices                                  #
+    # ------------------------------------------------------------------ #
     left_identity_matrix = calculate_pairwise_identity(left_alignment_file)
     if not left_identity_matrix.empty:
         left_identity_file = (
@@ -1982,48 +2372,53 @@ def process_asymmetric_seeds(
         right_identity_matrix.to_csv(right_identity_file)
         logging.info(f'Right pairwise identity matrix written to {right_identity_file}')
 
-    # Handle flanked alignments if requested
+    # ------------------------------------------------------------------ #
+    # Step 6 – Optional flanked alignments                                 #
+    # ------------------------------------------------------------------ #
     if flank_size is not None and flank_size > 0:
         logging.info(
             f'Creating flanked alignments with {flank_size}bp flanking sequence'
         )
 
         try:
-            # Left flanked sequences - ADD THIS SECTION
-            left_flanked_sequences = extract_flanked_sequences_from_chains(
-                left_chains, genome_index, f'{model_name}_left', flank_size
-            )
+            if blast_db is not None:
+                left_flanked_sequences = extract_flanked_sequences_from_hits_blastdb(
+                    resolved_left, blast_db, f'{model_name}_left', flank_size
+                )
+                right_flanked_sequences = extract_flanked_sequences_from_hits_blastdb(
+                    resolved_right, blast_db, f'{model_name}_right', flank_size
+                )
+            else:
+                left_chains = [[h] for h in resolved_left]
+                right_chains = [[h] for h in resolved_right]
+                left_flanked_sequences = extract_flanked_sequences_from_chains(
+                    left_chains, genome_index, f'{model_name}_left', flank_size
+                )
+                right_flanked_sequences = extract_flanked_sequences_from_chains(
+                    right_chains, genome_index, f'{model_name}_right', flank_size
+                )
 
-            # Add left seed sequences to flanked sequences
             for seed_record in left_seed_records:
-                uppercase_seed = SeqRecord(
-                    Seq(str(seed_record.seq).upper()),
-                    id=f'{seed_record.id}_seed',
-                    description=f'{seed_record.description} (seed sequence)',
+                left_flanked_sequences.append(
+                    SeqRecord(
+                        Seq(str(seed_record.seq).upper()),
+                        id=f'{seed_record.id}_seed',
+                        description=f'{seed_record.description} (seed sequence)',
+                    )
                 )
-                left_flanked_sequences.append(uppercase_seed)
 
-            # Deduplicate left flanked sequences
-            unique_left_flanked = deduplicate_sequences(left_flanked_sequences)
-
-            # Right flanked sequences - ADD THIS SECTION
-            right_flanked_sequences = extract_flanked_sequences_from_chains(
-                right_chains, genome_index, f'{model_name}_right', flank_size
-            )
-
-            # Add right seed sequences to flanked sequences
             for seed_record in right_seed_records:
-                uppercase_seed = SeqRecord(
-                    Seq(str(seed_record.seq).upper()),
-                    id=f'{seed_record.id}_seed',
-                    description=f'{seed_record.description} (seed sequence)',
+                right_flanked_sequences.append(
+                    SeqRecord(
+                        Seq(str(seed_record.seq).upper()),
+                        id=f'{seed_record.id}_seed',
+                        description=f'{seed_record.description} (seed sequence)',
+                    )
                 )
-                right_flanked_sequences.append(uppercase_seed)
 
-            # Deduplicate right flanked sequences
+            unique_left_flanked = deduplicate_sequences(left_flanked_sequences)
             unique_right_flanked = deduplicate_sequences(right_flanked_sequences)
 
-            # Left flanked alignment
             if len(unique_left_flanked) >= 2:
                 left_flanked_file = (
                     output_dir
@@ -2034,7 +2429,6 @@ def process_asymmetric_seeds(
                 )
                 logging.info(f'Left flanked alignment written to {left_flanked_file}')
 
-            # Right flanked alignment
             if len(unique_right_flanked) >= 2:
                 right_flanked_file = (
                     output_dir
@@ -2056,7 +2450,7 @@ def process_asymmetric_seeds(
 
 
 def resolve_asymmetric_conflicts(
-    left_hits: List[BlastHit], right_hits: List[BlastHit], max_gap: int
+    left_hits: List[BlastHit], right_hits: List[BlastHit]
 ) -> Tuple[List[BlastHit], List[BlastHit]]:
     """
     Resolve conflicts between left and right seed hits.
@@ -2067,8 +2461,6 @@ def resolve_asymmetric_conflicts(
         BLAST hits from left seed.
     right_hits : list of BlastHit
         BLAST hits from right seed.
-    max_gap : int
-        Maximum gap for conflict resolution.
 
     Returns
     -------
@@ -2786,7 +3178,7 @@ def _configure_seed_parser(parser: argparse.ArgumentParser) -> None:
         '--outdir', type=Path, default=Path.cwd(), help='Output directory for results'
     )
 
-    # Genome input (mutually exclusive)
+    # Genome input (mutually exclusive with blastdb)
     genome_group = parser.add_mutually_exclusive_group(required=True)
     genome_group.add_argument(
         '--genome', type=Path, help='Single genome FASTA file to search'
@@ -2795,6 +3187,47 @@ def _configure_seed_parser(parser: argparse.ArgumentParser) -> None:
         '--genome-list',
         type=Path,
         help='File containing list of genome paths (one per line)',
+    )
+    genome_group.add_argument(
+        '--blastdb',
+        type=Path,
+        help=(
+            'Path to a pre-built BLAST nucleotide database (without file extension). '
+            'Provide this instead of --genome / --genome-list when a BLAST database '
+            'has already been built. The database must have been created with '
+            '``makeblastdb -parse_seqids`` so that sequences can be extracted with '
+            '``blastdbcmd``. Mutually exclusive with --genome and --genome-list.'
+        ),
+    )
+
+    # Optional pre-computed BLAST hit tables
+    parser.add_argument(
+        '--blast-hits',
+        type=Path,
+        help=(
+            'Pre-computed BLAST hit table for the seed sequence (TIRmite tabular '
+            'format, generated with --save-blast-hits). When provided the BLAST '
+            'search step is skipped and these hits are used directly. Sequence '
+            'extraction still requires --genome, --genome-list, or --blastdb.'
+        ),
+    )
+    parser.add_argument(
+        '--left-blast-hits',
+        type=Path,
+        help=(
+            'Pre-computed BLAST hit table for the left seed sequence (asymmetric '
+            'elements). Used together with --right-blast-hits to skip the BLAST '
+            'search step for both seeds.'
+        ),
+    )
+    parser.add_argument(
+        '--right-blast-hits',
+        type=Path,
+        help=(
+            'Pre-computed BLAST hit table for the right seed sequence (asymmetric '
+            'elements). Used together with --left-blast-hits to skip the BLAST '
+            'search step for both seeds.'
+        ),
     )
 
     # Optional parameters
@@ -2822,12 +3255,6 @@ def _configure_seed_parser(parser: argparse.ArgumentParser) -> None:
         '--save-blast-hits',
         action='store_true',
         help='Save all BLAST hits in tabular format',
-    )
-    parser.add_argument(
-        '--max-gap',
-        type=int,
-        default=10,
-        help='Maximum gap size for chaining fragmented hits (default: 10)',
     )
     parser.add_argument(
         '--flank-size',
@@ -2918,8 +3345,32 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             if args.hmm_file:
                 logging.warning('--hmm-file is ignored unless --update is specified')
 
-        # Get genome files
-        if args.genome:
+            # Validate pre-computed hit table paths
+            for attr, label in [
+                ('blast_hits', '--blast-hits'),
+                ('left_blast_hits', '--left-blast-hits'),
+                ('right_blast_hits', '--right-blast-hits'),
+            ]:
+                path = getattr(args, attr, None)
+                if path is not None and not path.exists():
+                    raise FileNotFoundError(
+                        f'{label} file not found: {path}'
+                    )
+
+        # Get genome files / blastdb
+        blast_db: Optional[Path] = None
+        genome_files: List[Path] = []
+
+        if args.blastdb is not None:
+            blast_db = args.blastdb
+            logging.info(f'Using pre-built BLAST database: {blast_db}')
+            # Verify at least one database file exists
+            db_files = _glob.glob(str(blast_db) + '.*')
+            if not db_files:
+                raise FileNotFoundError(
+                    f'No BLAST database files found for: {blast_db}'
+                )
+        elif args.genome:
             genome_files = [args.genome]
             if not args.genome.exists():
                 raise FileNotFoundError(f'Genome file not found: {args.genome}')
@@ -2927,7 +3378,6 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             with open(args.genome_list, 'r') as f:
                 genome_paths = [Path(line.strip()) for line in f if line.strip()]
 
-            genome_files = []
             for path in genome_paths:
                 if not path.exists():
                     logging.warning(f'Genome file not found, skipping: {path}')
@@ -2965,6 +3415,15 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Route to appropriate workflow
             if args.update:
                 # Update mode: search with existing HMM, extract hits, rebuild HMM
+                if blast_db is not None:
+                    raise HMMBuildError(
+                        '--blastdb is not supported with --update mode. '
+                        'Provide --genome or --genome-list instead.'
+                    )
+                if not genome_files:
+                    raise HMMBuildError(
+                        '--update mode requires --genome or --genome-list'
+                    )
                 logging.info('Running HMM update workflow')
 
                 updated_hmm, alignment, flanked_alignment = update_hmm_with_genome_hits(
@@ -3079,11 +3538,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         output_dir,
                         args.min_coverage,
                         args.min_identity,
-                        args.max_gap,
                         args.save_blast_hits,
                         args.flank_size,
                         threads=args.threads,
                         evalue=args.evalue,
+                        blast_db=blast_db,
+                        left_blast_hits_file=getattr(args, 'left_blast_hits', None),
+                        right_blast_hits_file=getattr(args, 'right_blast_hits', None),
                     )
 
                     logging.info('Asymmetric processing completed:')
@@ -3103,11 +3564,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             output_dir,
                             args.min_coverage,
                             args.min_identity,
-                            args.max_gap,
                             args.save_blast_hits,
                             args.flank_size,
                             threads=args.threads,
                             evalue=args.evalue,
+                            blast_db=blast_db,
+                            blast_hits_file=getattr(args, 'blast_hits', None),
                         )
                     )
                     logging.info(f'Single seed processing completed: {left_hmm}')

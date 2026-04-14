@@ -40,10 +40,14 @@ dev = [
     "pytest-cov",
     "ruff",
 ]
+docs = [
+    "mkdocs-material>=9.0",
+    "pymdown-extensions>=10.0",
+]
 
 [project.urls]
-homepage = "https://github.com/adamtaranto/TIRmite"
-documentation = "https://github.com/adamtaranto/TIRmite"
+homepage = "https://adamtaranto.github.io/TIRmite"
+documentation = "https://adamtaranto.github.io/TIRmite"
 repository = "https://github.com/adamtaranto/TIRmite"
 
 [project.scripts]

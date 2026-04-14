@@ -10,6 +10,7 @@ dependencies:
   - pip
   - pyhmmer
   - python 3.12
+  - samtools
   - seqkit
   - pip:
       - "biopython>=1.70"

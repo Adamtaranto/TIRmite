@@ -957,10 +957,10 @@ def extract_sequences_from_hits_blastdb(
             logging.warning(
                 f'blastdbcmd timed out for {hit.subject_id}:{start}-{end}. Skipping.'
             )
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             raise HMMBuildError(
                 'blastdbcmd not found. Is BLAST+ installed and on PATH?'
-            )
+            ) from e
 
     return sequences
 
@@ -1039,10 +1039,10 @@ def extract_flanked_sequences_from_hits_blastdb(
                 f'blastdbcmd timed out for flanked '
                 f'{hit.subject_id}:{flanked_start}-{flanked_end}. Skipping.'
             )
-        except FileNotFoundError:
+        except FileNotFoundError as e:
             raise HMMBuildError(
                 'blastdbcmd not found. Is BLAST+ installed and on PATH?'
-            )
+            ) from e
 
     return sequences
 
@@ -1858,7 +1858,9 @@ def process_seed_sequences(
         logging.info(f'Loaded {len(all_hits)} hits from {blast_hits_file}')
 
         if not all_hits:
-            raise HMMBuildError(f'No hits found in provided blast-hits file: {blast_hits_file}')
+            raise HMMBuildError(
+                f'No hits found in provided blast-hits file: {blast_hits_file}'
+            )
 
         # Warn about multiple query names
         warn_multiple_queries(all_hits, context=model_name)
@@ -1877,8 +1879,7 @@ def process_seed_sequences(
             # referencing sequences in other listed genomes are not checked here.
             genome_index, _ = indexGenome(genome_files[0])
             missing = [
-                h.subject_id for h in all_hits
-                if h.subject_id not in genome_index
+                h.subject_id for h in all_hits if h.subject_id not in genome_index
             ]
             if missing:
                 logging.warning(
@@ -1963,7 +1964,9 @@ def process_seed_sequences(
                 resolved_hits, blast_db, model_name
             )
         else:
-            sequences = extract_sequences_from_chains(hit_chains, genome_index, model_name)
+            sequences = extract_sequences_from_chains(
+                hit_chains, genome_index, model_name
+            )
     except HMMBuildError:
         raise
     except Exception as e:
@@ -2147,8 +2150,7 @@ def process_asymmetric_seeds(
         elif genome_files:
             genome_index, _ = indexGenome(genome_files[0])
             missing_left = [
-                h.subject_id for h in all_left_hits
-                if h.subject_id not in genome_index
+                h.subject_id for h in all_left_hits if h.subject_id not in genome_index
             ]
             if missing_left:
                 logging.warning(
@@ -2159,8 +2161,12 @@ def process_asymmetric_seeds(
         logging.info(f'Running left BLAST against pre-built database: {blast_db}')
         left_output = temp_dir / f'{model_name}_left_blast.tab'
         all_left_hits = blast_seed_against_genome(
-            left_seed, blast_db, left_output, min_identity,
-            num_threads=threads, evalue=evalue,
+            left_seed,
+            blast_db,
+            left_output,
+            min_identity,
+            num_threads=threads,
+            evalue=evalue,
         )
     else:
         all_left_hits = []
@@ -2170,8 +2176,12 @@ def process_asymmetric_seeds(
             db_path = create_blast_database(genome_file, db_dir)
             left_output = temp_dir / f'{model_name}_left_{genome_file.stem}_blast.tab'
             hits = blast_seed_against_genome(
-                left_seed, db_path, left_output, min_identity,
-                num_threads=threads, evalue=evalue,
+                left_seed,
+                db_path,
+                left_output,
+                min_identity,
+                num_threads=threads,
+                evalue=evalue,
             )
             all_left_hits.extend(hits)
 
@@ -2199,8 +2209,7 @@ def process_asymmetric_seeds(
         elif genome_files:
             genome_index, _ = indexGenome(genome_files[0])
             missing_right = [
-                h.subject_id for h in all_right_hits
-                if h.subject_id not in genome_index
+                h.subject_id for h in all_right_hits if h.subject_id not in genome_index
             ]
             if missing_right:
                 logging.warning(
@@ -2211,8 +2220,12 @@ def process_asymmetric_seeds(
         logging.info(f'Running right BLAST against pre-built database: {blast_db}')
         right_output = temp_dir / f'{model_name}_right_blast.tab'
         all_right_hits = blast_seed_against_genome(
-            right_seed, blast_db, right_output, min_identity,
-            num_threads=threads, evalue=evalue,
+            right_seed,
+            blast_db,
+            right_output,
+            min_identity,
+            num_threads=threads,
+            evalue=evalue,
         )
     else:
         all_right_hits = []
@@ -2222,8 +2235,12 @@ def process_asymmetric_seeds(
             db_path = create_blast_database(genome_file, db_dir)
             right_output = temp_dir / f'{model_name}_right_{genome_file.stem}_blast.tab'
             hits = blast_seed_against_genome(
-                right_seed, db_path, right_output, min_identity,
-                num_threads=threads, evalue=evalue,
+                right_seed,
+                db_path,
+                right_output,
+                min_identity,
+                num_threads=threads,
+                evalue=evalue,
             )
             all_right_hits.extend(hits)
 
@@ -2292,9 +2309,7 @@ def process_asymmetric_seeds(
     except HMMBuildError:
         raise
     except Exception as e:
-        raise HMMBuildError(
-            f'Failed to extract left sequences: {e}'
-        ) from e
+        raise HMMBuildError(f'Failed to extract left sequences: {e}') from e
 
     left_seed_records = list(SeqIO.parse(left_seed, 'fasta'))
     for seed_record in left_seed_records:
@@ -2336,9 +2351,7 @@ def process_asymmetric_seeds(
     except HMMBuildError:
         raise
     except Exception as e:
-        raise HMMBuildError(
-            f'Failed to extract right sequences: {e}'
-        ) from e
+        raise HMMBuildError(f'Failed to extract right sequences: {e}') from e
 
     right_seed_records = list(SeqIO.parse(right_seed, 'fasta'))
     for seed_record in right_seed_records:
@@ -3362,9 +3375,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             ]:
                 path = getattr(args, attr, None)
                 if path is not None and not path.exists():
-                    raise FileNotFoundError(
-                        f'{label} file not found: {path}'
-                    )
+                    raise FileNotFoundError(f'{label} file not found: {path}')
 
         # Get genome files / blastdb
         blast_db: Optional[Path] = None

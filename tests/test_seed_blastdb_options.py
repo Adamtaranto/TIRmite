@@ -13,10 +13,7 @@ These tests exercise:
 """
 
 import argparse
-import os
-import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -33,6 +30,7 @@ from tirmite.cli.hmm_build import (
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_hit(
     query_id: str = 'query1',
@@ -81,6 +79,7 @@ def _write_blast_hits(path: Path, hits: list) -> None:
 # CLI parser tests
 # ---------------------------------------------------------------------------
 
+
 class TestSeedParserNewOptions:
     """Verify that the seed parser accepts the new options correctly."""
 
@@ -96,8 +95,7 @@ class TestSeedParserNewOptions:
         (tmp_path / 'mydb.nsq').touch()
         parser = self._get_parser()
         args = parser.parse_args(
-            ['--left-seed', 'seed.fa', '--model-name', 'myTE',
-             '--blastdb', str(db)]
+            ['--left-seed', 'seed.fa', '--model-name', 'myTE', '--blastdb', str(db)]
         )
         assert args.blastdb == db
 
@@ -105,8 +103,14 @@ class TestSeedParserNewOptions:
         """--genome should still be accepted."""
         parser = self._get_parser()
         args = parser.parse_args(
-            ['--left-seed', 'seed.fa', '--model-name', 'myTE',
-             '--genome', str(tmp_path / 'genome.fa')]
+            [
+                '--left-seed',
+                'seed.fa',
+                '--model-name',
+                'myTE',
+                '--genome',
+                str(tmp_path / 'genome.fa'),
+            ]
         )
         assert args.genome is not None
 
@@ -115,8 +119,16 @@ class TestSeedParserNewOptions:
         parser = self._get_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(
-                ['--left-seed', 'seed.fa', '--model-name', 'myTE',
-                 '--genome', 'g.fa', '--blastdb', 'db']
+                [
+                    '--left-seed',
+                    'seed.fa',
+                    '--model-name',
+                    'myTE',
+                    '--genome',
+                    'g.fa',
+                    '--blastdb',
+                    'db',
+                ]
             )
 
     def test_blast_hits_accepted(self, tmp_path):
@@ -125,8 +137,16 @@ class TestSeedParserNewOptions:
         hits_file = tmp_path / 'hits.tab'
         hits_file.touch()
         args = parser.parse_args(
-            ['--left-seed', 'seed.fa', '--model-name', 'myTE',
-             '--genome', 'g.fa', '--blast-hits', str(hits_file)]
+            [
+                '--left-seed',
+                'seed.fa',
+                '--model-name',
+                'myTE',
+                '--genome',
+                'g.fa',
+                '--blast-hits',
+                str(hits_file),
+            ]
         )
         assert args.blast_hits == hits_file
 
@@ -136,10 +156,20 @@ class TestSeedParserNewOptions:
         left_hits = tmp_path / 'left.tab'
         right_hits = tmp_path / 'right.tab'
         args = parser.parse_args(
-            ['--left-seed', 'l.fa', '--right-seed', 'r.fa',
-             '--model-name', 'myTE', '--genome', 'g.fa',
-             '--left-blast-hits', str(left_hits),
-             '--right-blast-hits', str(right_hits)]
+            [
+                '--left-seed',
+                'l.fa',
+                '--right-seed',
+                'r.fa',
+                '--model-name',
+                'myTE',
+                '--genome',
+                'g.fa',
+                '--left-blast-hits',
+                str(left_hits),
+                '--right-blast-hits',
+                str(right_hits),
+            ]
         )
         assert args.left_blast_hits == left_hits
         assert args.right_blast_hits == right_hits
@@ -149,8 +179,16 @@ class TestSeedParserNewOptions:
         parser = self._get_parser()
         with pytest.raises(SystemExit):
             parser.parse_args(
-                ['--left-seed', 'seed.fa', '--model-name', 'myTE',
-                 '--genome', 'g.fa', '--max-gap', '50']
+                [
+                    '--left-seed',
+                    'seed.fa',
+                    '--model-name',
+                    'myTE',
+                    '--genome',
+                    'g.fa',
+                    '--max-gap',
+                    '50',
+                ]
             )
 
     def test_genome_source_required(self):
@@ -163,6 +201,7 @@ class TestSeedParserNewOptions:
 # ---------------------------------------------------------------------------
 # warn_multiple_queries tests
 # ---------------------------------------------------------------------------
+
 
 class TestWarnMultipleQueries:
     def test_single_query_no_warning(self, caplog):
@@ -188,6 +227,7 @@ class TestWarnMultipleQueries:
 # resolve_asymmetric_conflicts - signature without max_gap
 # ---------------------------------------------------------------------------
 
+
 class TestResolveAsymmetricConflictsNewSignature:
     def test_called_without_max_gap(self):
         """resolve_asymmetric_conflicts must work without a max_gap argument."""
@@ -210,6 +250,7 @@ class TestResolveAsymmetricConflictsNewSignature:
 # parse_blast_output with custom format (round-trip test)
 # ---------------------------------------------------------------------------
 
+
 class TestParseBlastOutputRoundTrip:
     """Ensure that hits written by save_all_blast_hits can be read back."""
 
@@ -218,7 +259,9 @@ class TestParseBlastOutputRoundTrip:
 
         original = [
             _make_hit('q1', 'chr1', 1, 100, 1000, 1099, 100, 95.0, 100, 10000),
-            _make_hit('q1', 'chr1', 1, 80, 2000, 1921, 80, 90.0, 100, 10000),  # reverse strand (subject_start > subject_end)
+            _make_hit(
+                'q1', 'chr1', 1, 80, 2000, 1921, 80, 90.0, 100, 10000
+            ),  # reverse strand (subject_start > subject_end)
         ]
         tab_file = tmp_path / 'hits.tab'
         save_all_blast_hits(original, tab_file)
@@ -236,10 +279,13 @@ class TestParseBlastOutputRoundTrip:
 # process_seed_sequences with blast_hits_file
 # ---------------------------------------------------------------------------
 
+
 class TestProcessSeedSequencesWithBlastHitsFile:
     """Unit-level tests for the blast_hits_file path in process_seed_sequences."""
 
-    def _make_fasta(self, path: Path, seqid: str = 'seed1', seq: str = 'ACGT' * 25) -> Path:
+    def _make_fasta(
+        self, path: Path, seqid: str = 'seed1', seq: str = 'ACGT' * 25
+    ) -> Path:
         with open(path, 'w') as f:
             f.write(f'>{seqid}\n{seq}\n')
         return path
@@ -273,7 +319,8 @@ class TestProcessSeedSequencesWithBlastHitsFile:
 
         # Hit with very low identity and coverage
         bad_hit = _make_hit(
-            query_start=1, query_end=10,  # coverage = 10/100 = 0.10
+            query_start=1,
+            query_end=10,  # coverage = 10/100 = 0.10
             identity=30.0,
         )
         hits_file = tmp_path / 'bad_hits.tab'

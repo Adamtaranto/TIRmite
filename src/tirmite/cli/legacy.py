@@ -137,28 +137,28 @@ def _configure_legacy_parser(parser: argparse.ArgumentParser) -> None:
         help='Path to target genome that will be queried with HMMs.',
     )
     parser.add_argument(
-        '--hmmDir',
+        '--hmm-dir',
         type=str,
         default=None,
         help='Directory containing pre-prepared TIR-pHMMs.',
     )
     parser.add_argument(
-        '--hmmFile',
+        '--hmm-file',
         type=str,
         default=None,
-        help='Path to single HMM file. Incompatible with "--hmmDir".',
+        help='Path to single HMM file. Incompatible with "--hmm-dir".',
     )
     parser.add_argument(
-        '--alnDir',
+        '--aln-dir',
         type=str,
         default=None,
         help='Path to directory containing only TIR alignments in FASTA format to be converted to HMM.',
     )
     parser.add_argument(
-        '--alnFile',
+        '--aln-file',
         type=str,
         default=None,
-        help='Provide a single TIR alignment in FASTA format to be converted to HMM. Incompatible with "--alnDir".',
+        help='Provide a single TIR alignment in FASTA format to be converted to HMM. Incompatible with "--aln-dir".',
     )
     parser.add_argument(
         '--pairbed',
@@ -168,7 +168,7 @@ def _configure_legacy_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
-        '--stableReps',
+        '--stable-reps',
         type=int,
         default=0,
         help='Number of times to iterate pairing procedure when no additional pairs are found AND remaining unpaired hits > 0.',
@@ -193,7 +193,7 @@ def _configure_legacy_parser(parser: argparse.ArgumentParser) -> None:
         help='If set, only report HMM hits. Do not attempt pairing.',
     )
     parser.add_argument(
-        '--gffOut',
+        '--gff-out',
         action='store_true',
         default=False,
         help='If set report features as prefix.gff3. File saved to outdir. Default: False',
@@ -280,17 +280,17 @@ def _configure_legacy_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
-        '--leftModel',
+        '--left-model',
         type=str,
         default=None,
-        help='HMM model for left terminus. Use with --rightModel for asymmetric elements.',
+        help='HMM model for left terminus. Use with --right-model for asymmetric elements.',
     )
 
     parser.add_argument(
-        '--rightModel',
+        '--right-model',
         type=str,
         default=None,
-        help='HMM model for right terminus. Use with --leftModel for asymmetric elements.',
+        help='HMM model for right terminus. Use with --left-model for asymmetric elements.',
     )
     # Add new temp directory option
     parser.add_argument(
@@ -300,22 +300,22 @@ def _configure_legacy_parser(parser: argparse.ArgumentParser) -> None:
         help='Base directory for temporary files. Uses system temp if not specified.',
     )
     parser.add_argument(
-        '--nhmmerFile',
+        '--nhmmer-file',
         type=str,
         default=None,
-        help='Path to precomputed nhmmer output file. Requires --hmmFile for model length calculation.',
+        help='Path to precomputed nhmmer output file. Requires --hmm-file for model length calculation.',
     )
     parser.add_argument(
-        '--leftNhmmer',
+        '--left-nhmmer',
         type=str,
         default=None,
-        help='Path to precomputed nhmmer output for left model. Use with --rightNhmmer and --leftModel/--rightModel for asymmetric elements.',
+        help='Path to precomputed nhmmer output for left model. Use with --right-nhmmer and --left-model/--right-model for asymmetric elements.',
     )
     parser.add_argument(
-        '--rightNhmmer',
+        '--right-nhmmer',
         type=str,
         default=None,
-        help='Path to precomputed nhmmer output for right model. Use with --leftNhmmer and --leftModel/--rightModel for asymmetric elements.',
+        help='Path to precomputed nhmmer output for right model. Use with --left-nhmmer and --left-model/--right-model for asymmetric elements.',
     )
 
 
@@ -572,12 +572,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             logging.info(f'Loaded {len(hitTable)} hits from BED file')
 
             # Create pairing configuration BEFORE validation
-            if args.leftModel and args.rightModel:
+            if args.left_model and args.right_model:
                 # Asymmetric pairing with different models
                 config = tirmite.PairingConfig(
                     orientation=args.orientation,
-                    left_model=args.leftModel,
-                    right_model=args.rightModel,
+                    left_model=args.left_model,
+                    right_model=args.right_model,
                 )
             else:
                 # For symmetric pairing with BED file, need to determine single model
@@ -591,10 +591,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     sys.exit(1)
 
                 # Use first available model or user-specified model
-                if args.leftModel and args.leftModel in available_models:
-                    single_model = args.leftModel
-                elif args.rightModel and args.rightModel in available_models:
-                    single_model = args.rightModel
+                if args.left_model and args.left_model in available_models:
+                    single_model = args.left_model
+                elif args.right_model and args.right_model in available_models:
+                    single_model = args.right_model
                 else:
                     single_model = available_models[0]
                     logging.info(f'No specific model provided, using: {single_model}')
@@ -640,10 +640,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Else run nhmmer and load TIR hits.
         else:
             # If raw alignments provided, convert to stockholm format.
-            if args.alnDir or args.alnFile:
+            if args.aln_dir or args.aln_file:
                 stockholmDir = tirmite.convertAlign(
-                    alnDir=args.alnDir,
-                    alnFile=args.alnFile,
+                    alnDir=args.aln_dir,
+                    alnFile=args.aln_file,
                     inFormat='fasta',
                     tempDir=tempDir,
                 )
@@ -651,12 +651,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 stockholmDir = None
 
             # If pre-built HMM provided, check correct format.
-            if args.hmmFile:
+            if args.hmm_file:
                 if (
-                    os.path.splitext(os.path.basename(args.hmmFile))[1].lstrip('.')
+                    os.path.splitext(os.path.basename(args.hmm_file))[1].lstrip('.')
                     != 'hmm'
                 ):
-                    logging.error('--hmmFile has non-hmm extension. Exiting.')
+                    logging.error('--hmm-file has non-hmm extension. Exiting.')
                     cleanup_temp_directory(tempDir, args.keep_temp)
                     sys.exit(1)
 
@@ -676,11 +676,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 }
 
                 resultDir, hmmDB = process_hmmer_workflow(
-                    hmm_dir=args.hmmDir,
-                    hmm_file=args.hmmFile,
+                    hmm_dir=args.hmm_dir,
+                    hmm_file=args.hmm_file,
                     alignment_dir=stockholmDir,
-                    left_model=getattr(args, 'leftModel', None),  # Add this line
-                    right_model=getattr(args, 'rightModel', None),  # Add this line
+                    left_model=args.left_model,
+                    right_model=args.right_model,
                     temp_dir=tempDir,
                     genome_path=args.genome,
                     executable_paths=executable_paths,
@@ -830,10 +830,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             hitsDict, hitIndex = tirmite.table2dict(hitTable)
 
             # Create pairing configuration for HMM workflow
-            if args.leftModel and args.rightModel:
+            if args.left_model and args.right_model:
                 # Extract actual model names from HMM files
-                left_model_name = extract_model_name_from_path(args.leftModel)
-                right_model_name = extract_model_name_from_path(args.rightModel)
+                left_model_name = extract_model_name_from_path(args.left_model)
+                right_model_name = extract_model_name_from_path(args.right_model)
 
                 # Asymmetric pairing with different models
                 config = tirmite.PairingConfig(
@@ -917,7 +917,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     f'Using asymmetric pairing: {config.left_model} + {config.right_model}'
                 )
                 hitIndex, paired, unpaired = tirmite.iterateGetPairsAsymmetric(
-                    hitIndex, config, stableReps=args.stableReps
+                    hitIndex, config, stableReps=args.stable_reps
                 )
             else:
                 # Use enhanced symmetric pairing that supports custom orientations
@@ -925,7 +925,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     f'Using symmetric pairing with orientation {config.orientation}'
                 )
                 hitIndex, paired, unpaired = tirmite.iterateGetPairsCustom(
-                    hitIndex, config, stableReps=args.stableReps
+                    hitIndex, config, stableReps=args.stable_reps
                 )
 
             logging.debug(f'After pairing - paired type: {type(paired)}')
@@ -1006,7 +1006,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
 
         # Write paired features to gff3, optionally also report paired/unpaired TIRs
-        if args.gffOut:
+        if args.gff_out:
             # Get unpaired TIRs
             if args.report in ['all', 'unpaired']:
                 unpairedTIRs = tirmite.fetchUnpaired(hitIndex=hitIndex)

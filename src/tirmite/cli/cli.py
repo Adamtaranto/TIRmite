@@ -38,9 +38,9 @@ Available subcommands:
   search    Ensemble search: merge hits from clustered features
 
 Examples:
-  tirmite legacy --genome genome.fa --hmmFile model.hmm
+  tirmite legacy --genome genome.fa --hmm-file model.hmm
   tirmite seed --left-seed left.fa --model-name myTE --genome genome.fa
-  tirmite pair --genome genome.fa --nhmmerFile hits.out --hmmFile model.hmm
+  tirmite pair --genome genome.fa --nhmmer-file hits.out --hmm-file model.hmm
   tirmite search --blast-results hits.tab --cluster-map clusters.tsv
         """,
     )

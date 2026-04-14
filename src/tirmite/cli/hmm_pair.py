@@ -472,63 +472,63 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     # Search result input files (mutually exclusive groups)
     search_group = parser.add_mutually_exclusive_group(required=True)
     search_group.add_argument(
-        '--nhmmerFile',
+        '--nhmmer-file',
         type=str,
-        help='Path to single nhmmer output file (requires --hmmFile or --lengthsFile).',
+        help='Path to single nhmmer output file (requires --hmm-file or --lengths-file).',
     )
     search_group.add_argument(
-        '--leftNhmmer',
+        '--left-nhmmer',
         type=str,
-        help='Path to nhmmer output for left model (use with --rightNhmmer).',
+        help='Path to nhmmer output for left model (use with --right-nhmmer).',
     )
     search_group.add_argument(
-        '--blastFile',
+        '--blast-file',
         type=str,
-        help='Path to single BLAST tabular output file (requires --queryLen or --lengthsFile).',
+        help='Path to single BLAST tabular output file (requires --query-len or --lengths-file).',
     )
     search_group.add_argument(
-        '--leftBlast',
+        '--left-blast',
         type=str,
-        help='Path to BLAST output for left query (use with --rightBlast).',
+        help='Path to BLAST output for left query (use with --right-blast).',
     )
 
     parser.add_argument(
-        '--rightNhmmer',
+        '--right-nhmmer',
         type=str,
-        help='Path to nhmmer output for right model (use with --leftNhmmer).',
+        help='Path to nhmmer output for right model (use with --left-nhmmer).',
     )
 
     parser.add_argument(
-        '--rightBlast',
+        '--right-blast',
         type=str,
-        help='Path to BLAST output for right query (use with --leftBlast).',
+        help='Path to BLAST output for right query (use with --left-blast).',
     )
 
     # Model/Query length sources (mutually exclusive)
     length_group = parser.add_mutually_exclusive_group()
     length_group.add_argument(
-        '--hmmFile',
+        '--hmm-file',
         type=str,
         help='Path to HMM file for extracting model lengths (for single model pairing).',
     )
     length_group.add_argument(
-        '--leftModel',
+        '--left-model',
         type=str,
         help='Path to left HMM model file (for asymmetric pairing).',
     )
     length_group.add_argument(
-        '--lengthsFile',
+        '--lengths-file',
         type=str,
         help='Path to tab-delimited file with model_name and model_length columns.',
     )
     length_group.add_argument(
-        '--queryLen',
+        '--query-len',
         type=int,
         help='Length of BLAST query sequence (for single query pairing).',
     )
 
     parser.add_argument(
-        '--rightModel',
+        '--right-model',
         type=str,
         help='Path to right HMM model file (for asymmetric pairing).',
     )
@@ -564,7 +564,7 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
-        '--stableReps',
+        '--stable-reps',
         type=int,
         default=0,
         help='Number of iterations when no new pairs found. Default: 0',
@@ -572,7 +572,6 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument(
         '--pairing-map',
-        '--pairing_map',  # underscore alias for backward compatibility
         type=str,
         default=None,
         dest='pairing_map',
@@ -608,7 +607,7 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
-        '--gffOut',
+        '--gff-out',
         action='store_true',
         default=False,
         help='Generate GFF3 output file.',
@@ -630,7 +629,6 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument(
         '--flank-len',
-        '--flank_len',
         type=int,
         default=None,
         dest='flank_len',
@@ -644,7 +642,6 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument(
         '--flank-max-offset',
-        '--flank_max_offset',
         type=int,
         default=None,
         dest='flank_max_offset',
@@ -659,7 +656,6 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
 
     parser.add_argument(
         '--flank-paired-only',
-        '--flank_paired_only',
         action='store_true',
         default=False,
         dest='flank_paired_only',
@@ -708,38 +704,42 @@ def validate_arguments(args: Any) -> None:
         raise ValueError('Either --genome or --blastdb must be provided')
 
     # Check asymmetric pairing requirements
-    if args.leftNhmmer and not args.rightNhmmer:
-        raise ValueError('--leftNhmmer requires --rightNhmmer')
-    if args.rightNhmmer and not args.leftNhmmer:
-        raise ValueError('--rightNhmmer requires --leftNhmmer')
-    if args.leftBlast and not args.rightBlast:
-        raise ValueError('--leftBlast requires --rightBlast')
-    if args.rightBlast and not args.leftBlast:
-        raise ValueError('--rightBlast requires --leftBlast')
-    if args.leftModel and not args.rightModel:
-        raise ValueError('--leftModel requires --rightModel')
-    if args.rightModel and not args.leftModel:
-        raise ValueError('--rightModel requires --leftModel')
+    if args.left_nhmmer and not args.right_nhmmer:
+        raise ValueError('--left-nhmmer requires --right-nhmmer')
+    if args.right_nhmmer and not args.left_nhmmer:
+        raise ValueError('--right-nhmmer requires --left-nhmmer')
+    if args.left_blast and not args.right_blast:
+        raise ValueError('--left-blast requires --right-blast')
+    if args.right_blast and not args.left_blast:
+        raise ValueError('--right-blast requires --left-blast')
+    if args.left_model and not args.right_model:
+        raise ValueError('--left-model requires --right-model')
+    if args.right_model and not args.left_model:
+        raise ValueError('--right-model requires --left-model')
 
     # Check model/query length source requirements
-    if args.nhmmerFile:
-        if not (args.hmmFile or args.lengthsFile):
-            raise ValueError('--nhmmerFile requires either --hmmFile or --lengthsFile')
-
-    if args.blastFile:
-        if not (args.queryLen or args.lengthsFile):
-            raise ValueError('--blastFile requires either --queryLen or --lengthsFile')
-
-    if args.leftNhmmer and args.rightNhmmer:
-        if not (args.leftModel and args.rightModel) and not args.lengthsFile:
+    if args.nhmmer_file:
+        if not (args.hmm_file or args.lengths_file):
             raise ValueError(
-                'Asymmetric pairing requires --leftModel/--rightModel or --lengthsFile'
+                '--nhmmer-file requires either --hmm-file or --lengths-file'
             )
 
-    if args.leftBlast and args.rightBlast:
-        if not args.lengthsFile:
+    if args.blast_file:
+        if not (args.query_len or args.lengths_file):
             raise ValueError(
-                'Asymmetric BLAST pairing requires --lengthsFile with query lengths'
+                '--blast-file requires either --query-len or --lengths-file'
+            )
+
+    if args.left_nhmmer and args.right_nhmmer:
+        if not (args.left_model and args.right_model) and not args.lengths_file:
+            raise ValueError(
+                'Asymmetric pairing requires --left-model/--right-model or --lengths-file'
+            )
+
+    if args.left_blast and args.right_blast:
+        if not args.lengths_file:
+            raise ValueError(
+                'Asymmetric BLAST pairing requires --lengths-file with query lengths'
             )
 
     # Check file existence
@@ -747,20 +747,20 @@ def validate_arguments(args: Any) -> None:
     if args.genome:
         required_files.append(args.genome)
 
-    if args.nhmmerFile:
-        required_files.append(args.nhmmerFile)
-    if args.leftNhmmer:
-        required_files.extend([args.leftNhmmer, args.rightNhmmer])
-    if args.blastFile:
-        required_files.append(args.blastFile)
-    if args.leftBlast:
-        required_files.extend([args.leftBlast, args.rightBlast])
-    if args.hmmFile:
-        required_files.append(args.hmmFile)
-    if args.leftModel:
-        required_files.extend([args.leftModel, args.rightModel])
-    if args.lengthsFile:
-        required_files.append(args.lengthsFile)
+    if args.nhmmer_file:
+        required_files.append(args.nhmmer_file)
+    if args.left_nhmmer:
+        required_files.extend([args.left_nhmmer, args.right_nhmmer])
+    if args.blast_file:
+        required_files.append(args.blast_file)
+    if args.left_blast:
+        required_files.extend([args.left_blast, args.right_blast])
+    if args.hmm_file:
+        required_files.append(args.hmm_file)
+    if args.left_model:
+        required_files.extend([args.left_model, args.right_model])
+    if args.lengths_file:
+        required_files.append(args.lengths_file)
     if args.pairing_map:
         required_files.append(args.pairing_map)
 
@@ -848,47 +848,47 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         logging.info('Loading model/query lengths...')
         model_lengths = {}
 
-        if args.lengthsFile:
-            model_lengths = load_model_lengths_file(args.lengthsFile)
-        elif args.hmmFile:
-            model_lengths = get_hmm_model_length(args.hmmFile)
-        elif args.queryLen:
+        if args.lengths_file:
+            model_lengths = load_model_lengths_file(args.lengths_file)
+        elif args.hmm_file:
+            model_lengths = get_hmm_model_length(args.hmm_file)
+        elif args.query_len:
             # For single BLAST query, we'll assign the length after importing hits
             # to get the query name
             pass
-        elif args.leftModel and args.rightModel:
-            left_lengths = get_hmm_model_length(args.leftModel)
-            right_lengths = get_hmm_model_length(args.rightModel)
+        elif args.left_model and args.right_model:
+            left_lengths = get_hmm_model_length(args.left_model)
+            right_lengths = get_hmm_model_length(args.right_model)
             model_lengths = {**left_lengths, **right_lengths}
 
         # Import search hits
         hitTable = None
         input_format = None
 
-        if args.nhmmerFile:
+        if args.nhmmer_file:
             # Single nhmmer file mode
             logging.info('Importing nhmmer hits...')
             input_format = 'nhmmer'
             hitTable = tirmite.import_nhmmer(
-                infile=args.nhmmerFile, hitTable=None, prefix=args.prefix
+                infile=args.nhmmer_file, hitTable=None, prefix=args.prefix
             )
-        elif args.leftNhmmer:
+        elif args.left_nhmmer:
             # Asymmetric nhmmer mode - import from both files
             logging.info('Importing nhmmer hits from left and right models...')
             input_format = 'nhmmer'
 
             # Check if left and right files are the same
-            if args.leftNhmmer == args.rightNhmmer:
+            if args.left_nhmmer == args.right_nhmmer:
                 raise ValueError(
-                    f'Left and right nhmmer files cannot be the same: {args.leftNhmmer}'
+                    f'Left and right nhmmer files cannot be the same: {args.left_nhmmer}'
                 )
 
-            left_model_name = extract_model_name_from_path(args.leftModel)
-            right_model_name = extract_model_name_from_path(args.rightModel)
+            left_model_name = extract_model_name_from_path(args.left_model)
+            right_model_name = extract_model_name_from_path(args.right_model)
 
             # Import left file
             left_hitTable = tirmite.import_nhmmer(
-                infile=args.leftNhmmer,
+                infile=args.left_nhmmer,
                 hitTable=None,
                 prefix=args.prefix,
             )
@@ -899,7 +899,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Import right file
             right_hitTable = tirmite.import_nhmmer(
-                infile=args.rightNhmmer,
+                infile=args.right_nhmmer,
                 hitTable=None,
                 prefix=args.prefix,
             )
@@ -946,59 +946,59 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Combine hit tables
             hitTable = tirmite.import_nhmmer(
-                infile=args.leftNhmmer,
+                infile=args.left_nhmmer,
                 hitTable=None,
                 prefix=args.prefix,
             )
             hitTable = tirmite.import_nhmmer(
-                infile=args.rightNhmmer,
+                infile=args.right_nhmmer,
                 hitTable=hitTable,
                 prefix=args.prefix,
             )
-        elif args.blastFile:
+        elif args.blast_file:
             # Single BLAST file mode
             logging.info('Importing BLAST hits...')
             input_format = 'blast'
 
             # Detect format and warn if mismatch
-            detected_format = tirmite.detect_input_format(args.blastFile)
+            detected_format = tirmite.detect_input_format(args.blast_file)
             if detected_format != 'blast' and detected_format != 'unknown':
                 logging.warning(
-                    f'File format appears to be {detected_format}, but --blastFile was specified. '
-                    'Consider using --nhmmerFile instead.'
+                    f'File format appears to be {detected_format}, but --blast-file was specified. '
+                    'Consider using --nhmmer-file instead.'
                 )
 
             hitTable = tirmite.import_blast(
-                infile=args.blastFile, hitTable=None, prefix=args.prefix
+                infile=args.blast_file, hitTable=None, prefix=args.prefix
             )
 
-        elif args.leftBlast:
+        elif args.left_blast:
             # Asymmetric BLAST mode - import from both files
             logging.info('Importing BLAST hits from left and right queries...')
             input_format = 'blast'
 
             # Check if left and right files are the same
-            if args.leftBlast == args.rightBlast:
+            if args.left_blast == args.right_blast:
                 raise ValueError(
-                    f'Left and right BLAST files cannot be the same: {args.leftBlast}'
+                    f'Left and right BLAST files cannot be the same: {args.left_blast}'
                 )
 
             # Detect format for both files
-            detected_left = tirmite.detect_input_format(args.leftBlast)
-            detected_right = tirmite.detect_input_format(args.rightBlast)
+            detected_left = tirmite.detect_input_format(args.left_blast)
+            detected_right = tirmite.detect_input_format(args.right_blast)
 
             if detected_left != 'blast' and detected_left != 'unknown':
                 logging.warning(
-                    f'Left file format appears to be {detected_left}, but --leftBlast was specified.'
+                    f'Left file format appears to be {detected_left}, but --left-blast was specified.'
                 )
             if detected_right != 'blast' and detected_right != 'unknown':
                 logging.warning(
-                    f'Right file format appears to be {detected_right}, but --rightBlast was specified.'
+                    f'Right file format appears to be {detected_right}, but --right-blast was specified.'
                 )
 
             # Import left file
             left_hitTable = tirmite.import_blast(
-                infile=args.leftBlast,
+                infile=args.left_blast,
                 hitTable=None,
                 prefix=args.prefix,
             )
@@ -1009,7 +1009,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Import right file
             right_hitTable = tirmite.import_blast(
-                infile=args.rightBlast,
+                infile=args.right_blast,
                 hitTable=None,
                 prefix=args.prefix,
             )
@@ -1056,12 +1056,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Combine hit tables
             hitTable = tirmite.import_blast(
-                infile=args.leftBlast,
+                infile=args.left_blast,
                 hitTable=None,
                 prefix=args.prefix,
             )
             hitTable = tirmite.import_blast(
-                infile=args.rightBlast,
+                infile=args.right_blast,
                 hitTable=hitTable,
                 prefix=args.prefix,
             )
@@ -1083,13 +1083,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             hit_count = len(hitTable[hitTable['model'] == model])
             logging.debug(f'Query/model "{model}": {hit_count} hits')
 
-        # If queryLen was provided for BLAST input, assign it to ALL queries
-        if args.blastFile and args.queryLen:
+        # If --query-len was provided for BLAST input, assign it to ALL queries
+        if args.blast_file and args.query_len:
             for query_name in unique_models:
-                model_lengths[query_name] = args.queryLen
-                logging.debug(f'Set length for query {query_name}: {args.queryLen}')
+                model_lengths[query_name] = args.query_len
+                logging.debug(f'Set length for query {query_name}: {args.query_len}')
             logging.info(
-                f'Applied query length {args.queryLen} to {len(unique_models)} query name(s)'
+                f'Applied query length {args.query_len} to {len(unique_models)} query name(s)'
             )
 
         # Validate that we have model lengths for all models in hitTable
@@ -1151,8 +1151,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Check for multiple models and validate pairing map requirement
         # Note: unique_models was already determined and logged after import
         # For asymmetric modes, validation was already done per-file
-        is_asymmetric = (args.leftNhmmer and args.rightNhmmer) or (
-            args.leftBlast and args.rightBlast
+        is_asymmetric = (args.left_nhmmer and args.right_nhmmer) or (
+            args.left_blast and args.right_blast
         )
 
         # Load pairing map if provided
@@ -1179,20 +1179,20 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 f'Will execute {len(pairing_map)} independent pairing procedure(s) based on pairing map'
             )
             config = None
-        elif args.leftNhmmer and args.rightNhmmer:
+        elif args.left_nhmmer and args.right_nhmmer:
             # Asymmetric nhmmer pairing
-            left_model_name = extract_model_name_from_path(args.leftModel)
-            right_model_name = extract_model_name_from_path(args.rightModel)
+            left_model_name = extract_model_name_from_path(args.left_model)
+            right_model_name = extract_model_name_from_path(args.right_model)
 
             config = tirmite.PairingConfig(
                 orientation=args.orientation,
                 left_model=left_model_name,
                 right_model=right_model_name,
             )
-        elif args.leftBlast and args.rightBlast:
+        elif args.left_blast and args.right_blast:
             # Asymmetric BLAST pairing - extract model names from each file's hitTable
             # Use left_hitTable and right_hitTable (imported earlier) to ensure the
-            # left model comes from --leftBlast and right model from --rightBlast.
+            # left model comes from --left-blast and right model from --right-blast.
             # Do NOT use hitTable['model'].unique() here because the combined table is
             # sorted alphabetically, which would assign models based on query name order
             # rather than which file they came from.
@@ -1210,8 +1210,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             right_model_name = right_model_names[0]
             logging.info(
                 f'Assigning models for asymmetric pairing: '
-                f'left={left_model_name} (from --leftBlast), '
-                f'right={right_model_name} (from --rightBlast)'
+                f'left={left_model_name} (from --left-blast), '
+                f'right={right_model_name} (from --right-blast)'
             )
 
             config = tirmite.PairingConfig(
@@ -1311,7 +1311,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
                     pair_hitIndex, pair_paired, pair_unpaired = (
                         tirmite.iterateGetPairsAsymmetric(
-                            pair_hitIndex, pair_config, stableReps=args.stableReps
+                            pair_hitIndex, pair_config, stableReps=args.stable_reps
                         )
                     )
                 else:
@@ -1320,7 +1320,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
                     pair_hitIndex, pair_paired, pair_unpaired = (
                         tirmite.iterateGetPairsCustom(
-                            pair_hitIndex, pair_config, stableReps=args.stableReps
+                            pair_hitIndex, pair_config, stableReps=args.stable_reps
                         )
                     )
 
@@ -1374,14 +1374,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     f'Using asymmetric pairing: {config.left_model} + {config.right_model}'
                 )
                 hitIndex, paired, unpaired = tirmite.iterateGetPairsAsymmetric(
-                    hitIndex, config, stableReps=args.stableReps
+                    hitIndex, config, stableReps=args.stable_reps
                 )
             else:
                 logging.info(
                     f'Using symmetric pairing with orientation {config.orientation}'
                 )
                 hitIndex, paired, unpaired = tirmite.iterateGetPairsCustom(
-                    hitIndex, config, stableReps=args.stableReps
+                    hitIndex, config, stableReps=args.stable_reps
                 )
 
             # Log pairing results
@@ -1438,7 +1438,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             )
 
         # Write GFF if requested
-        if args.gffOut:
+        if args.gff_out:
             # Get unpaired TIRs if needed
             unpairedTIRs = None
             if args.report in ['all', 'unpaired']:

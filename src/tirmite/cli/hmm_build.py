@@ -13,7 +13,6 @@ transposon terminus models.
 """
 
 import argparse
-import glob as _glob
 import io
 import logging
 import os
@@ -1874,6 +1873,8 @@ def process_seed_sequences(
                     f'{", ".join(missing)}'
                 )
         elif genome_files:
+            # Note: validation is performed against the first genome only; hits
+            # referencing sequences in other listed genomes are not checked here.
             genome_index, _ = indexGenome(genome_files[0])
             missing = [
                 h.subject_id for h in all_hits
@@ -1941,6 +1942,18 @@ def process_seed_sequences(
 
     resolved_hits = resolve_overlapping_hits(filtered_hits)
 
+    # Pre-compute genome index and single-element chains for the genome path
+    genome_index = None
+    if blast_db is None:
+        try:
+            genome_index, _ = indexGenome(genome_files[0])
+        except Exception as e:
+            raise HMMBuildError(
+                f'Failed to index genome for sequence extraction: {e}'
+            ) from e
+    # Each resolved hit forms its own independent chain (no fragmented-hit chaining)
+    hit_chains = [[h] for h in resolved_hits]
+
     # ------------------------------------------------------------------ #
     # Step 3 – Extract sequences                                           #
     # ------------------------------------------------------------------ #
@@ -1950,8 +1963,6 @@ def process_seed_sequences(
                 resolved_hits, blast_db, model_name
             )
         else:
-            genome_index, _ = indexGenome(genome_files[0])
-            hit_chains = [[h] for h in resolved_hits]
             sequences = extract_sequences_from_chains(hit_chains, genome_index, model_name)
     except HMMBuildError:
         raise
@@ -1999,10 +2010,9 @@ def process_seed_sequences(
                     resolved_hits, blast_db, model_name, flank_size
                 )
             else:
-                hit_chains = [[h] for h in resolved_hits]
                 flanked_sequences = extract_flanked_sequences_from_chains(
                     hit_chains,
-                    genome_index,  # type: ignore[possibly-undefined]
+                    genome_index,
                     model_name,
                     flank_size,
                 )
@@ -2135,10 +2145,10 @@ def process_asymmetric_seeds(
                     f'{", ".join(missing)}'
                 )
         elif genome_files:
-            genome_index_check, _ = indexGenome(genome_files[0])
+            _genome_idx_val, _ = indexGenome(genome_files[0])
             missing_left = [
                 h.subject_id for h in all_left_hits
-                if h.subject_id not in genome_index_check
+                if h.subject_id not in _genome_idx_val
             ]
             if missing_left:
                 logging.warning(
@@ -2187,10 +2197,10 @@ def process_asymmetric_seeds(
                     f'{", ".join(missing)}'
                 )
         elif genome_files:
-            genome_index_check, _ = indexGenome(genome_files[0])
+            _genome_idx_val, _ = indexGenome(genome_files[0])
             missing_right = [
                 h.subject_id for h in all_right_hits
-                if h.subject_id not in genome_index_check
+                if h.subject_id not in _genome_idx_val
             ]
             if missing_right:
                 logging.warning(
@@ -2264,6 +2274,9 @@ def process_asymmetric_seeds(
             raise HMMBuildError(
                 f'Failed to index genome for sequence extraction: {e}'
             ) from e
+    # Each resolved hit forms its own independent chain (no fragmented-hit chaining)
+    left_chains = [[h] for h in resolved_left]
+    right_chains = [[h] for h in resolved_right]
 
     # Process left seed
     logging.info(f'Processing left seed sequences for {model_name}_left')
@@ -2273,7 +2286,6 @@ def process_asymmetric_seeds(
                 resolved_left, blast_db, f'{model_name}_left'
             )
         else:
-            left_chains = [[h] for h in resolved_left]
             left_sequences = extract_sequences_from_chains(
                 left_chains, genome_index, f'{model_name}_left'
             )
@@ -2316,7 +2328,6 @@ def process_asymmetric_seeds(
                 resolved_right, blast_db, f'{model_name}_right'
             )
         else:
-            right_chains = [[h] for h in resolved_right]
             right_sequences = extract_sequences_from_chains(
                 right_chains,
                 genome_index,
@@ -2389,8 +2400,6 @@ def process_asymmetric_seeds(
                     resolved_right, blast_db, f'{model_name}_right', flank_size
                 )
             else:
-                left_chains = [[h] for h in resolved_left]
-                right_chains = [[h] for h in resolved_right]
                 left_flanked_sequences = extract_flanked_sequences_from_chains(
                     left_chains, genome_index, f'{model_name}_left', flank_size
                 )
@@ -3364,8 +3373,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if args.blastdb is not None:
             blast_db = args.blastdb
             logging.info(f'Using pre-built BLAST database: {blast_db}')
-            # Verify at least one database file exists
-            db_files = _glob.glob(str(blast_db) + '.*')
+            # Verify at least one database file exists (e.g. .nsq, .nhr, .nin)
+            db_files = list(blast_db.parent.glob(blast_db.name + '.*'))
             if not db_files:
                 raise FileNotFoundError(
                     f'No BLAST database files found for: {blast_db}'

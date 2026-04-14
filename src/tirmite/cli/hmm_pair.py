@@ -705,37 +705,37 @@ def validate_arguments(args: Any) -> None:
 
     # Check asymmetric pairing requirements
     if args.left_nhmmer and not args.right_nhmmer:
-        raise ValueError('--leftNhmmer requires --rightNhmmer')
+        raise ValueError('--left-nhmmer requires --right-nhmmer')
     if args.right_nhmmer and not args.left_nhmmer:
-        raise ValueError('--rightNhmmer requires --leftNhmmer')
+        raise ValueError('--right-nhmmer requires --left-nhmmer')
     if args.left_blast and not args.right_blast:
-        raise ValueError('--leftBlast requires --rightBlast')
+        raise ValueError('--left-blast requires --right-blast')
     if args.right_blast and not args.left_blast:
-        raise ValueError('--rightBlast requires --leftBlast')
+        raise ValueError('--right-blast requires --left-blast')
     if args.left_model and not args.right_model:
-        raise ValueError('--leftModel requires --rightModel')
+        raise ValueError('--left-model requires --right-model')
     if args.right_model and not args.left_model:
-        raise ValueError('--rightModel requires --leftModel')
+        raise ValueError('--right-model requires --left-model')
 
     # Check model/query length source requirements
     if args.nhmmer_file:
         if not (args.hmm_file or args.lengths_file):
-            raise ValueError('--nhmmerFile requires either --hmmFile or --lengthsFile')
+            raise ValueError('--nhmmer-file requires either --hmm-file or --lengths-file')
 
     if args.blast_file:
         if not (args.query_len or args.lengths_file):
-            raise ValueError('--blastFile requires either --queryLen or --lengthsFile')
+            raise ValueError('--blast-file requires either --query-len or --lengths-file')
 
     if args.left_nhmmer and args.right_nhmmer:
         if not (args.left_model and args.right_model) and not args.lengths_file:
             raise ValueError(
-                'Asymmetric pairing requires --leftModel/--rightModel or --lengthsFile'
+                'Asymmetric pairing requires --left-model/--right-model or --lengths-file'
             )
 
     if args.left_blast and args.right_blast:
         if not args.lengths_file:
             raise ValueError(
-                'Asymmetric BLAST pairing requires --lengthsFile with query lengths'
+                'Asymmetric BLAST pairing requires --lengths-file with query lengths'
             )
 
     # Check file existence
@@ -960,8 +960,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             detected_format = tirmite.detect_input_format(args.blast_file)
             if detected_format != 'blast' and detected_format != 'unknown':
                 logging.warning(
-                    f'File format appears to be {detected_format}, but --blastFile was specified. '
-                    'Consider using --nhmmerFile instead.'
+                    f'File format appears to be {detected_format}, but --blast-file was specified. '
+                    'Consider using --nhmmer-file instead.'
                 )
 
             hitTable = tirmite.import_blast(
@@ -985,11 +985,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             if detected_left != 'blast' and detected_left != 'unknown':
                 logging.warning(
-                    f'Left file format appears to be {detected_left}, but --leftBlast was specified.'
+                    f'Left file format appears to be {detected_left}, but --left-blast was specified.'
                 )
             if detected_right != 'blast' and detected_right != 'unknown':
                 logging.warning(
-                    f'Right file format appears to be {detected_right}, but --rightBlast was specified.'
+                    f'Right file format appears to be {detected_right}, but --right-blast was specified.'
                 )
 
             # Import left file
@@ -1079,7 +1079,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             hit_count = len(hitTable[hitTable['model'] == model])
             logging.debug(f'Query/model "{model}": {hit_count} hits')
 
-        # If queryLen was provided for BLAST input, assign it to ALL queries
+        # If --query-len was provided for BLAST input, assign it to ALL queries
         if args.blast_file and args.query_len:
             for query_name in unique_models:
                 model_lengths[query_name] = args.query_len
@@ -1188,7 +1188,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         elif args.left_blast and args.right_blast:
             # Asymmetric BLAST pairing - extract model names from each file's hitTable
             # Use left_hitTable and right_hitTable (imported earlier) to ensure the
-            # left model comes from --leftBlast and right model from --rightBlast.
+            # left model comes from --left-blast and right model from --right-blast.
             # Do NOT use hitTable['model'].unique() here because the combined table is
             # sorted alphabetically, which would assign models based on query name order
             # rather than which file they came from.
@@ -1206,8 +1206,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             right_model_name = right_model_names[0]
             logging.info(
                 f'Assigning models for asymmetric pairing: '
-                f'left={left_model_name} (from --leftBlast), '
-                f'right={right_model_name} (from --rightBlast)'
+                f'left={left_model_name} (from --left-blast), '
+                f'right={right_model_name} (from --right-blast)'
             )
 
             config = tirmite.PairingConfig(

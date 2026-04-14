@@ -301,6 +301,7 @@ def test_run_blastn_accepts_blast_db_prefix(tmp_path, monkeypatch):
 def test_run_blastn_timeout_raises_blast_error(tmp_path, monkeypatch):
     """run_blastn raises BlastError when the configured timeout expires."""
     import subprocess
+
     import tirmite.runners.runBlastn as runBlastn_mod
 
     query_file = tmp_path / 'query.fa'
@@ -312,6 +313,7 @@ def test_run_blastn_timeout_raises_blast_error(tmp_path, monkeypatch):
     # Simulate a long-running process that never finishes within the timeout
     class _SlowPopen:
         """Mock Popen that never finishes (poll always returns None)."""
+
         returncode = None
 
         def poll(self):
@@ -341,6 +343,7 @@ def test_run_blastn_timeout_raises_blast_error(tmp_path, monkeypatch):
 def test_run_blastn_no_timeout_by_default(tmp_path, monkeypatch):
     """run_blastn accepts timeout=None (the default) without raising."""
     import subprocess
+
     import tirmite.runners.runBlastn as runBlastn_mod
 
     query_file = tmp_path / 'query.fa'
@@ -354,6 +357,7 @@ def test_run_blastn_no_timeout_by_default(tmp_path, monkeypatch):
 
     class _FastPopen:
         """Mock Popen that finishes immediately."""
+
         returncode = 0
         _polled = False
 
@@ -387,10 +391,14 @@ def test_search_parser_accepts_blast_timeout():
     from tirmite.cli.ensemble_search import create_search_parser
 
     parser = create_search_parser()
-    args = parser.parse_args([
-        '--blast-results', 'dummy.tab',
-        '--blast-timeout', '3600',
-    ])
+    args = parser.parse_args(
+        [
+            '--blast-results',
+            'dummy.tab',
+            '--blast-timeout',
+            '3600',
+        ]
+    )
     assert args.blast_timeout == 3600
 
 

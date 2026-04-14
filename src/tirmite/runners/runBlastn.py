@@ -13,9 +13,9 @@ All functions use Path objects and avoid shell injection vulnerabilities.
 
 import logging
 import os
-import time
 from pathlib import Path
 import subprocess
+import time
 from typing import List, Optional, Union
 
 
@@ -216,8 +216,8 @@ def run_blastn(
 
         # Poll every 5 seconds; emit a progress log message every 60 seconds
         # so long-running searches don't look frozen.
-        _SLEEP_INTERVAL = 5   # seconds between polls
-        _LOG_INTERVAL = 60    # seconds between progress messages
+        _SLEEP_INTERVAL = 5  # seconds between polls
+        _LOG_INTERVAL = 60  # seconds between progress messages
         start_time = time.time()
         last_log_time = start_time
 
@@ -232,9 +232,7 @@ def run_blastn(
                 proc.kill()
                 proc.wait()
                 unit = 'second' if timeout == 1 else 'seconds'
-                raise BlastError(
-                    f'BLAST command timed out after {timeout} {unit}'
-                )
+                raise BlastError(f'BLAST command timed out after {timeout} {unit}')
 
         stdout, stderr = proc.communicate()
         result = subprocess.CompletedProcess(

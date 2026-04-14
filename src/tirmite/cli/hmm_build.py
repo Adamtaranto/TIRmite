@@ -2145,10 +2145,10 @@ def process_asymmetric_seeds(
                     f'{", ".join(missing)}'
                 )
         elif genome_files:
-            _genome_idx_val, _ = indexGenome(genome_files[0])
+            genome_index, _ = indexGenome(genome_files[0])
             missing_left = [
                 h.subject_id for h in all_left_hits
-                if h.subject_id not in _genome_idx_val
+                if h.subject_id not in genome_index
             ]
             if missing_left:
                 logging.warning(
@@ -2197,10 +2197,10 @@ def process_asymmetric_seeds(
                     f'{", ".join(missing)}'
                 )
         elif genome_files:
-            _genome_idx_val, _ = indexGenome(genome_files[0])
+            genome_index, _ = indexGenome(genome_files[0])
             missing_right = [
                 h.subject_id for h in all_right_hits
-                if h.subject_id not in _genome_idx_val
+                if h.subject_id not in genome_index
             ]
             if missing_right:
                 logging.warning(

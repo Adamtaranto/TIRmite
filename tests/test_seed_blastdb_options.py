@@ -218,7 +218,7 @@ class TestParseBlastOutputRoundTrip:
 
         original = [
             _make_hit('q1', 'chr1', 1, 100, 1000, 1099, 100, 95.0, 100, 10000),
-            _make_hit('q1', 'chr1', 1, 80,  2000, 1921, 80, 90.0, 100, 10000),  # reverse strand (subject_start > subject_end)
+            _make_hit('q1', 'chr1', 1, 80, 2000, 1921, 80, 90.0, 100, 10000),  # reverse strand (subject_start > subject_end)
         ]
         tab_file = tmp_path / 'hits.tab'
         save_all_blast_hits(original, tab_file)

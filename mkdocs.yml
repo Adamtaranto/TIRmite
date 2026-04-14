@@ -1,0 +1,75 @@
+site_name: TIRmite
+site_description: Map profile HMMs of transposon termini to genomic sequences for annotation of cryptic transposon variants.
+site_author: Adam Taranto
+site_url: https://adamtaranto.github.io/TIRmite
+
+repo_name: adamtaranto/TIRmite
+repo_url: https://github.com/Adamtaranto/TIRmite
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: tirmite_hexlogo.jpg
+  favicon: tirmite_hexlogo.jpg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.expand
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.action.edit
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10/dist/mermaid.min.js
+
+nav:
+  - Home: index.md
+  - Tutorials:
+      - Building HMMs for Transposon Termini: tutorials/building-hmms.md
+      - Using tirmite search: tutorials/tirmite-search.md
+      - Using tirmite pair: tutorials/tirmite-pair.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Adamtaranto/TIRmite

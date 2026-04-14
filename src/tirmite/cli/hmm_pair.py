@@ -720,11 +720,15 @@ def validate_arguments(args: Any) -> None:
     # Check model/query length source requirements
     if args.nhmmer_file:
         if not (args.hmm_file or args.lengths_file):
-            raise ValueError('--nhmmer-file requires either --hmm-file or --lengths-file')
+            raise ValueError(
+                '--nhmmer-file requires either --hmm-file or --lengths-file'
+            )
 
     if args.blast_file:
         if not (args.query_len or args.lengths_file):
-            raise ValueError('--blast-file requires either --query-len or --lengths-file')
+            raise ValueError(
+                '--blast-file requires either --query-len or --lengths-file'
+            )
 
     if args.left_nhmmer and args.right_nhmmer:
         if not (args.left_model and args.right_model) and not args.lengths_file:

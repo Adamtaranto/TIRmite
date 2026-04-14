@@ -152,7 +152,7 @@ makeblastdb -in $GENOME -dbtype nucl -out genome_db
 blastn -query TIR_sequence.fa -db genome_db -outfmt 6 -out MY_TIR_blast_hits.tab -evalue 0.001
 
 # Use the BLAST results with tirmite pair
-tirmite pair --genome $GENOME --blastFile MY_TIR_blast_hits.tab --queryLen 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
+tirmite pair --genome $GENOME --blast-file MY_TIR_blast_hits.tab --query-len 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
 ```
 
 **Using BLAST database for sequence extraction**
@@ -164,18 +164,18 @@ If your BLAST database was created with `-parse_seqids`, you can extract sequenc
 makeblastdb -in $GENOME -dbtype nucl -out genome_db -parse_seqids
 
 # Run tirmite pair using the BLAST database for extraction
-tirmite pair --blastdb genome_db --blastFile MY_TIR_blast_hits.tab --queryLen 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
+tirmite pair --blastdb genome_db --blast-file MY_TIR_blast_hits.tab --query-len 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
 ```
 
 4) Use `tirmite pair` to identify valid TIR pairs. Outputs hits, elements, and annotations.
 
 ```bash
-tirmite pair --genome $GENOME  --nhmmerFile $NHMMERFILE --hmmFile $HMMFILE --orientation F,R --mincov 0.4 --report all  --maxdist 20000 --stableReps 2 --outdir MY_TIR_PAIRING_OUTPUT --padlen 20 --maxeval 0.001 --gffOut --logfile
+tirmite pair --genome $GENOME  --nhmmer-file $NHMMERFILE --hmm-file $HMMFILE --orientation F,R --mincov 0.4 --report all  --maxdist 20000 --stable-reps 2 --outdir MY_TIR_PAIRING_OUTPUT --padlen 20 --maxeval 0.001 --gff-out --logfile
 ```
 
 **Handling Multiple Models/Queries**
 
-When your input files contain hits from multiple HMM models or BLAST queries, you must provide a pairing map file using `--pairing_map` to specify which features should be paired together. This prevents incorrect pairing between unrelated models.
+When your input files contain hits from multiple HMM models or BLAST queries, you must provide a pairing map file using `--pairing-map` to specify which features should be paired together. This prevents incorrect pairing between unrelated models.
 
 The pairing map is a tab-delimited file with two columns: left_feature and right_feature.
 
@@ -196,8 +196,8 @@ ITR_5prime	ITR_3prime
 Example usage with pairing map:
 ```bash
 # Multiple models in input require pairing map
-tirmite pair --genome $GENOME --nhmmerFile multi_model_hits.tab \
-  --lengthsFile model_lengths.txt --pairing_map pairing_map.txt \
+tirmite pair --genome $GENOME --nhmmer-file multi_model_hits.tab \
+  --lengths-file model_lengths.txt --pairing-map pairing_map.txt \
   --orientation F,R --mincov 0.4 --maxdist 20000 --outdir OUTPUT
 ```
 
@@ -214,14 +214,14 @@ Note: This usage will be phased out in a later release in favour of custom workf
 # TIR hits are paired in Fwd/Rev orientation
 # Fwd/Rev pairs must be within 20Kbp of each other
 # Hits must cover >= 40% of the TIR-pHMM
-tirmite legacy --genome $GENOME --hmmFile $HMMFILE--orientation F,R \
+tirmite legacy --genome $GENOME --hmm-file $HMMFILE--orientation F,R \
 --outdir results \
---stableReps 2 \
+--stable-reps 2 \
 --report all \
---gffOut --maxdist 20000 --mincov 0.4
+--gff-out --maxdist 20000 --mincov 0.4
 ```
 
-If you don't have a HMM of your TIR, `tirmite legacy` can create one for you using an aligned sample of your TIR provided with `--alnFile`.
+If you don't have a HMM of your TIR, `tirmite legacy` can create one for you using an aligned sample of your TIR provided with `--aln-file`.
 
 TIRs should always be oriented 5\`- 3\` with the lefthand TIR.
 
@@ -256,9 +256,9 @@ Available subcommands:
   pair      Pair precomputed nhmmer hits
 
 Examples:
-  tirmite legacy --genome genome.fa --hmmFile model.hmm
+  tirmite legacy --genome genome.fa --hmm-file model.hmm
   tirmite seed --left-seed left.fa --model-name myTE --genome genome.fa
-  tirmite pair --genome genome.fa --nhmmerFile hits.out --hmmFile model.hmm
+  tirmite pair --genome genome.fa --nhmmer-file hits.out --hmm-file model.hmm
 ```
 
 ## Algorithm overview
@@ -274,7 +274,7 @@ Examples:
   5. Pair reciprocal top candidate hits.
   6. For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.
   7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
-  8. Iterate steps 6-7 until all termini hits are paired OR number of iterations without new pairing exceeds *--stableReps*.
+  8. Iterate steps 6-7 until all termini hits are paired OR number of iterations without new pairing exceeds *--stable-reps*.
 
 ## Contributing
 

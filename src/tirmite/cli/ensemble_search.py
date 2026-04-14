@@ -1297,6 +1297,7 @@ def run_blastn_search(
     identity: float = 60.0,
     threads: int = 1,
     word_size: int = 4,
+    blast_timeout: Optional[int] = None,
 ) -> Path:
     """
     Run BLAST search with query sequences against a target genome.
@@ -1317,6 +1318,9 @@ def run_blastn_search(
         Number of CPU threads to use.
     word_size : int, default 4
         Word size for initial matches.
+    blast_timeout : int or None, default None
+        Maximum number of seconds to wait for BLAST to complete.
+        If None, BLAST is allowed to run indefinitely.
 
     Returns
     -------
@@ -1332,14 +1336,7 @@ def run_blastn_search(
     # qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
     blast_outfmt = '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore'
 
-    # Build command for logging
-    cmd_str = (
-        f'blastn -query {query_file} -subject {target_file} -out {output_file} '
-        f'-outfmt "{blast_outfmt}" -word_size {word_size} -perc_identity {identity} '
-        f'-num_threads {threads} -evalue {evalue} -max_target_seqs 10000'
-    )
     logging.info(f'Running BLAST search: {query_file.name} vs {target_file.name}')
-    logging.info(f'BLAST command: {cmd_str}')
 
     try:
         run_blastn(
@@ -1351,6 +1348,7 @@ def run_blastn_search(
             num_threads=threads,
             outfmt=blast_outfmt,
             additional_args=['-evalue', str(evalue), '-max_target_seqs', '10000'],
+            timeout=blast_timeout,
         )
 
         return output_file
@@ -1592,6 +1590,15 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         help='Number of CPU threads for searches (default: 1)',
     )
     proc_group.add_argument(
+        '--blast-timeout',
+        type=int,
+        default=None,
+        dest='blast_timeout',
+        metavar='SECONDS',
+        help='Maximum number of seconds to allow each BLAST search to run. '
+        'Default: no limit (runs until complete).',
+    )
+    proc_group.add_argument(
         '--keep-temp',
         action='store_true',
         default=False,
@@ -1780,6 +1787,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                                 identity=args.min_identity,
                                 threads=args.threads,
                                 word_size=args.word_size,
+                                blast_timeout=args.blast_timeout,
                             )
                             blast_files.append(result_file)
 

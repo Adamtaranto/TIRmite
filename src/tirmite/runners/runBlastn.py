@@ -3,7 +3,8 @@ BLAST wrappers for sequence alignment in TIR identification.
 
 Provides subprocess-based BLAST execution with:
 - Safety-focused command construction (avoids shell=True)
-- Proper error handling and timeouts
+- Configurable or unlimited timeouts
+- Periodic progress logging for long-running searches
 - Batch processing capabilities
 - Self-alignment support for TIR detection
 
@@ -11,8 +12,10 @@ All functions use Path objects and avoid shell injection vulnerabilities.
 """
 
 import logging
+import os
 from pathlib import Path
 import subprocess
+import time
 from typing import List, Optional, Union
 
 
@@ -79,6 +82,7 @@ def run_blastn(
     additional_args: Optional[List[str]] = None,
     verbose: bool = False,
     num_threads: int = 1,
+    timeout: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
     """
     Execute blastn with specified parameters using subprocess.
@@ -102,9 +106,12 @@ def run_blastn(
     additional_args : list of str, optional
         Additional command-line arguments to pass to blastn.
     verbose : bool, default False
-        If True, logs command and output to console.
+        If True, logs extra detail including full output to console.
     num_threads : int, default 1
         Number of CPU threads for BLAST to use.
+    timeout : int or None, default None
+        Maximum number of seconds to wait for BLAST to complete.
+        If None, BLAST is allowed to run indefinitely.
 
     Returns
     -------
@@ -121,7 +128,9 @@ def run_blastn(
 
     Notes
     -----
-    Uses 5-minute timeout for BLAST execution. Creates output directory if needed.
+    Logs the BLAST command and thread usage at INFO level. Emits a progress
+    message every 60 seconds while the search is running so that long jobs are
+    distinguishable from frozen processes. Creates the output directory if needed.
     """
     # Validate inputs
     query_path = Path(query)
@@ -177,29 +186,60 @@ def run_blastn(
     if additional_args:
         cmd.extend(additional_args)
 
-    if verbose:
-        logging.info('Running blastn with the following parameters:')
-        logging.info(f'  Command: {" ".join(cmd)}')
-        logging.info(f'  Query: {query_path}')
-        if subject_is_db:
-            logging.info(f'  BLAST database: {subject_path}')
-        else:
-            logging.info(f'  Subject: {subject_path}')
-        logging.info(f'  Output: {output_path}')
-        logging.info(f'  Word size: {word_size}')
-        logging.info(f'  Percent identity: {perc_identity}%')
-        logging.info(f'  Threads: {num_threads}')
-        if additional_args:
-            logging.info(f'  Additional args: {" ".join(additional_args)}')
+    # Always log the command and thread usage
+    available_cpus = os.cpu_count() or 1
+    logging.info('Running blastn with the following parameters:')
+    logging.info(f'  Command: {" ".join(cmd)}')
+    logging.info(f'  Query: {query_path}')
+    if subject_is_db:
+        logging.info(f'  BLAST database: {subject_path}')
+    else:
+        logging.info(f'  Subject: {subject_path}')
+    logging.info(f'  Output: {output_path}')
+    logging.info(f'  Word size: {word_size}')
+    logging.info(f'  Percent identity: {perc_identity}%')
+    logging.info(f'  Threads: {num_threads} requested / {available_cpus} available')
+    if additional_args:
+        logging.info(f'  Additional args: {" ".join(additional_args)}')
+    if timeout is None:
+        logging.info('  Timeout: none (will run until complete)')
+    else:
+        logging.info(f'  Timeout: {timeout}s')
 
     try:
-        # Use subprocess.run with proper error handling
-        result = subprocess.run(
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=300,  # 5 minute timeout
-            check=False,  # Don't raise on non-zero exit
+        )
+
+        # Poll every 5 seconds; emit a progress log message every 60 seconds
+        # so long-running searches don't look frozen.
+        _SLEEP_INTERVAL = 5  # seconds between polls
+        _LOG_INTERVAL = 60  # seconds between progress messages
+        start_time = time.time()
+        last_log_time = start_time
+
+        while proc.poll() is None:
+            time.sleep(_SLEEP_INTERVAL)
+            now = time.time()
+            if now - last_log_time >= _LOG_INTERVAL:
+                elapsed = int(now - start_time)
+                logging.info(f'BLAST search is still running... ({elapsed}s elapsed)')
+                last_log_time = now
+            if timeout is not None and (now - start_time) >= timeout:
+                proc.kill()
+                proc.wait()
+                unit = 'second' if timeout == 1 else 'seconds'
+                raise BlastError(f'BLAST command timed out after {timeout} {unit}')
+
+        stdout, stderr = proc.communicate()
+        result = subprocess.CompletedProcess(
+            args=cmd,
+            returncode=proc.returncode,
+            stdout=stdout,
+            stderr=stderr,
         )
 
         # Check for errors
@@ -222,8 +262,8 @@ def run_blastn(
 
         return result
 
-    except subprocess.TimeoutExpired as err:
-        raise BlastError('BLAST command timed out after 5 minutes') from err
+    except BlastError:
+        raise
     except Exception as e:
         raise BlastError(f'Error running BLAST: {str(e)}') from e
 
@@ -234,6 +274,7 @@ def run_self_blast(
     perc_identity: float = 60.0,
     verbose: bool = False,
     num_threads: int = 1,  # Add threading support
+    timeout: Optional[int] = None,
 ) -> subprocess.CompletedProcess:
     """
     Perform self-alignment by running blastn with sequence as both query and subject.
@@ -250,6 +291,9 @@ def run_self_blast(
         If True, logs command and output to console.
     num_threads : int, default 1
         Number of CPU threads for BLAST to use.
+    timeout : int or None, default None
+        Maximum number of seconds to wait for BLAST to complete.
+        If None, BLAST is allowed to run indefinitely.
 
     Returns
     -------
@@ -268,6 +312,7 @@ def run_self_blast(
         perc_identity=perc_identity,
         verbose=verbose,
         num_threads=num_threads,
+        timeout=timeout,
     )
 
 

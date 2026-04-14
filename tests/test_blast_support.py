@@ -291,3 +291,121 @@ def test_run_blastn_accepts_blast_db_prefix(tmp_path, monkeypatch):
             subject=db_prefix,
             output=output_file,
         )
+
+
+# -----------------------------------------------------------------------------
+# Tests for timeout parameter
+# -----------------------------------------------------------------------------
+
+
+def test_run_blastn_timeout_raises_blast_error(tmp_path, monkeypatch):
+    """run_blastn raises BlastError when the configured timeout expires."""
+    import subprocess
+
+    import tirmite.runners.runBlastn as runBlastn_mod
+
+    query_file = tmp_path / 'query.fa'
+    query_file.write_text('>seq1\nACGT\n')
+    subject_file = tmp_path / 'subject.fa'
+    subject_file.write_text('>seq2\nACGT\n')
+    output_file = tmp_path / 'out.tab'
+
+    # Simulate a long-running process that never finishes within the timeout
+    class _SlowPopen:
+        """Mock Popen that never finishes (poll always returns None)."""
+
+        returncode = None
+
+        def poll(self):
+            return None  # Never done
+
+        def kill(self):
+            pass
+
+        def wait(self):
+            pass
+
+        def communicate(self):
+            return ('', '')
+
+    monkeypatch.setattr(runBlastn_mod, 'check_blast_available', lambda: True)
+    monkeypatch.setattr(subprocess, 'Popen', lambda *args, **kwargs: _SlowPopen())
+
+    with pytest.raises(BlastError, match='timed out after 1 second'):
+        run_blastn(
+            query=query_file,
+            subject=subject_file,
+            output=output_file,
+            timeout=1,
+        )
+
+
+def test_run_blastn_no_timeout_by_default(tmp_path, monkeypatch):
+    """run_blastn accepts timeout=None (the default) without raising."""
+    import subprocess
+
+    import tirmite.runners.runBlastn as runBlastn_mod
+
+    query_file = tmp_path / 'query.fa'
+    query_file.write_text('>seq1\nACGT\n')
+    subject_file = tmp_path / 'subject.fa'
+    subject_file.write_text('>seq2\nACGT\n')
+    output_file = tmp_path / 'out.tab'
+
+    # Create an output file so the existence check passes
+    output_file.touch()
+
+    class _FastPopen:
+        """Mock Popen that finishes immediately."""
+
+        returncode = 0
+        _polled = False
+
+        def poll(self):
+            # Return 0 (finished) on first call
+            return 0
+
+        def communicate(self):
+            return ('', '')
+
+    monkeypatch.setattr(runBlastn_mod, 'check_blast_available', lambda: True)
+    monkeypatch.setattr(subprocess, 'Popen', lambda *args, **kwargs: _FastPopen())
+
+    # Should not raise – no timeout means no limit
+    result = run_blastn(
+        query=query_file,
+        subject=subject_file,
+        output=output_file,
+        timeout=None,
+    )
+    assert result.returncode == 0
+
+
+# -----------------------------------------------------------------------------
+# Tests for --blast-timeout CLI option
+# -----------------------------------------------------------------------------
+
+
+def test_search_parser_accepts_blast_timeout():
+    """The search subcommand parser accepts --blast-timeout."""
+    from tirmite.cli.ensemble_search import create_search_parser
+
+    parser = create_search_parser()
+    args = parser.parse_args(
+        [
+            '--blast-results',
+            'dummy.tab',
+            '--blast-timeout',
+            '3600',
+        ]
+    )
+    assert args.blast_timeout == 3600
+
+
+def test_search_parser_blast_timeout_default_is_none():
+    """The --blast-timeout option defaults to None (no limit)."""
+    from tirmite.cli.ensemble_search import create_search_parser
+
+    parser = create_search_parser()
+    args = parser.parse_args(['--blast-results', 'dummy.tab'])
+    assert args.blast_timeout is None

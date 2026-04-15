@@ -229,18 +229,22 @@ def run_blastn(
         If blastn is not found or fails.
     """
     if not shutil.which('blastn'):
-        raise RuntimeError(
-            'blastn not found in PATH. Please install NCBI BLAST+.'
-        )
+        raise RuntimeError('blastn not found in PATH. Please install NCBI BLAST+.')
 
     cmd = [
         'blastn',
-        '-query', query_fasta,
-        '-db', blastdb,
-        '-outfmt', '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen sstrand',
-        '-evalue', str(evalue),
-        '-out', output_file,
-        '-dust', 'no',
+        '-query',
+        query_fasta,
+        '-db',
+        blastdb,
+        '-outfmt',
+        '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen sstrand',
+        '-evalue',
+        str(evalue),
+        '-out',
+        output_file,
+        '-dust',
+        'no',
     ]
 
     logging.info(f'Running blastn: {" ".join(cmd)}')
@@ -270,9 +274,21 @@ def parse_blast_results(
         qlen, slen, sstrand.
     """
     columns = [
-        'qseqid', 'sseqid', 'pident', 'length', 'mismatch', 'gapopen',
-        'qstart', 'qend', 'sstart', 'send', 'evalue', 'bitscore',
-        'qlen', 'slen', 'sstrand',
+        'qseqid',
+        'sseqid',
+        'pident',
+        'length',
+        'mismatch',
+        'gapopen',
+        'qstart',
+        'qend',
+        'sstart',
+        'send',
+        'evalue',
+        'bitscore',
+        'qlen',
+        'slen',
+        'sstrand',
     ]
 
     hits: List[Dict[str, Any]] = []
@@ -289,8 +305,17 @@ def parse_blast_results(
             hit: Dict[str, Any] = {}
             for i, col in enumerate(columns):
                 val = row[i]
-                if col in ('qstart', 'qend', 'sstart', 'send', 'length',
-                           'mismatch', 'gapopen', 'qlen', 'slen'):
+                if col in (
+                    'qstart',
+                    'qend',
+                    'sstart',
+                    'send',
+                    'length',
+                    'mismatch',
+                    'gapopen',
+                    'qlen',
+                    'slen',
+                ):
                     hit[col] = int(val)
                 elif col in ('pident', 'evalue', 'bitscore'):
                     hit[col] = float(val)
@@ -388,10 +413,14 @@ def extract_hit_sequence(
 
     cmd = [
         'blastdbcmd',
-        '-db', blastdb,
-        '-entry', subject_id,
-        '-range', f'{start}-{end}',
-        '-strand', strand,
+        '-db',
+        blastdb,
+        '-entry',
+        subject_id,
+        '-range',
+        f'{start}-{end}',
+        '-strand',
+        strand,
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -444,7 +473,9 @@ def run_mafft_alignment(
     ]
 
     with open(output_file, 'w') as out_handle:
-        result = subprocess.run(cmd, stdout=out_handle, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(
+            cmd, stdout=out_handle, stderr=subprocess.PIPE, text=True
+        )
 
     if result.returncode != 0:
         logging.warning(f'MAFFT alignment failed: {result.stderr}')
@@ -586,6 +617,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         tsd_length_map: Dict[str, int] = {}
         if args.tsd_length_map:
             from tirmite.tirmitetools import load_tsd_length_map
+
             tsd_length_map = load_tsd_length_map(args.tsd_length_map)
 
         # Run or load BLAST results
@@ -641,16 +673,18 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 logging.info(f'  {len(query_hits)} hits passing filters')
 
                 if not query_hits:
-                    summary_rows.append({
-                        'query_id': qid,
-                        'left_model': left_model,
-                        'right_model': right_model,
-                        'query_length': query_len,
-                        'tsd_length': query_tsd_length,
-                        'num_valid_hits': 0,
-                        'predicted_tsd_error': 'N/A',
-                        'validation_message': 'No valid empty site hits found',
-                    })
+                    summary_rows.append(
+                        {
+                            'query_id': qid,
+                            'left_model': left_model,
+                            'right_model': right_model,
+                            'query_length': query_len,
+                            'tsd_length': query_tsd_length,
+                            'num_valid_hits': 0,
+                            'predicted_tsd_error': 'N/A',
+                            'validation_message': 'No valid empty site hits found',
+                        }
+                    )
                     continue
 
                 # Extract hit sequences and re-align
@@ -677,12 +711,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     if seq_str is None:
                         continue
 
-                    hit_id = f"{hit['sseqid']}_{sstart}_{send}_{strand}"
+                    hit_id = f'{hit["sseqid"]}_{sstart}_{send}_{strand}'
                     hit_record = SeqRecord(
                         Seq(seq_str),
                         id=hit_id,
                         name=hit_id,
-                        description=f"evalue={hit['evalue']} pident={hit['pident']}",
+                        description=f'evalue={hit["evalue"]} pident={hit["pident"]}',
                     )
                     alignment_seqs.append(hit_record)
 
@@ -697,8 +731,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         for aln_rec in aligned[1:]:
                             target_aligned = str(aln_rec.seq)
                             error, msg = check_tsd_gaps(
-                                query_aligned, target_aligned,
-                                query_tsd_length, query_len
+                                query_aligned,
+                                target_aligned,
+                                query_tsd_length,
+                                query_len,
                             )
                             tsd_errors.append(error)
                             tsd_messages.append(msg)
@@ -725,16 +761,18 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     avg_error = 0
                     consensus_msg = 'No alignments available for validation'
 
-                summary_rows.append({
-                    'query_id': qid,
-                    'left_model': left_model,
-                    'right_model': right_model,
-                    'query_length': query_len,
-                    'tsd_length': query_tsd_length,
-                    'num_valid_hits': len(query_hits),
-                    'predicted_tsd_error': round(avg_error, 1),
-                    'validation_message': consensus_msg,
-                })
+                summary_rows.append(
+                    {
+                        'query_id': qid,
+                        'left_model': left_model,
+                        'right_model': right_model,
+                        'query_length': query_len,
+                        'tsd_length': query_tsd_length,
+                        'num_valid_hits': len(query_hits),
+                        'predicted_tsd_error': round(avg_error, 1),
+                        'validation_message': consensus_msg,
+                    }
+                )
 
             # Write summary report
             summary_file = outdir / f'{prefix_str}validation_summary.tsv'

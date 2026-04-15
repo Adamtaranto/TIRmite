@@ -2499,8 +2499,16 @@ def reconstruct_target_site(
         # flank. The distinction (tsd_in_model vs not) affects how the user
         # interprets the duplication relative to the termini model, but the
         # trimming logic is the same: remove one copy from the right flank.
-        left_tsd = left_flank_seq[-tsd_length:] if len(left_flank_seq) >= tsd_length else left_flank_seq
-        right_tsd = right_flank_seq[:tsd_length] if len(right_flank_seq) >= tsd_length else right_flank_seq
+        left_tsd = (
+            left_flank_seq[-tsd_length:]
+            if len(left_flank_seq) >= tsd_length
+            else left_flank_seq
+        )
+        right_tsd = (
+            right_flank_seq[:tsd_length]
+            if len(right_flank_seq) >= tsd_length
+            else right_flank_seq
+        )
         # Trim TSD from right flank to de-duplicate
         trimmed_right = right_flank_seq[tsd_length:]
         target_site = left_flank_seq + trimmed_right
@@ -2842,9 +2850,7 @@ def writeTargetSites(
         with open(il_outfile, 'w') as handle:
             for rec in interleaved_records:
                 SeqIO.write(rec, handle, 'fasta')
-        logging.info(
-            f'Wrote interleaved flanks to {il_outfile}'
-        )
+        logging.info(f'Wrote interleaved flanks to {il_outfile}')
 
 
 def fetchUnpaired(

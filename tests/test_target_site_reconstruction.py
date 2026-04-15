@@ -26,7 +26,6 @@ from tirmite.tirmitetools import (
     writeTargetSites,
 )
 
-
 # ---------------------------------------------------------------------------
 # hamming_distance tests
 # ---------------------------------------------------------------------------
@@ -138,9 +137,7 @@ class TestReconstructTargetSite:
 
     def test_no_tsd(self):
         """Without TSD, simply concatenate flanks."""
-        ts, l_tsd, r_tsd, ham = reconstruct_target_site(
-            'AAAAA', 'CCCCC', tsd_length=0
-        )
+        ts, l_tsd, r_tsd, ham = reconstruct_target_site('AAAAA', 'CCCCC', tsd_length=0)
         assert ts == 'AAAAACCCCC'
         assert l_tsd == ''
         assert r_tsd == ''
@@ -294,8 +291,9 @@ class TestWriteTargetSites:
 
     def _make_test_data(self):
         """Create minimal paired data for testing target site reconstruction."""
-        import pandas as pd
         from collections import namedtuple
+
+        import pandas as pd
 
         HitRec = namedtuple(
             'HitRec',
@@ -308,20 +306,30 @@ class TestWriteTargetSites:
         hit1 = HitRec('myModel', 'chr1', 201, 210, '+', 0, 1e-10)
         hit2 = HitRec('myModel', 'chr1', 214, 223, '-', 1, 1e-10)
 
-        hitTable = pd.DataFrame([
-            {
-                'model': 'myModel', 'target': 'chr1',
-                'hitStart': 201, 'hitEnd': 210,
-                'strand': '+', 'evalue': 1e-10,
-                'hmmStart': 1, 'hmmEnd': 10,
-            },
-            {
-                'model': 'myModel', 'target': 'chr1',
-                'hitStart': 214, 'hitEnd': 223,
-                'strand': '-', 'evalue': 1e-10,
-                'hmmStart': 1, 'hmmEnd': 10,
-            },
-        ])
+        hitTable = pd.DataFrame(
+            [
+                {
+                    'model': 'myModel',
+                    'target': 'chr1',
+                    'hitStart': 201,
+                    'hitEnd': 210,
+                    'strand': '+',
+                    'evalue': 1e-10,
+                    'hmmStart': 1,
+                    'hmmEnd': 10,
+                },
+                {
+                    'model': 'myModel',
+                    'target': 'chr1',
+                    'hitStart': 214,
+                    'hitEnd': 223,
+                    'strand': '-',
+                    'evalue': 1e-10,
+                    'hmmStart': 1,
+                    'hmmEnd': 10,
+                },
+            ]
+        )
 
         model_lengths = {'myModel': 10}
 
@@ -476,11 +484,13 @@ class TestValidateParser:
 
     def test_parser_creation(self):
         from tirmite.cli.validate import create_validate_parser
+
         parser = create_validate_parser()
         assert parser is not None
 
     def test_required_arguments(self):
         from tirmite.cli.validate import create_validate_parser
+
         parser = create_validate_parser()
         # Should fail without required args
         with pytest.raises(SystemExit):
@@ -488,11 +498,16 @@ class TestValidateParser:
 
     def test_valid_arguments(self):
         from tirmite.cli.validate import create_validate_parser
+
         parser = create_validate_parser()
-        args = parser.parse_args([
-            '--target-sites', 'targets.fa',
-            '--blastdb', 'mydb',
-        ])
+        args = parser.parse_args(
+            [
+                '--target-sites',
+                'targets.fa',
+                '--blastdb',
+                'mydb',
+            ]
+        )
         assert args.target_sites == 'targets.fa'
         assert args.blastdb == 'mydb'
         assert args.min_coverage == 0.95
@@ -500,15 +515,23 @@ class TestValidateParser:
 
     def test_optional_arguments(self):
         from tirmite.cli.validate import create_validate_parser
+
         parser = create_validate_parser()
-        args = parser.parse_args([
-            '--target-sites', 'targets.fa',
-            '--blastdb', 'mydb',
-            '--min-coverage', '0.8',
-            '--tsd-length', '5',
-            '--tsd-in-model',
-            '--prefix', 'test',
-        ])
+        args = parser.parse_args(
+            [
+                '--target-sites',
+                'targets.fa',
+                '--blastdb',
+                'mydb',
+                '--min-coverage',
+                '0.8',
+                '--tsd-length',
+                '5',
+                '--tsd-in-model',
+                '--prefix',
+                'test',
+            ]
+        )
         assert args.min_coverage == 0.8
         assert args.tsd_length == 5
         assert args.tsd_in_model is True
@@ -525,6 +548,7 @@ class TestValidateHelpers:
 
     def test_parse_blast_results_empty_file(self):
         from tirmite.cli.validate import parse_blast_results
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             pass  # empty file
         try:
@@ -535,6 +559,7 @@ class TestValidateHelpers:
 
     def test_parse_blast_results_valid(self):
         from tirmite.cli.validate import parse_blast_results
+
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
             f.write(
                 'query1\tsubject1\t95.0\t100\t5\t0\t1\t100\t500\t600\t1e-30\t200\t100\t10000\tplus\n'
@@ -553,24 +578,43 @@ class TestValidateHelpers:
 
     def test_filter_junction_spanning(self):
         from tirmite.cli.validate import filter_junction_spanning
+
         hits = [
             # Hit that spans midpoint (50) and covers 100% of query
             {
-                'qseqid': 'q1', 'qlen': 100, 'qstart': 1, 'qend': 100,
-                'sseqid': 's1', 'sstart': 1, 'send': 100,
-                'evalue': 1e-30, 'pident': 95.0,
+                'qseqid': 'q1',
+                'qlen': 100,
+                'qstart': 1,
+                'qend': 100,
+                'sseqid': 's1',
+                'sstart': 1,
+                'send': 100,
+                'evalue': 1e-30,
+                'pident': 95.0,
             },
             # Hit that does NOT span midpoint (starts after midpoint)
             {
-                'qseqid': 'q1', 'qlen': 100, 'qstart': 60, 'qend': 100,
-                'sseqid': 's2', 'sstart': 60, 'send': 100,
-                'evalue': 1e-10, 'pident': 90.0,
+                'qseqid': 'q1',
+                'qlen': 100,
+                'qstart': 60,
+                'qend': 100,
+                'sseqid': 's2',
+                'sstart': 60,
+                'send': 100,
+                'evalue': 1e-10,
+                'pident': 90.0,
             },
             # Hit that spans midpoint but low coverage
             {
-                'qseqid': 'q1', 'qlen': 100, 'qstart': 45, 'qend': 55,
-                'sseqid': 's3', 'sstart': 45, 'send': 55,
-                'evalue': 1e-5, 'pident': 80.0,
+                'qseqid': 'q1',
+                'qlen': 100,
+                'qstart': 45,
+                'qend': 55,
+                'sseqid': 's3',
+                'sstart': 45,
+                'send': 55,
+                'evalue': 1e-5,
+                'pident': 80.0,
             },
         ]
         result = filter_junction_spanning(hits, min_coverage=0.95)
@@ -580,6 +624,7 @@ class TestValidateHelpers:
 
     def test_check_tsd_gaps_consistent(self):
         from tirmite.cli.validate import check_tsd_gaps
+
         # No gaps anywhere = consistent
         error, msg = check_tsd_gaps(
             'AAAAAACCCCCCC',
@@ -592,6 +637,7 @@ class TestValidateHelpers:
 
     def test_check_tsd_gaps_query_has_gaps(self):
         from tirmite.cli.validate import check_tsd_gaps
+
         # Gaps in query at midpoint = TSD too long
         error, msg = check_tsd_gaps(
             'AAAAAA---CCCCCC',
@@ -604,6 +650,7 @@ class TestValidateHelpers:
 
     def test_check_tsd_gaps_target_has_gaps(self):
         from tirmite.cli.validate import check_tsd_gaps
+
         # Gaps in target at midpoint = TSD too short
         error, msg = check_tsd_gaps(
             'AAAAAATTTCCCCCC',
@@ -625,35 +672,52 @@ class TestPairCliTsdArgs:
 
     def test_parser_has_tsd_args(self):
         from tirmite.cli.hmm_pair import create_pair_parser
+
         parser = create_pair_parser()
         # Parse with minimum required args plus TSD options
-        args = parser.parse_args([
-            '--genome', 'genome.fa',
-            '--nhmmer-file', 'hits.out',
-            '--hmm-file', 'model.hmm',
-            '--flank-len', '20',
-            '--tsd-length', '5',
-            '--tsd-in-model',
-        ])
+        args = parser.parse_args(
+            [
+                '--genome',
+                'genome.fa',
+                '--nhmmer-file',
+                'hits.out',
+                '--hmm-file',
+                'model.hmm',
+                '--flank-len',
+                '20',
+                '--tsd-length',
+                '5',
+                '--tsd-in-model',
+            ]
+        )
         assert args.tsd_length == 5
         assert args.tsd_in_model is True
         assert args.tsd_length_map is None
 
     def test_tsd_length_map_arg(self):
         from tirmite.cli.hmm_pair import create_pair_parser
+
         parser = create_pair_parser()
-        args = parser.parse_args([
-            '--genome', 'genome.fa',
-            '--nhmmer-file', 'hits.out',
-            '--hmm-file', 'model.hmm',
-            '--flank-len', '20',
-            '--tsd-length-map', 'tsd_map.tsv',
-        ])
+        args = parser.parse_args(
+            [
+                '--genome',
+                'genome.fa',
+                '--nhmmer-file',
+                'hits.out',
+                '--hmm-file',
+                'model.hmm',
+                '--flank-len',
+                '20',
+                '--tsd-length-map',
+                'tsd_map.tsv',
+            ]
+        )
         assert args.tsd_length_map == 'tsd_map.tsv'
 
     def test_tsd_requires_flank_len(self):
-        from tirmite.cli.hmm_pair import validate_arguments
         import argparse
+
+        from tirmite.cli.hmm_pair import validate_arguments
 
         # Create mock args with TSD but no flank_len
         args = argparse.Namespace(

@@ -499,7 +499,10 @@ def check_tsd_gaps(
             break
 
     # Check a window around the midpoint for gaps
-    window = max(tsd_length + 5, 10)
+    # Padding ensures we look beyond the TSD region itself
+    WINDOW_PADDING = 5
+    MIN_WINDOW_SIZE = 10
+    window = max(tsd_length + WINDOW_PADDING, MIN_WINDOW_SIZE)
     start = max(0, midpoint_aligned - window)
     end = min(len(query_aligned), midpoint_aligned + window + 1)
 
@@ -659,13 +662,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     sstart = hit['sstart']
                     send = hit['send']
 
-                    # Handle strand
+                    # Handle strand: when sstart > send, coordinates indicate
+                    # minus strand regardless of sstrand field
                     sstrand = hit.get('sstrand', 'plus')
                     if sstart > send:
                         strand = 'minus'
                         sstart, send = send, sstart
                     else:
-                        strand = 'plus' if sstrand == 'plus' else 'minus'
+                        strand = sstrand
 
                     seq_str = extract_hit_sequence(
                         args.blastdb, hit['sseqid'], sstart, send, strand

@@ -2494,23 +2494,16 @@ def reconstruct_target_site(
     tsd_hamming = 0
 
     if tsd_length > 0:
-        if tsd_in_model:
-            # TSD is at the inner boundary of each flank:
-            # left_flank ends with TSD, right_flank begins with TSD
-            left_tsd = left_flank_seq[-tsd_length:] if len(left_flank_seq) >= tsd_length else left_flank_seq
-            right_tsd = right_flank_seq[:tsd_length] if len(right_flank_seq) >= tsd_length else right_flank_seq
-            # Trim TSD from right flank to de-duplicate
-            trimmed_right = right_flank_seq[tsd_length:]
-            target_site = left_flank_seq + trimmed_right
-        else:
-            # TSD is at the outer boundary of each flank (adjacent to terminus):
-            # left_flank: TSD is at the right end (closest to the element)
-            # right_flank: TSD is at the left end (closest to the element)
-            left_tsd = left_flank_seq[-tsd_length:] if len(left_flank_seq) >= tsd_length else left_flank_seq
-            right_tsd = right_flank_seq[:tsd_length] if len(right_flank_seq) >= tsd_length else right_flank_seq
-            # Trim TSD from right flank to de-duplicate
-            trimmed_right = right_flank_seq[tsd_length:]
-            target_site = left_flank_seq + trimmed_right
+        # For both tsd_in_model modes, the TSD appears at the inner boundary
+        # of the flanks: the tail of the left flank and the head of the right
+        # flank. The distinction (tsd_in_model vs not) affects how the user
+        # interprets the duplication relative to the termini model, but the
+        # trimming logic is the same: remove one copy from the right flank.
+        left_tsd = left_flank_seq[-tsd_length:] if len(left_flank_seq) >= tsd_length else left_flank_seq
+        right_tsd = right_flank_seq[:tsd_length] if len(right_flank_seq) >= tsd_length else right_flank_seq
+        # Trim TSD from right flank to de-duplicate
+        trimmed_right = right_flank_seq[tsd_length:]
+        target_site = left_flank_seq + trimmed_right
 
         if len(left_tsd) == len(right_tsd) and len(left_tsd) > 0:
             tsd_hamming = hamming_distance(left_tsd.upper(), right_tsd.upper())

@@ -271,7 +271,23 @@ class MockGenome(dict):
 class TestWriteTargetSites:
     """Integration tests for writeTargetSites."""
 
-    GENOME_SEQ = 'A' * 200 + 'T' * 3 + 'G' * 10 + 'T' * 3 + 'C' * 200
+    # Genome layout:
+    #   positions 1-200: A's (upstream flank region)
+    #   positions 201-203: T's (TSD-like region)
+    #   positions 204-213: G's (element region)
+    #   positions 214-216: T's (TSD-like region)
+    #   positions 217-416: C's (downstream flank region)
+    UPSTREAM_LEN = 200
+    TSD_LEN = 3
+    ELEMENT_LEN = 10
+    DOWNSTREAM_LEN = 200
+    GENOME_SEQ = (
+        'A' * UPSTREAM_LEN
+        + 'T' * TSD_LEN
+        + 'G' * ELEMENT_LEN
+        + 'T' * TSD_LEN
+        + 'C' * DOWNSTREAM_LEN
+    )
 
     def _genome(self):
         return MockGenome({'chr1': self.GENOME_SEQ})

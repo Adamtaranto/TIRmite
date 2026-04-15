@@ -36,12 +36,14 @@ Available subcommands:
   seed      Build HMM models from seed sequences
   pair      Pair precomputed nhmmer hits
   search    Ensemble search: merge hits from clustered features
+  validate  Validate reconstructed target sites
 
 Examples:
   tirmite legacy --genome genome.fa --hmm-file model.hmm
   tirmite seed --left-seed left.fa --model-name myTE --genome genome.fa
   tirmite pair --genome genome.fa --nhmmer-file hits.out --hmm-file model.hmm
   tirmite search --blast-results hits.tab --cluster-map clusters.tsv
+  tirmite validate --target-sites targets.fa --blastdb validation_db
         """,
     )
 
@@ -57,11 +59,13 @@ Examples:
     from tirmite.cli.hmm_build import add_seed_parser
     from tirmite.cli.hmm_pair import add_pair_parser
     from tirmite.cli.legacy import add_legacy_parser
+    from tirmite.cli.validate import add_validate_parser
 
     add_legacy_parser(subparsers)
     add_seed_parser(subparsers)
     add_pair_parser(subparsers)
     add_search_parser(subparsers)
+    add_validate_parser(subparsers)
 
     return parser
 
@@ -109,6 +113,11 @@ def main() -> int:
         from tirmite.cli.ensemble_search import main as search_main
 
         result = search_main(args)
+        return int(result) if result is not None else 0
+    elif args.command == 'validate':
+        from tirmite.cli.validate import main as validate_main
+
+        result = validate_main(args)
         return int(result) if result is not None else 0
     else:
         parser.print_help()

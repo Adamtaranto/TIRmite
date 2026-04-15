@@ -662,6 +662,43 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         help='Only extract flanks from paired hits. Default: extract from all hits.',
     )
 
+    # Target site reconstruction options
+    parser.add_argument(
+        '--tsd-length',
+        type=int,
+        default=0,
+        dest='tsd_length',
+        help=(
+            'Length of the Target Site Duplication (TSD) or Direct Repeat (DR) '
+            'feature to account for when reconstructing target sites. '
+            'Requires --flank-len to be set. Default: 0 (no TSD).'
+        ),
+    )
+
+    parser.add_argument(
+        '--tsd-length-map',
+        type=str,
+        default=None,
+        dest='tsd_length_map',
+        help=(
+            'Path to tab-delimited file mapping model pairs to TSD lengths. '
+            'Format: left_model<TAB>right_model<TAB>tsd_length. '
+            'Use when processing multiple model pairs with different TSD lengths.'
+        ),
+    )
+
+    parser.add_argument(
+        '--tsd-in-model',
+        action='store_true',
+        default=False,
+        dest='tsd_in_model',
+        help=(
+            'If set, the TSD/DR feature is part of the termini model. '
+            'If not set (default), the TSD/DR occurs in the flanking region '
+            'immediately adjacent to the terminus hits.'
+        ),
+    )
+
     # Utility options
     parser.add_argument(
         '--tempdir',
@@ -742,6 +779,12 @@ def validate_arguments(args: Any) -> None:
                 'Asymmetric BLAST pairing requires --lengths-file with query lengths'
             )
 
+    # Validate target site reconstruction options
+    if (args.tsd_length > 0 or args.tsd_length_map) and not args.flank_len:
+        raise ValueError(
+            '--tsd-length or --tsd-length-map requires --flank-len to be set'
+        )
+
     # Check file existence
     required_files = []
     if args.genome:
@@ -763,6 +806,8 @@ def validate_arguments(args: Any) -> None:
         required_files.append(args.lengths_file)
     if args.pairing_map:
         required_files.append(args.pairing_map)
+    if args.tsd_length_map:
+        required_files.append(args.tsd_length_map)
 
     for file_path in required_files:
         if not Path(file_path).exists():
@@ -1436,6 +1481,33 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 genome_descriptions=genome_descriptions,
                 blastdb=args.blastdb if args.blastdb else None,
             )
+
+            # Reconstruct target sites if TSD length is provided
+            if args.tsd_length > 0 or args.tsd_length_map:
+                logging.info('Reconstructing target sites...')
+
+                # Load TSD length map if provided
+                tsd_length_map = None
+                if args.tsd_length_map:
+                    tsd_length_map = tirmite.load_tsd_length_map(args.tsd_length_map)
+
+                tirmite.writeTargetSites(
+                    outDir=outDir,
+                    hitTable=hitTable,
+                    model_lengths=model_lengths,
+                    paired=paired,
+                    hitIndex=hitIndex,
+                    config=config,
+                    genome=genome,
+                    prefix=args.prefix,
+                    flank_len=args.flank_len,
+                    flank_max_offset=args.flank_max_offset,
+                    tsd_length=args.tsd_length,
+                    tsd_in_model=args.tsd_in_model,
+                    tsd_length_map=tsd_length_map,
+                    genome_descriptions=genome_descriptions,
+                    blastdb=args.blastdb if args.blastdb else None,
+                )
 
         # Write GFF if requested
         if args.gff_out:

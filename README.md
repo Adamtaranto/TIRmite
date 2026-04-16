@@ -102,139 +102,74 @@ tirmite 1.3.0
 
 ### Example usage
 
-First, you will need to build a pHMM of your element's terminal sequence/s.
+See the [online tutorials](https://adamtaranto.github.io/TIRmite) for detailed walkthroughs of each module:
 
-If you have a draft TE model (i.e. from RepeatModeler or EDTA) and want to identify the TIR's or LTR's to use with TIRmite - I recommend using [*tSplit*](https://github.com/Adamtaranto/TE-splitter/) a tool for extraction of terminal repeats from complete transposons.
+- [**Building HMMs**](https://adamtaranto.github.io/TIRmite/tutorials/building-hmms/) — build a profile HMM from a seed TIR/LTR sequence using `tirmite seed`.
+- [**Using tirmite search**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-search/) — ensemble BLAST/nhmmer search and hit merging.
+- [**Using tirmite pair**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-pair/) — pairing terminus hits, flank extraction and target site reconstruction.
+- [**Reconstructing and validating target sites**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-validate/) — validate reconstructed target sites with `tirmite validate`.
 
-
-1) Extract single TIR from sample element:
-
-```bash
-# Uses BLASTn to detect TIRs of min 40% identity and min 10 bp length
-tsplit TIR -i TIR_element.fa -d tsplit_results --minid 0.4 --method blastn --minterm 10 --splitmode external
-```
-
-2) Build a pHMM from the seed:
+#### Quick start
 
 ```bash
-GENOME="genome.fa" # Path to fasta containing one or more genomes to search for matches to seed sequence.
-
-tirmite seed --left-seed tsplit_results/TIR_element_tsplit_output.fasta --model-name MY_TIR --outdir MY_TIR_HMM --genome $GENOME --max-gap 10 --save-blast-hits --threads 8
-
-# Note: Setting `--flank-size 10` will output additional flanking bases outside the TIR, conservation in the flank accross many independent insertions may indicate your seed was truncated. Always check and adjust seed as required.
-```
-
-3) Use `nhmmer` to locate hits to the TIR-pHMM in a target genome.
-
-```bash
-HMMFILE="MY_TIR_HMM/MY_TIR.hmm"
+GENOME="genome.fa"
+HMMFILE="MY_TIR.hmm"
 NHMMERFILE="MY_TIR_nhmmer_hits.tab"
+
+# 1. Search genome for terminus hits
 nhmmer --dna --cpu 8 --tblout $NHMMERFILE $HMMFILE $GENOME
+
+# 2. Pair hits and write elements + GFF3
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file $NHMMERFILE \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --report all \
+  --gff-out \
+  --outdir MY_TIR_OUTPUT
 ```
 
-**Custom DNA Matrices**
-
-Note: nhmmer can be supplied with custom DNA score matrices for assessing hmm match scores.
-Standard NCBI-BLAST matrices such as NUC.4.4 are compatible. (See: ftp://ftp.ncbi.nlm.nih.gov/blast/matrices/NUC.4.4)
-
-**Alternative: Using BLAST instead of nhmmer**
-
-TIRmite also supports BLAST tabular output as an alternative to nhmmer. This can be useful when:
-- You want to use BLAST's sensitivity settings
-- You're working with large genomes where BLAST may be faster
-- You already have BLAST results available
+To also reconstruct target sites (see [tutorial](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-validate/)):
 
 ```bash
-# Create a BLAST database from your genome
-makeblastdb -in $GENOME -dbtype nucl -out genome_db
-
-# Run BLAST search with tabular output (format 6)
-blastn -query TIR_sequence.fa -db genome_db -outfmt 6 -out MY_TIR_blast_hits.tab -evalue 0.001
-
-# Use the BLAST results with tirmite pair
-tirmite pair --genome $GENOME --blast-file MY_TIR_blast_hits.tab --query-len 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file $NHMMERFILE \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --flank-len 30 \
+  --tsd-length 8 \
+  --outdir MY_TIR_OUTPUT \
+  --gff-out
 ```
-
-**Using BLAST database for sequence extraction**
-
-If your BLAST database was created with `-parse_seqids`, you can extract sequences directly from the database instead of requiring the original FASTA file:
-
-```bash
-# Create BLAST database with sequence IDs parsed
-makeblastdb -in $GENOME -dbtype nucl -out genome_db -parse_seqids
-
-# Run tirmite pair using the BLAST database for extraction
-tirmite pair --blastdb genome_db --blast-file MY_TIR_blast_hits.tab --query-len 100 --orientation F,R --mincov 0.4 --maxdist 20000 --outdir MY_TIR_BLAST_OUTPUT
-```
-
-4) Use `tirmite pair` to identify valid TIR pairs. Outputs hits, elements, and annotations.
-
-```bash
-tirmite pair --genome $GENOME  --nhmmer-file $NHMMERFILE --hmm-file $HMMFILE --orientation F,R --mincov 0.4 --report all  --maxdist 20000 --stable-reps 2 --outdir MY_TIR_PAIRING_OUTPUT --padlen 20 --maxeval 0.001 --gff-out --logfile
-```
-
-**Handling Multiple Models/Queries**
-
-When your input files contain hits from multiple HMM models or BLAST queries, you must provide a pairing map file using `--pairing-map` to specify which features should be paired together. This prevents incorrect pairing between unrelated models.
-
-The pairing map is a tab-delimited file with two columns: left_feature and right_feature.
-
-For symmetric pairing (same feature on both sides):
-```
-# pairing_map.txt
-model1	model1
-model2	model2
-```
-
-For asymmetric pairing (different features):
-```
-# pairing_map.txt
-left_termini	right_termini
-ITR_5prime	ITR_3prime
-```
-
-Example usage with pairing map:
-```bash
-# Multiple models in input require pairing map
-tirmite pair --genome $GENOME --nhmmer-file multi_model_hits.tab \
-  --lengths-file model_lengths.txt --pairing-map pairing_map.txt \
-  --orientation F,R --mincov 0.4 --maxdist 20000 --outdir OUTPUT
-```
-
-Features can appear in multiple pairing combinations if needed. TIRmite will run independent pairing procedures for each combination and correctly track unpaired hits across all procedures.
 
 #### Legacy mode
 
-TIRmite `legacy` mode will take a TIR-pHMM and target genome fasta as input and run the full standard workflow, reporting all hits, valid pairings, and write GFF3 annotation file.
-
-Note: This usage will be phased out in a later release in favour of custom workflows.
+`tirmite legacy` takes a TIR-pHMM and target genome FASTA as input and runs the full standard workflow. This mode will be phased out in a later release in favour of custom workflows using `tirmite seed`, `tirmite pair`, and `tirmite validate`.
 
 ```bash
-# Use HMM search to pull more divergent TIR hits from your query genome.
-# TIR hits are paired in Fwd/Rev orientation
-# Fwd/Rev pairs must be within 20Kbp of each other
-# Hits must cover >= 40% of the TIR-pHMM
-tirmite legacy --genome $GENOME --hmm-file $HMMFILE--orientation F,R \
---outdir results \
---stable-reps 2 \
---report all \
---gff-out --maxdist 20000 --mincov 0.4
+tirmite legacy \
+  --genome $GENOME \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --outdir results \
+  --stable-reps 2 \
+  --report all \
+  --gff-out \
+  --maxdist 20000 \
+  --mincov 0.4
 ```
-
-If you don't have a HMM of your TIR, `tirmite legacy` can create one for you using an aligned sample of your TIR provided with `--aln-file`.
-
-TIRs should always be oriented 5\`- 3\` with the lefthand TIR.
-
-In this example the two TIRs should be oriented to begin with "GA".
-
-5\` **GA\>\>\>\>\>\>\>** ATGC <<<<<<<TC 3\`
-3\` CT>>>>>>>>  TACG <<<<<<<AG 5\`
 
 ### Standard options
 
-Run `tirmite --help` to view the program's most commonly used options:
+Run `tirmite --help` to view available subcommands:
 
-```code
+```
 tirmite --help
 usage: tirmite [-h] [--version] COMMAND ...
 
@@ -245,20 +180,12 @@ positional arguments:
     legacy    Original TIRmite workflow (HMM search + pairing)
     seed      Build HMM models from seed sequences
     pair      Pair precomputed nhmmer hits
+    search    Ensemble search: merge hits from clustered features
+    validate  Validate reconstructed target sites
 
 options:
   -h, --help  show this help message and exit
   --version   show program's version number and exit
-
-Available subcommands:
-  legacy    Original TIRmite workflow (HMM search + pairing)
-  seed      Build HMM models from seed sequences
-  pair      Pair precomputed nhmmer hits
-
-Examples:
-  tirmite legacy --genome genome.fa --hmm-file model.hmm
-  tirmite seed --left-seed left.fa --model-name myTE --genome genome.fa
-  tirmite pair --genome genome.fa --nhmmer-file hits.out --hmm-file model.hmm
 ```
 
 ## Algorithm overview

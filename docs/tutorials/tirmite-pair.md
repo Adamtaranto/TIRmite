@@ -1,6 +1,6 @@
 # Using tirmite pair
 
-`tirmite pair` takes precomputed nhmmer or BLAST search results and applies the TIRmite pairing algorithm to identify valid transposon termini pairs. It outputs paired elements, hit sequences, and GFF3 annotations.
+`tirmite pair` takes precomputed nhmmer or BLAST search results and applies the TIRmite pairing algorithm to identify valid transposon termini pairs. It outputs paired elements, hit sequences, and GFF3 annotations. When `--flank-len` is set, flanking sequences are extracted and, optionally, the original **target site** can be reconstructed.
 
 ## Overview
 
@@ -20,7 +20,14 @@ flowchart TD
     H --> I{--flank-len\nset?}
     I -->|Yes| J[Extract external flanking\nsequences per terminus]
     I -->|No| K[Done]
-    J --> K
+    J --> L{--tsd-length or\n--tsd-length-map set?}
+    L -->|No| K
+    L -->|Yes| M{--tsd-in-model?}
+    M -->|No\nTSD is in flank| N[Trim TSD from\nflank boundary]
+    M -->|Yes\nTSD is in hit| O[Extract TSD from\nhit inner boundary]
+    N --> P[Write target_sites.fasta\nand interleaved_flanks.fasta]
+    O --> P
+    P --> K
 ```
 
 ## Input Types
@@ -258,6 +265,107 @@ tirmite pair \
 !!! tip
     Even without `--flank-paired-only`, the `_paired_left_flank_` and `_paired_right_flank_` files are **always** written for paired hits only when `--flank-len` is set. The `--flank-paired-only` flag additionally suppresses the `_left_flank_` and `_right_flank_` all-hits files.
 
+## Reconstructing Target Sites
+
+When `--flank-len` is set together with `--tsd-length` (or `--tsd-length-map`), TIRmite reconstructs the original **target site** for each paired element. The target site is the genomic sequence that was present at the insertion location before the transposon arrived — a TSD-flanked sequence that appears once in empty sites and duplicated around inserted elements.
+
+### How the reconstruction works
+
+Each transposon insertion results in one copy of the TSD at each end of the element. When the flanks are joined the duplicate TSD must be reduced to a single copy:
+
+```
+Inserted element
+←[left_flank][TSD]→[LEFT_TERMINUS]…[RIGHT_TERMINUS]←[TSD][right_flank]→
+                 ↑ one copy trimmed here
+```
+
+#### When `--tsd-in-model` is NOT set (TSD is outside the model)
+
+The TSD sequence appears as the innermost `n` bases of the extracted flanks — immediately adjacent to the terminus hit boundary. TIRmite reads the TSD from the flank boundary, computes the Hamming distance between the two copies, and trims one before joining.
+
+```
+Genomic layout:
+  ←[upstream]←[TSD_L]←[LEFT_HIT]……[RIGHT_HIT]→[TSD_R]→[downstream]→
+
+  left_flank  = [upstream] + [TSD_L]   (TSD at right/inner end of left flank)
+  right_flank = [TSD_R] + [downstream] (TSD at left/inner end of right flank)
+
+Reconstruction: left_flank + right_flank[tsd_length:]
+             = [upstream] + [TSD_L] + [downstream]
+```
+
+#### When `--tsd-in-model` IS set (TSD is inside the model)
+
+The TSD is encoded within the terminus HMM model itself (at the element-facing end). The extracted flanks are clean sequences with no TSD. TIRmite uses the hit coordinates and HMM alignment positions to locate the TSD within the hit, extracts it directly, and inserts one copy between the clean flanks.
+
+```
+Genomic layout:
+  ←[upstream]←[LEFT_HIT][TSD_L]……[TSD_R][RIGHT_HIT]→[downstream]→
+
+  left_flank  = [upstream]             (clean, no TSD)
+  right_flank = [downstream]           (clean, no TSD)
+  TSD_L extracted from LEFT_HIT inner boundary
+
+Reconstruction: left_flank + TSD_L + right_flank
+             = [upstream] + [TSD_L] + [downstream]
+```
+
+### Flank coordinate and offset corrections
+
+The external flank boundary is aligned to the **outer edge of the terminus model** (model position 1 for left terminus, model position `N` for right terminus). If the hit alignment does not reach the model outer edge, the flank coordinate is shifted inward by the number of uncovered model positions (the offset).
+
+Similarly, for `tsd_in_model=True`, the TSD inner boundary coordinates are computed from the hit start/end and HMM alignment positions (`hmmStart`/`hmmEnd`), accounting for any offset between the alignment end and the model inner edge. This ensures that orientation, strand, and hit offset are all correctly accounted for in the reconstruction.
+
+### TSD length map for multiple model pairs
+
+When processing hits from multiple models via `--pairing-map`, use `--tsd-length-map` instead of a single `--tsd-length`. The map is a three-column TSV file:
+
+```
+# tsd_lengths.tsv
+# left_model    right_model    tsd_length
+LEFT_TIR        RIGHT_TIR      8
+ITR_5prime      ITR_3prime     5
+```
+
+```bash
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file multi_model_hits.tab \
+  --lengths-file model_lengths.txt \
+  --pairing-map pairing_map.txt \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --flank-len 30 \
+  --tsd-length-map tsd_lengths.tsv \
+  --outdir OUTPUT \
+  --gff-out
+```
+
+### Target site output files
+
+| File | Contents |
+|------|----------|
+| `{prefix}target_sites.fasta` | One reconstructed target site per paired element |
+| `{prefix}interleaved_flanks.fasta` | Gap-padded left/right flank pairs showing TSD position |
+
+FASTA headers in `target_sites.fasta` include metadata tags:
+
+| Tag | Description |
+|-----|-------------|
+| `flank_len` | Extracted flank length (bp) |
+| `tsd_len` | User-specified TSD length |
+| `tsd_in_model` | Whether TSD is inside the terminus model |
+| `left_model` / `right_model` | Names of terminus models for this pair |
+| `contig` | Sequence ID in the target genome |
+| `left_flank_hit` | Strand and hit coordinates for the left terminus |
+| `right_flank_hit` | Strand and hit coordinates for the right terminus |
+| `tsd_hamming` | Hamming distance between left and right TSD copies |
+| `left_tsd` / `right_tsd` | TSD sequences (when > 0 bp) |
+
+!!! note "Next step: validation"
+    Use the `target_sites.fasta` output as input to [`tirmite validate`](tirmite-validate.md) to search a reference genome for matching empty insertion sites and independently confirm the TSD length.
+
 ## Hit Anchoring: Filtering by Model Edge Proximity
 
 The `--max-offset` flag filters out hits whose alignment does not reach close enough to the **outer edge** of the query model. This removes spurious interior fragment hits that are unlikely to represent true element termini.
@@ -415,6 +523,9 @@ tirmite pair \
 | `--flank-len` | Length of external flanking region to extract per terminus (bp) |
 | `--flank-max-offset` | Skip flank extraction for hits where offset from outer model edge exceeds this value |
 | `--flank-paired-only` | Only extract flanks for hits that form a valid pair |
+| `--tsd-length` | TSD/DR length for target site reconstruction (requires `--flank-len`) |
+| `--tsd-length-map` | Per-model-pair TSD length map (TSV: left_model, right_model, tsd_length) |
+| `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |
 | `--report` | Reporting mode: `all`, `paired`, or `unpaired` |
 | `--gff-out` | Write GFF3 annotation file |
 | `--logfile` | Write log to file |

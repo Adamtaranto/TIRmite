@@ -1974,6 +1974,109 @@ def compute_flank_coordinates(
     return flank_start, flank_end, offset
 
 
+def compute_inner_tsd_coordinates(
+    hit_start: int,
+    hit_end: int,
+    strand: str,
+    is_left_terminus: bool,
+    hmm_start: int,
+    hmm_end: int,
+    model_len: int,
+    tsd_length: int,
+) -> Tuple[int, int]:
+    """
+    Compute genomic coordinates of the TSD at the inner boundary of a terminus hit.
+
+    The "inner boundary" of a terminus hit is the side that faces the element body.
+    For a left terminus this is the RIGHT (higher coordinate) end; for a right
+    terminus it is the LEFT (lower coordinate) end.  When the TSD is modelled as
+    part of the terminus HMM it occupies the innermost ``tsd_length`` model
+    positions of the terminus model.
+
+    Parameters
+    ----------
+    hit_start : int
+        1-based start coordinate of the hit (always ≤ hit_end).
+    hit_end : int
+        1-based end coordinate of the hit (always ≥ hit_start).
+    strand : str
+        Strand of the hit: '+' or '-'.
+    is_left_terminus : bool
+        True if the hit is the left (5') terminus of the element.
+    hmm_start : int
+        1-based alignment start on the HMM model.
+        For + strand hits this aligns with ``hit_start``; for - strand
+        hits it aligns with ``hit_end``.
+    hmm_end : int
+        1-based alignment end on the HMM model.
+        For + strand hits this aligns with ``hit_end``; for - strand
+        hits it aligns with ``hit_start``.
+    model_len : int
+        Total number of positions in the HMM model.
+    tsd_length : int
+        Number of bases in the TSD feature.
+
+    Returns
+    -------
+    tsd_start : int
+        1-based genomic start coordinate of the TSD (always ≤ tsd_end).
+    tsd_end : int
+        1-based genomic end coordinate of the TSD.
+
+    Notes
+    -----
+    Coordinate conventions (same as :func:`compute_flank_coordinates`):
+
+    For + strand hits, model positions increase in the same direction as
+    genomic coordinates (hmmStart aligns to hit_start).
+
+    For - strand hits, model positions increase in the *opposite* direction
+    (hmmStart aligns to hit_end; hmmEnd aligns to hit_start).
+
+    Left terminus inner boundary
+        - ``+`` strand: model position ``model_len`` is at the RIGHT (higher)
+          end of the hit.  ``inner_pos = hit_end + (model_len - hmm_end)``.
+          TSD occupies ``[inner_pos - tsd_length + 1, inner_pos]``.
+        - ``-`` strand: model position 1 is at the RIGHT (higher) end of the
+          hit.  ``inner_pos = hit_end + (hmm_start - 1)``.
+          TSD occupies ``[inner_pos - tsd_length + 1, inner_pos]``.
+
+    Right terminus inner boundary
+        - ``+`` strand: model position 1 is at the LEFT (lower) end of the
+          hit.  ``inner_pos = hit_start - (hmm_start - 1)``.
+          TSD occupies ``[inner_pos, inner_pos + tsd_length - 1]``.
+        - ``-`` strand: model position ``model_len`` is at the LEFT (lower)
+          end of the hit.  ``inner_pos = hit_start - (model_len - hmm_end)``.
+          TSD occupies ``[inner_pos, inner_pos + tsd_length - 1]``.
+    """
+    if is_left_terminus:
+        # Inner end faces RIGHT (higher genomic coords)
+        if strand == '+':
+            # Model pos model_len aligns to right of hit
+            inner_pos = hit_end + (model_len - hmm_end)
+            tsd_start = inner_pos - tsd_length + 1
+            tsd_end = inner_pos
+        else:  # '-'
+            # Model pos 1 (hmmStart) aligns to hit_end (rightmost genomic coord)
+            inner_pos = hit_end + (hmm_start - 1)
+            tsd_start = inner_pos - tsd_length + 1
+            tsd_end = inner_pos
+    else:
+        # Right terminus: inner end faces LEFT (lower genomic coords)
+        if strand == '+':
+            # Model pos 1 (hmmStart) aligns to hit_start (leftmost genomic coord)
+            inner_pos = hit_start - (hmm_start - 1)
+            tsd_start = inner_pos
+            tsd_end = inner_pos + tsd_length - 1
+        else:  # '-'
+            # Model pos model_len aligns to hit_start (leftmost genomic coord)
+            inner_pos = hit_start - (model_len - hmm_end)
+            tsd_start = inner_pos
+            tsd_end = inner_pos + tsd_length - 1
+
+    return tsd_start, tsd_end
+
+
 def _determine_terminus_type(hit: Any, config: Any) -> Optional[str]:
     """
     Determine whether a hit is a left or right terminus based on pairing config.
@@ -2383,6 +2486,639 @@ def writeFlanks(
                 for seq in flanks:
                     seq.id = prefix + str(seq.id)
                     SeqIO.write(seq, handle, 'fasta')
+
+
+def hamming_distance(seq1: str, seq2: str) -> int:
+    """
+    Compute the Hamming distance between two equal-length strings.
+
+    Parameters
+    ----------
+    seq1 : str
+        First sequence.
+    seq2 : str
+        Second sequence.
+
+    Returns
+    -------
+    int
+        Number of positions at which the corresponding characters differ.
+
+    Raises
+    ------
+    ValueError
+        If the sequences are not of equal length.
+    """
+    if len(seq1) != len(seq2):
+        raise ValueError(
+            f'Sequences must be equal length, got {len(seq1)} and {len(seq2)}'
+        )
+    return sum(c1 != c2 for c1, c2 in zip(seq1, seq2))
+
+
+def load_tsd_length_map(tsd_map_file: str) -> Dict[str, int]:
+    """
+    Load TSD (Target Site Duplication) lengths from a tab-delimited file.
+
+    Parameters
+    ----------
+    tsd_map_file : str
+        Path to tab-delimited file mapping model pair keys to TSD lengths.
+        Format: left_model<TAB>right_model<TAB>tsd_length
+
+    Returns
+    -------
+    dict
+        Dictionary mapping 'left_model<TAB>right_model' keys to integer TSD lengths.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the file does not exist.
+    ValueError
+        If the file format is invalid.
+    """
+    tsd_lengths: Dict[str, int] = {}
+
+    try:
+        with open(tsd_map_file, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+
+                parts = line.split('\t')
+                if len(parts) != 3:
+                    raise ValueError(
+                        f'Invalid format on line {line_num}: expected 3 tab-delimited '
+                        f'columns (left_model, right_model, tsd_length), got {len(parts)}'
+                    )
+
+                left_model, right_model, tsd_len_str = (
+                    parts[0].strip(),
+                    parts[1].strip(),
+                    parts[2].strip(),
+                )
+                try:
+                    tsd_len = int(tsd_len_str)
+                except ValueError:
+                    raise ValueError(
+                        f'Invalid TSD length on line {line_num}: {tsd_len_str}'
+                    ) from None
+
+                if tsd_len < 0:
+                    raise ValueError(
+                        f'TSD length must be non-negative on line {line_num}: {tsd_len}'
+                    )
+
+                key = f'{left_model}\t{right_model}'
+                tsd_lengths[key] = tsd_len
+
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f'TSD length map file not found: {tsd_map_file}'
+        ) from None
+
+    if not tsd_lengths:
+        raise ValueError(f'No valid TSD lengths found in {tsd_map_file}')
+
+    logging.info(
+        f'Loaded TSD lengths for {len(tsd_lengths)} model pair(s) from {tsd_map_file}'
+    )
+    return tsd_lengths
+
+
+def reconstruct_target_site(
+    left_flank_seq: str,
+    right_flank_seq: str,
+    tsd_length: int = 0,
+    tsd_in_model: bool = False,
+) -> Tuple[str, str, str, int]:
+    """
+    Reconstruct a target site by joining left and right flanking sequences.
+
+    When a TSD (Target Site Duplication) is present, it is de-duplicated
+    so only one copy appears in the reconstructed target site.
+
+    This function handles the ``tsd_in_model=False`` case, where the TSD
+    is encoded as the innermost ``tsd_length`` bases of the flanking
+    sequences (last ``tsd_length`` bases of the left flank and first
+    ``tsd_length`` bases of the right flank).  One copy is trimmed before
+    joining.
+
+    .. note::
+
+       When ``tsd_in_model=True`` the TSD lies *inside* the terminus hit
+       (part of the HMM model), not in the external flanking sequence.
+       :func:`writeTargetSites` handles this case by calling
+       :func:`compute_inner_tsd_coordinates` to extract the TSD from
+       genomic coordinates within the hit before joining the clean flanks.
+       Passing ``tsd_in_model=True`` to this function is therefore a
+       no-op — it is treated identically to ``tsd_in_model=False``, both
+       operating on the boundary of the supplied flank sequences.
+
+    Parameters
+    ----------
+    left_flank_seq : str
+        External flanking sequence upstream of the left terminus.
+    right_flank_seq : str
+        External flanking sequence downstream of the right terminus.
+    tsd_length : int, default 0
+        Length of the terminal duplication feature.
+    tsd_in_model : bool, default False
+        Retained for API compatibility.  Has no effect on the output
+        because this function always treats the innermost bases of the
+        flanks as the TSD.  When the TSD is inside the model, the correct
+        approach is to use :func:`writeTargetSites` which extracts the TSD
+        from the hit genomic coordinates via
+        :func:`compute_inner_tsd_coordinates`.
+
+    Returns
+    -------
+    target_site : str
+        Reconstructed target site sequence.
+    left_tsd : str
+        TSD sequence extracted from the left side (empty string if
+        ``tsd_length`` is 0).
+    right_tsd : str
+        TSD sequence extracted from the right side (empty string if
+        ``tsd_length`` is 0).
+    tsd_hamming : int
+        Hamming distance between the left and right TSD sequences
+        (0 if ``tsd_length`` is 0).
+
+    Notes
+    -----
+    TSD is at the inner boundary of each flank:
+        - ``left_tsd``  = last ``tsd_length`` bases of ``left_flank_seq``
+        - ``right_tsd`` = first ``tsd_length`` bases of ``right_flank_seq``
+
+    One copy (the right TSD) is trimmed before joining, yielding:
+        ``target_site = left_flank_seq + right_flank_seq[tsd_length:]``
+    """
+    left_tsd = ''
+    right_tsd = ''
+    tsd_hamming = 0
+
+    if tsd_length > 0:
+        # For both tsd_in_model modes, the TSD appears at the inner boundary
+        # of the flanks: the tail of the left flank and the head of the right
+        # flank. The distinction (tsd_in_model vs not) affects how the user
+        # interprets the duplication relative to the termini model, but the
+        # trimming logic is the same: remove one copy from the right flank.
+        left_tsd = (
+            left_flank_seq[-tsd_length:]
+            if len(left_flank_seq) >= tsd_length
+            else left_flank_seq
+        )
+        right_tsd = (
+            right_flank_seq[:tsd_length]
+            if len(right_flank_seq) >= tsd_length
+            else right_flank_seq
+        )
+        # Trim TSD from right flank to de-duplicate
+        trimmed_right = right_flank_seq[tsd_length:]
+        target_site = left_flank_seq + trimmed_right
+
+        if len(left_tsd) == len(right_tsd) and len(left_tsd) > 0:
+            tsd_hamming = hamming_distance(left_tsd.upper(), right_tsd.upper())
+        if tsd_hamming > 0:
+            logging.warning(
+                f'TSD mismatch (hamming={tsd_hamming}): '
+                f'left={left_tsd} right={right_tsd}'
+            )
+    else:
+        target_site = left_flank_seq + right_flank_seq
+
+    return target_site, left_tsd, right_tsd, tsd_hamming
+
+
+def format_interleaved_flanks(
+    left_flank_seq: str,
+    right_flank_seq: str,
+    tsd_length: int = 0,
+) -> Tuple[str, str]:
+    """
+    Format left and right flanks as interleaved gap-padded strings.
+
+    Creates two rows where TSD regions overlap visually:
+    - Left flank is right-padded with gaps by the length of the right
+      flank minus the TSD overlap.
+    - Right flank is left-padded by the length of the left flank minus
+      the TSD overlap.
+
+    Parameters
+    ----------
+    left_flank_seq : str
+        Left flanking sequence.
+    right_flank_seq : str
+        Right flanking sequence.
+    tsd_length : int, default 0
+        Length of the TSD overlap region.
+
+    Returns
+    -------
+    left_row : str
+        Left flank with gap padding on the right.
+    right_row : str
+        Right flank with gap padding on the left.
+
+    Examples
+    --------
+    >>> format_interleaved_flanks('AAAAATSD', 'TSDCCCCC', 3)
+    ('AAAAATSD-----', '-----TSDCCCCC')
+    """
+    overlap = min(tsd_length, len(left_flank_seq), len(right_flank_seq))
+    right_pad = len(right_flank_seq) - overlap
+    left_pad = len(left_flank_seq) - overlap
+
+    left_row = left_flank_seq + '-' * right_pad
+    right_row = '-' * left_pad + right_flank_seq
+
+    return left_row, right_row
+
+
+def writeTargetSites(
+    outDir: Optional[str] = None,
+    hitTable: Optional[pd.DataFrame] = None,
+    model_lengths: Optional[Dict[str, int]] = None,
+    paired: Optional[Dict[str, List[Set[int]]]] = None,
+    hitIndex: Optional[Dict[str, Dict[int, Dict[str, Any]]]] = None,
+    config: Any = None,
+    genome: Any = None,
+    prefix: Optional[str] = None,
+    flank_len: int = 0,
+    flank_max_offset: Optional[int] = None,
+    tsd_length: int = 0,
+    tsd_in_model: bool = False,
+    tsd_length_map: Optional[Dict[str, int]] = None,
+    genome_descriptions: Optional[Dict[str, str]] = None,
+    blastdb: Optional[str] = None,
+) -> None:
+    """
+    Reconstruct and write target sites for paired terminus hits.
+
+    Extracts external flanking sequences for each pair, de-duplicates the
+    TSD feature, and writes reconstructed target sites, interleaved flanks,
+    and a summary report.
+
+    Parameters
+    ----------
+    outDir : str, optional
+        Output directory for target site FASTA files.
+    hitTable : pandas.DataFrame
+        DataFrame with columns model, target, hitStart, hitEnd, strand, evalue,
+        hmmStart, hmmEnd.
+    model_lengths : dict
+        Dictionary mapping model name to model length.
+    paired : dict
+        Paired hits: paired[model] = [list of pair sets {id1, id2}].
+    hitIndex : dict
+        Hit index: hitIndex[model][idx] = {rec, partner, candidates}.
+    config : PairingConfig, optional
+        Configuration with orientation and model assignments. May be None
+        when using pairing-map mode.
+    genome : pyfaidx.Fasta, optional
+        Indexed genome for sequence extraction.
+    prefix : str, optional
+        Prefix for output filenames.
+    flank_len : int, default 0
+        Number of bases to extract in each flanking region.
+    flank_max_offset : int, optional
+        Maximum allowed offset from model end.
+    tsd_length : int, default 0
+        Default TSD length (used when tsd_length_map is not provided).
+    tsd_in_model : bool, default False
+        Whether the TSD is inside the termini model.
+    tsd_length_map : dict, optional
+        Map of 'left_model\\tright_model' to TSD length.
+    genome_descriptions : dict, optional
+        Dictionary mapping sequence IDs to descriptions.
+    blastdb : str, optional
+        Path to BLAST database.
+
+    Returns
+    -------
+    None
+        Writes FASTA files to disk.
+
+    Notes
+    -----
+    Output files:
+      {prefix}target_sites.fasta – reconstructed target sites
+      {prefix}interleaved_flanks.fasta – interleaved left/right flanks
+    """
+    assert outDir is not None, 'outDir cannot be None'
+    assert hitTable is not None, 'hitTable cannot be None'
+    assert model_lengths is not None, 'model_lengths cannot be None'
+    assert paired is not None, 'paired cannot be None'
+    assert hitIndex is not None, 'hitIndex cannot be None'
+    assert genome is not None or blastdb is not None, (
+        'Either genome or blastdb must be provided'
+    )
+
+    if prefix:
+        prefix_str = cleanID(prefix) + '_'
+    else:
+        prefix_str = ''
+
+    target_site_records: List[Any] = []
+    interleaved_records: List[Any] = []
+
+    # ------------------------------------------------------------------
+    # Helper: look up hmmStart / hmmEnd for a hit by its DataFrame index
+    # ------------------------------------------------------------------
+    def get_hmm_coords(hit_idx: int) -> Tuple[Optional[int], Optional[int]]:
+        if hit_idx not in hitTable.index:  # type: ignore[union-attr]
+            return None, None
+        row = hitTable.loc[hit_idx]  # type: ignore[union-attr]
+        try:
+            h_start = int(row['hmmStart'])
+            h_end = int(row['hmmEnd'])
+        except (ValueError, TypeError):
+            return None, None
+        return h_start, h_end
+
+    # ------------------------------------------------------------------
+    # Helper: retrieve hit record from nested or flat hitIndex
+    # ------------------------------------------------------------------
+    is_nested = bool(hitIndex) and isinstance(next(iter(hitIndex.values())), dict)
+
+    def get_hit_record(hit_id: int) -> Any:
+        if is_nested:
+            for _m, model_hits in hitIndex.items():
+                if hit_id in model_hits:
+                    return model_hits[hit_id]['rec']
+            raise KeyError(f'Hit ID {hit_id} not found in hitIndex')
+        return hitIndex[hit_id]['rec']  # type: ignore[index]
+
+    # ------------------------------------------------------------------
+    # Helper: extract flank sequence for one hit
+    # ------------------------------------------------------------------
+    def extract_flank(hit: Any, is_left: bool) -> Optional[str]:
+        model = hit.model
+        model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
+        if model_len is None:
+            return None
+
+        hmm_start, hmm_end = get_hmm_coords(hit.idx)
+        if hmm_start is None or hmm_end is None:
+            return None
+
+        flank_start, flank_end, offset = compute_flank_coordinates(
+            hit_start=int(hit.hitStart),
+            hit_end=int(hit.hitEnd),
+            strand=hit.strand,
+            is_left_terminus=is_left,
+            hmm_start=hmm_start,
+            hmm_end=hmm_end,
+            model_len=model_len,
+            flank_len=flank_len,
+        )
+
+        if flank_max_offset is not None and offset > flank_max_offset:
+            return None
+
+        flank_start = max(1, flank_start)
+        flank_end = max(1, flank_end)
+
+        if flank_start > flank_end:
+            return None
+
+        if blastdb:
+            seq_str = extract_from_blastdb(
+                blastdb, hit.target, flank_start, flank_end, '+'
+            )
+        else:
+            chrom = genome[hit.target]
+            chrom_len = len(chrom)
+            flank_end = min(flank_end, chrom_len)
+            if flank_start > flank_end:
+                return None
+            seq_str = str(chrom[flank_start - 1 : flank_end])
+
+        return seq_str
+
+    # ------------------------------------------------------------------
+    # Helper: resolve TSD length for a pair of models
+    # ------------------------------------------------------------------
+    def get_tsd_length_for_pair(left_model: str, right_model: str) -> int:
+        if tsd_length_map:
+            key = f'{left_model}\t{right_model}'
+            if key in tsd_length_map:
+                return tsd_length_map[key]
+            # Try symmetric key
+            key_sym = f'{right_model}\t{left_model}'
+            if key_sym in tsd_length_map:
+                return tsd_length_map[key_sym]
+            logging.warning(
+                f'No TSD length found for model pair ({left_model}, {right_model}) '
+                f'in TSD length map, using default tsd_length={tsd_length}'
+            )
+        return tsd_length
+
+    # ------------------------------------------------------------------
+    # Helper: extract TSD sequence from the inner boundary of a terminus hit
+    # Used when tsd_in_model=True (TSD is part of the termini model, not in flank)
+    # ------------------------------------------------------------------
+    def extract_inner_tsd(hit: Any, is_left: bool, tsd_len: int) -> Optional[str]:
+        """
+        Extract the TSD sequence from the inner (element-facing) boundary of a hit.
+
+        When ``tsd_in_model=True`` the TSD is encoded at the element-facing end
+        of the terminus HMM and therefore lies *within* the hit coordinates
+        rather than in the external flanking sequence.  This helper computes the
+        genomic coordinates of the TSD and extracts the bases from the genome or
+        BLAST database.
+
+        Parameters
+        ----------
+        hit : namedtuple
+            Hit record (model, target, hitStart, hitEnd, strand, idx).
+        is_left : bool
+            True if the hit is the left (upstream) terminus of the element.
+        tsd_len : int
+            Length of the TSD to extract.
+
+        Returns
+        -------
+        str or None
+            The TSD sequence (always on the forward/+ strand), or None if
+            the coordinates cannot be determined or the sequence cannot be
+            extracted.
+        """
+        model = hit.model
+        model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
+        if model_len is None:
+            logging.warning(
+                f'Model length not found for {model}, skipping TSD extraction'
+            )
+            return None
+
+        hmm_start, hmm_end = get_hmm_coords(hit.idx)
+        if hmm_start is None or hmm_end is None:
+            logging.debug(
+                f'HMM coordinates unavailable for hit {hit.idx}, skipping TSD'
+            )
+            return None
+
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=int(hit.hitStart),
+            hit_end=int(hit.hitEnd),
+            strand=hit.strand,
+            is_left_terminus=is_left,
+            hmm_start=hmm_start,
+            hmm_end=hmm_end,
+            model_len=model_len,
+            tsd_length=tsd_len,
+        )
+
+        if tsd_start < 1 or tsd_end < tsd_start:
+            logging.debug(
+                f'Invalid TSD coordinates for hit {hit.idx}: {tsd_start}-{tsd_end}'
+            )
+            return None
+
+        if blastdb:
+            return extract_from_blastdb(blastdb, hit.target, tsd_start, tsd_end, '+')
+        else:
+            chrom = genome[hit.target]
+            chrom_len = len(chrom)
+            tsd_start = max(1, tsd_start)
+            tsd_end = min(tsd_end, chrom_len)
+            if tsd_start > tsd_end:
+                return None
+            return str(chrom[tsd_start - 1 : tsd_end])
+
+    # ------------------------------------------------------------------
+    # Process paired hits
+    # ------------------------------------------------------------------
+    for model in paired.keys():
+        model_counter = 0
+        for pair in paired[model]:
+            model_counter += 1
+            hit_ids = list(pair)
+            x_id, y_id = hit_ids[0], hit_ids[1]
+            x = get_hit_record(x_id)
+            y = get_hit_record(y_id)
+            leftHit, rightHit = flipTIRs(x, y)
+            pair_id = f'{prefix_str}{model}_{model_counter}'
+
+            left_seq = extract_flank(leftHit, is_left=True)
+            right_seq = extract_flank(rightHit, is_left=False)
+
+            if left_seq is None or right_seq is None:
+                logging.debug(
+                    f'Could not extract flanks for pair {pair_id}, skipping target site'
+                )
+                continue
+
+            pair_tsd_len = get_tsd_length_for_pair(leftHit.model, rightHit.model)
+
+            if tsd_in_model and pair_tsd_len > 0:
+                # TSD is inside the terminus model – extract from the inner boundary
+                # of each hit, not from the external flank.
+                # Reconstruction: left_flank + TSD + right_flank
+                left_tsd = (
+                    extract_inner_tsd(leftHit, is_left=True, tsd_len=pair_tsd_len) or ''
+                )
+                right_tsd = (
+                    extract_inner_tsd(rightHit, is_left=False, tsd_len=pair_tsd_len)
+                    or ''
+                )
+
+                # Use left TSD (arbitrarily) to fill the gap; warn if mismatched
+                tsd_seq = left_tsd if left_tsd else right_tsd
+                target_site = left_seq + tsd_seq + right_seq
+
+                if left_tsd and right_tsd and len(left_tsd) == len(right_tsd):
+                    tsd_hamming = hamming_distance(left_tsd.upper(), right_tsd.upper())
+                    if tsd_hamming > 0:
+                        logging.warning(
+                            f'TSD mismatch for pair {pair_id} '
+                            f'(hamming={tsd_hamming}): left={left_tsd} right={right_tsd}'
+                        )
+                else:
+                    tsd_hamming = 0
+            else:
+                # TSD is outside the model – it is the innermost n bases of each flank.
+                # reconstruct_target_site() trims one copy and joins.
+                target_site, left_tsd, right_tsd, tsd_hamming = reconstruct_target_site(
+                    left_flank_seq=left_seq,
+                    right_flank_seq=right_seq,
+                    tsd_length=pair_tsd_len,
+                    tsd_in_model=False,
+                )
+
+            # Build metadata for FASTA header
+            meta_parts = [
+                f'flank_len={flank_len}',
+                f'tsd_len={pair_tsd_len}',
+                f'tsd_in_model={tsd_in_model}',
+                f'left_model={leftHit.model}',
+                f'right_model={rightHit.model}',
+                f'contig={leftHit.target}',
+                f'left_flank_hit={leftHit.strand}:{leftHit.hitStart}_{leftHit.hitEnd}',
+                f'right_flank_hit={rightHit.strand}:{rightHit.hitStart}_{rightHit.hitEnd}',
+                f'tsd_hamming={tsd_hamming}',
+            ]
+            if left_tsd:
+                meta_parts.append(f'left_tsd={left_tsd}')
+            if right_tsd:
+                meta_parts.append(f'right_tsd={right_tsd}')
+
+            description = ' '.join(meta_parts)
+
+            ts_record = SeqRecord(
+                Seq.Seq(target_site),
+                id=pair_id,
+                name=pair_id,
+                description=description,
+            )
+            target_site_records.append(ts_record)
+
+            # Build interleaved flanks
+            left_row, right_row = format_interleaved_flanks(
+                left_flank_seq=left_seq,
+                right_flank_seq=right_seq,
+                tsd_length=pair_tsd_len,
+            )
+
+            il_left = SeqRecord(
+                Seq.Seq(left_row),
+                id=f'{pair_id}_left',
+                name=f'{pair_id}_left',
+                description=description,
+            )
+            il_right = SeqRecord(
+                Seq.Seq(right_row),
+                id=f'{pair_id}_right',
+                name=f'{pair_id}_right',
+                description=description,
+            )
+            interleaved_records.append(il_left)
+            interleaved_records.append(il_right)
+
+    # ------------------------------------------------------------------
+    # Write output files
+    # ------------------------------------------------------------------
+    if target_site_records:
+        ts_outfile = os.path.join(outDir, f'{prefix_str}target_sites.fasta')
+        with open(ts_outfile, 'w') as handle:
+            for rec in target_site_records:
+                SeqIO.write(rec, handle, 'fasta')
+        logging.info(
+            f'Wrote {len(target_site_records)} reconstructed target sites to {ts_outfile}'
+        )
+    else:
+        logging.warning('No target sites could be reconstructed')
+
+    if interleaved_records:
+        il_outfile = os.path.join(outDir, f'{prefix_str}interleaved_flanks.fasta')
+        with open(il_outfile, 'w') as handle:
+            for rec in interleaved_records:
+                SeqIO.write(rec, handle, 'fasta')
+        logging.info(f'Wrote interleaved flanks to {il_outfile}')
 
 
 def fetchUnpaired(

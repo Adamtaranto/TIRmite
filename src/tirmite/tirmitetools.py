@@ -2271,6 +2271,16 @@ def writeFlanks(
     paired_left_flanks: Dict[str, List[Any]] = {}
     paired_right_flanks: Dict[str, List[Any]] = {}
 
+    def _make_paired_flank_record(
+        source_rec: SeqRecord, element_id: str, pair_id: str, suffix: str
+    ) -> SeqRecord:
+        """Create a paired-only flank record with element ID in the header."""
+        rec = SeqRecord(source_rec.seq)
+        rec.id = f'{element_id}_{pair_id}_{suffix}'
+        rec.name = rec.id
+        rec.description = source_rec.description
+        return rec
+
     for model in paired.keys():
         model_counter = 0
         for pair in paired[model]:
@@ -2288,20 +2298,14 @@ def writeFlanks(
 
             if left_rec:
                 left_flanks.setdefault(leftHit.model, []).append(left_rec)
-                # Build a copy for paired-only output with element ID
-                paired_rec = SeqRecord(left_rec.seq)
-                paired_rec.id = f'{element_id}_{pair_id}_L'
-                paired_rec.name = paired_rec.id
-                paired_rec.description = left_rec.description
-                paired_left_flanks.setdefault(leftHit.model, []).append(paired_rec)
+                paired_left_flanks.setdefault(leftHit.model, []).append(
+                    _make_paired_flank_record(left_rec, element_id, pair_id, 'L')
+                )
             if right_rec:
                 right_flanks.setdefault(rightHit.model, []).append(right_rec)
-                # Build a copy for paired-only output with element ID
-                paired_rec = SeqRecord(right_rec.seq)
-                paired_rec.id = f'{element_id}_{pair_id}_R'
-                paired_rec.name = paired_rec.id
-                paired_rec.description = right_rec.description
-                paired_right_flanks.setdefault(rightHit.model, []).append(paired_rec)
+                paired_right_flanks.setdefault(rightHit.model, []).append(
+                    _make_paired_flank_record(right_rec, element_id, pair_id, 'R')
+                )
 
             paired_hit_ids.add(leftHit.idx)
             paired_hit_ids.add(rightHit.idx)

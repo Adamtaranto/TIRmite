@@ -880,43 +880,42 @@ class TestWriteFlanks:
 class TestWriteElements:
     """Tests for writeElements output filename format."""
 
-    def test_element_filename_includes_count(self):
-        """Element FASTA filename should include the count of elements."""
-        from collections import namedtuple
+    _gffTup = namedtuple(
+        'gffTup',
+        [
+            'model',
+            'chromosome',
+            'start',
+            'end',
+            'strand',
+            'type',
+            'id',
+            'leftHit',
+            'rightHit',
+            'seq',
+            'evalue',
+        ],
+    )
 
+    @staticmethod
+    def _make_element_seq(seq_str, element_id):
+        """Build a SeqRecord for a mock element."""
         from Bio import Seq
         from Bio.SeqRecord import SeqRecord
 
-        gffTup = namedtuple(
-            'gffTup',
-            [
-                'model',
-                'chromosome',
-                'start',
-                'end',
-                'strand',
-                'type',
-                'id',
-                'leftHit',
-                'rightHit',
-                'seq',
-                'evalue',
-            ],
-        )
+        rec = SeqRecord(Seq.Seq(seq_str))
+        rec.id = element_id
+        rec.name = element_id
+        rec.description = 'test'
+        return rec
 
-        # Create mock element records
-        seq1 = SeqRecord(Seq.Seq('ATCG' * 25))
-        seq1.id = 'Element_1'
-        seq1.name = 'Element_1'
-        seq1.description = 'test'
+    def test_element_filename_includes_count(self):
+        """Element FASTA filename should include the count of elements."""
+        seq1 = self._make_element_seq('ATCG' * 25, 'Element_1')
+        seq2 = self._make_element_seq('GCTA' * 25, 'Element_2')
 
-        seq2 = SeqRecord(Seq.Seq('GCTA' * 25))
-        seq2.id = 'Element_2'
-        seq2.name = 'Element_2'
-        seq2.description = 'test'
-
-        ele1 = gffTup('TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA')
-        ele2 = gffTup('TIR', 'chr1', 300, 400, '+', 'Element', 'E2', None, None, seq2, 'NA')
+        ele1 = self._gffTup('TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA')
+        ele2 = self._gffTup('TIR', 'chr1', 300, 400, '+', 'Element', 'E2', None, None, seq2, 'NA')
 
         eleDict = {'TIR': [ele1, ele2]}
 
@@ -930,34 +929,9 @@ class TestWriteElements:
 
     def test_element_filename_with_prefix_includes_count(self):
         """Element FASTA filename with prefix should include the count."""
-        from collections import namedtuple
+        seq1 = self._make_element_seq('ATCG' * 25, 'Element_1')
 
-        from Bio import Seq
-        from Bio.SeqRecord import SeqRecord
-
-        gffTup = namedtuple(
-            'gffTup',
-            [
-                'model',
-                'chromosome',
-                'start',
-                'end',
-                'strand',
-                'type',
-                'id',
-                'leftHit',
-                'rightHit',
-                'seq',
-                'evalue',
-            ],
-        )
-
-        seq1 = SeqRecord(Seq.Seq('ATCG' * 25))
-        seq1.id = 'Element_1'
-        seq1.name = 'Element_1'
-        seq1.description = 'test'
-
-        ele1 = gffTup('TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA')
+        ele1 = self._gffTup('TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA')
 
         eleDict = {'TIR': [ele1]}
 

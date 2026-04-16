@@ -1974,6 +1974,109 @@ def compute_flank_coordinates(
     return flank_start, flank_end, offset
 
 
+def compute_inner_tsd_coordinates(
+    hit_start: int,
+    hit_end: int,
+    strand: str,
+    is_left_terminus: bool,
+    hmm_start: int,
+    hmm_end: int,
+    model_len: int,
+    tsd_length: int,
+) -> Tuple[int, int]:
+    """
+    Compute genomic coordinates of the TSD at the inner boundary of a terminus hit.
+
+    The "inner boundary" of a terminus hit is the side that faces the element body.
+    For a left terminus this is the RIGHT (higher coordinate) end; for a right
+    terminus it is the LEFT (lower coordinate) end.  When the TSD is modelled as
+    part of the terminus HMM it occupies the innermost ``tsd_length`` model
+    positions of the terminus model.
+
+    Parameters
+    ----------
+    hit_start : int
+        1-based start coordinate of the hit (always ≤ hit_end).
+    hit_end : int
+        1-based end coordinate of the hit (always ≥ hit_start).
+    strand : str
+        Strand of the hit: '+' or '-'.
+    is_left_terminus : bool
+        True if the hit is the left (5') terminus of the element.
+    hmm_start : int
+        1-based alignment start on the HMM model.
+        For + strand hits this aligns with ``hit_start``; for - strand
+        hits it aligns with ``hit_end``.
+    hmm_end : int
+        1-based alignment end on the HMM model.
+        For + strand hits this aligns with ``hit_end``; for - strand
+        hits it aligns with ``hit_start``.
+    model_len : int
+        Total number of positions in the HMM model.
+    tsd_length : int
+        Number of bases in the TSD feature.
+
+    Returns
+    -------
+    tsd_start : int
+        1-based genomic start coordinate of the TSD (always ≤ tsd_end).
+    tsd_end : int
+        1-based genomic end coordinate of the TSD.
+
+    Notes
+    -----
+    Coordinate conventions (same as :func:`compute_flank_coordinates`):
+
+    For + strand hits, model positions increase in the same direction as
+    genomic coordinates (hmmStart aligns to hit_start).
+
+    For - strand hits, model positions increase in the *opposite* direction
+    (hmmStart aligns to hit_end; hmmEnd aligns to hit_start).
+
+    Left terminus inner boundary
+        - ``+`` strand: model position ``model_len`` is at the RIGHT (higher)
+          end of the hit.  ``inner_pos = hit_end + (model_len - hmm_end)``.
+          TSD occupies ``[inner_pos - tsd_length + 1, inner_pos]``.
+        - ``-`` strand: model position 1 is at the RIGHT (higher) end of the
+          hit.  ``inner_pos = hit_end + (hmm_start - 1)``.
+          TSD occupies ``[inner_pos - tsd_length + 1, inner_pos]``.
+
+    Right terminus inner boundary
+        - ``+`` strand: model position 1 is at the LEFT (lower) end of the
+          hit.  ``inner_pos = hit_start - (hmm_start - 1)``.
+          TSD occupies ``[inner_pos, inner_pos + tsd_length - 1]``.
+        - ``-`` strand: model position ``model_len`` is at the LEFT (lower)
+          end of the hit.  ``inner_pos = hit_start - (model_len - hmm_end)``.
+          TSD occupies ``[inner_pos, inner_pos + tsd_length - 1]``.
+    """
+    if is_left_terminus:
+        # Inner end faces RIGHT (higher genomic coords)
+        if strand == '+':
+            # Model pos model_len aligns to right of hit
+            inner_pos = hit_end + (model_len - hmm_end)
+            tsd_start = inner_pos - tsd_length + 1
+            tsd_end = inner_pos
+        else:  # '-'
+            # Model pos 1 (hmmStart) aligns to hit_end (rightmost genomic coord)
+            inner_pos = hit_end + (hmm_start - 1)
+            tsd_start = inner_pos - tsd_length + 1
+            tsd_end = inner_pos
+    else:
+        # Right terminus: inner end faces LEFT (lower genomic coords)
+        if strand == '+':
+            # Model pos 1 (hmmStart) aligns to hit_start (leftmost genomic coord)
+            inner_pos = hit_start - (hmm_start - 1)
+            tsd_start = inner_pos
+            tsd_end = inner_pos + tsd_length - 1
+        else:  # '-'
+            # Model pos model_len aligns to hit_start (leftmost genomic coord)
+            inner_pos = hit_start - (model_len - hmm_end)
+            tsd_start = inner_pos
+            tsd_end = inner_pos + tsd_length - 1
+
+    return tsd_start, tsd_end
+
+
 def _determine_terminus_type(hit: Any, config: Any) -> Optional[str]:
     """
     Determine whether a hit is a left or right terminus based on pairing config.
@@ -2497,6 +2600,23 @@ def reconstruct_target_site(
     When a TSD (Target Site Duplication) is present, it is de-duplicated
     so only one copy appears in the reconstructed target site.
 
+    This function handles the ``tsd_in_model=False`` case, where the TSD
+    is encoded as the innermost ``tsd_length`` bases of the flanking
+    sequences (last ``tsd_length`` bases of the left flank and first
+    ``tsd_length`` bases of the right flank).  One copy is trimmed before
+    joining.
+
+    .. note::
+
+       When ``tsd_in_model=True`` the TSD lies *inside* the terminus hit
+       (part of the HMM model), not in the external flanking sequence.
+       :func:`writeTargetSites` handles this case by calling
+       :func:`compute_inner_tsd_coordinates` to extract the TSD from
+       genomic coordinates within the hit before joining the clean flanks.
+       Passing ``tsd_in_model=True`` to this function is therefore a
+       no-op — it is treated identically to ``tsd_in_model=False``, both
+       operating on the boundary of the supplied flank sequences.
+
     Parameters
     ----------
     left_flank_seq : str
@@ -2506,12 +2626,12 @@ def reconstruct_target_site(
     tsd_length : int, default 0
         Length of the terminal duplication feature.
     tsd_in_model : bool, default False
-        If True, the TSD is part of the termini model and appears at the
-        edges of the hit (last ``tsd_length`` bases of the left flank's
-        terminus end and the first ``tsd_length`` bases of the right
-        flank's terminus end). If False, the TSD occurs as the first
-        ``tsd_length`` bases of the flanking region immediately adjacent
-        to the terminus hits.
+        Retained for API compatibility.  Has no effect on the output
+        because this function always treats the innermost bases of the
+        flanks as the TSD.  When the TSD is inside the model, the correct
+        approach is to use :func:`writeTargetSites` which extracts the TSD
+        from the hit genomic coordinates via
+        :func:`compute_inner_tsd_coordinates`.
 
     Returns
     -------
@@ -2529,15 +2649,12 @@ def reconstruct_target_site(
 
     Notes
     -----
-    When ``tsd_in_model`` is True:
-        The TSD is located at the inner boundary of each flank (tail of
-        left flank, head of right flank). These are trimmed from one side
-        before joining.
+    TSD is at the inner boundary of each flank:
+        - ``left_tsd``  = last ``tsd_length`` bases of ``left_flank_seq``
+        - ``right_tsd`` = first ``tsd_length`` bases of ``right_flank_seq``
 
-    When ``tsd_in_model`` is False:
-        The TSD is the first ``tsd_length`` bases of the flanking region
-        next to the terminus. For the left flank, it's at the right end;
-        for the right flank, it's at the left end. One copy is trimmed.
+    One copy (the right TSD) is trimmed before joining, yielding:
+        ``target_site = left_flank_seq + right_flank_seq[tsd_length:]``
     """
     left_tsd = ''
     right_tsd = ''
@@ -2801,6 +2918,75 @@ def writeTargetSites(
         return tsd_length
 
     # ------------------------------------------------------------------
+    # Helper: extract TSD sequence from the inner boundary of a terminus hit
+    # Used when tsd_in_model=True (TSD is part of the termini model, not in flank)
+    # ------------------------------------------------------------------
+    def extract_inner_tsd(hit: Any, is_left: bool, tsd_len: int) -> Optional[str]:
+        """
+        Extract the TSD sequence from the inner (element-facing) boundary of a hit.
+
+        When ``tsd_in_model=True`` the TSD is encoded at the element-facing end
+        of the terminus HMM and therefore lies *within* the hit coordinates
+        rather than in the external flanking sequence.  This helper computes the
+        genomic coordinates of the TSD and extracts the bases from the genome or
+        BLAST database.
+
+        Parameters
+        ----------
+        hit : namedtuple
+            Hit record (model, target, hitStart, hitEnd, strand, idx).
+        is_left : bool
+            True if the hit is the left (upstream) terminus of the element.
+        tsd_len : int
+            Length of the TSD to extract.
+
+        Returns
+        -------
+        str or None
+            The TSD sequence (always on the forward/+ strand), or None if
+            the coordinates cannot be determined or the sequence cannot be
+            extracted.
+        """
+        model = hit.model
+        model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
+        if model_len is None:
+            logging.warning(f'Model length not found for {model}, skipping TSD extraction')
+            return None
+
+        hmm_start, hmm_end = get_hmm_coords(hit.idx)
+        if hmm_start is None or hmm_end is None:
+            logging.debug(f'HMM coordinates unavailable for hit {hit.idx}, skipping TSD')
+            return None
+
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=int(hit.hitStart),
+            hit_end=int(hit.hitEnd),
+            strand=hit.strand,
+            is_left_terminus=is_left,
+            hmm_start=hmm_start,
+            hmm_end=hmm_end,
+            model_len=model_len,
+            tsd_length=tsd_len,
+        )
+
+        if tsd_start < 1 or tsd_end < tsd_start:
+            logging.debug(
+                f'Invalid TSD coordinates for hit {hit.idx}: {tsd_start}-{tsd_end}'
+            )
+            return None
+
+        if blastdb:
+            return extract_from_blastdb(blastdb, hit.target, tsd_start, tsd_end, '+')
+        else:
+            chrom = genome[hit.target]
+            chrom_len = len(chrom)
+            tsd_start = max(1, tsd_start)
+            tsd_end = min(tsd_end, chrom_len)
+            if tsd_start > tsd_end:
+                return None
+            return str(chrom[tsd_start - 1 : tsd_end])
+
+    # ------------------------------------------------------------------
     # Process paired hits
     # ------------------------------------------------------------------
     for model in paired.keys():
@@ -2825,12 +3011,35 @@ def writeTargetSites(
 
             pair_tsd_len = get_tsd_length_for_pair(leftHit.model, rightHit.model)
 
-            target_site, left_tsd, right_tsd, tsd_hamming = reconstruct_target_site(
-                left_flank_seq=left_seq,
-                right_flank_seq=right_seq,
-                tsd_length=pair_tsd_len,
-                tsd_in_model=tsd_in_model,
-            )
+            if tsd_in_model and pair_tsd_len > 0:
+                # TSD is inside the terminus model – extract from the inner boundary
+                # of each hit, not from the external flank.
+                # Reconstruction: left_flank + TSD + right_flank
+                left_tsd = extract_inner_tsd(leftHit, is_left=True, tsd_len=pair_tsd_len) or ''
+                right_tsd = extract_inner_tsd(rightHit, is_left=False, tsd_len=pair_tsd_len) or ''
+
+                # Use left TSD (arbitrarily) to fill the gap; warn if mismatched
+                tsd_seq = left_tsd if left_tsd else right_tsd
+                target_site = left_seq + tsd_seq + right_seq
+
+                if left_tsd and right_tsd and len(left_tsd) == len(right_tsd):
+                    tsd_hamming = hamming_distance(left_tsd.upper(), right_tsd.upper())
+                    if tsd_hamming > 0:
+                        logging.warning(
+                            f'TSD mismatch for pair {pair_id} '
+                            f'(hamming={tsd_hamming}): left={left_tsd} right={right_tsd}'
+                        )
+                else:
+                    tsd_hamming = 0
+            else:
+                # TSD is outside the model – it is the innermost n bases of each flank.
+                # reconstruct_target_site() trims one copy and joins.
+                target_site, left_tsd, right_tsd, tsd_hamming = reconstruct_target_site(
+                    left_flank_seq=left_seq,
+                    right_flank_seq=right_seq,
+                    tsd_length=pair_tsd_len,
+                    tsd_in_model=False,
+                )
 
             # Build metadata for FASTA header
             meta_parts = [

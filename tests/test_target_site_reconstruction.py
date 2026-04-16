@@ -19,6 +19,8 @@ import pytest
 
 from tirmite.tirmitetools import (
     PairingConfig,
+    compute_flank_coordinates,
+    compute_inner_tsd_coordinates,
     format_interleaved_flanks,
     hamming_distance,
     load_tsd_length_map,
@@ -53,6 +55,173 @@ class TestHammingDistance:
     def test_case_sensitive(self):
         # Upper vs lower should be different
         assert hamming_distance('atcg', 'ATCG') == 4
+
+
+# ---------------------------------------------------------------------------
+# compute_inner_tsd_coordinates tests
+# ---------------------------------------------------------------------------
+
+
+class TestComputeInnerTsdCoordinates:
+    """Tests for compute_inner_tsd_coordinates function.
+
+    Verifies that the inner-boundary TSD coordinates are correctly computed
+    for all four strand × terminus-type combinations.
+
+    Coordinate convention (same as compute_flank_coordinates):
+      +strand: hmmStart aligns to hit_start; hmmEnd aligns to hit_end.
+      -strand: hmmStart aligns to hit_end;  hmmEnd aligns to hit_start.
+    """
+
+    # ---- Left terminus, + strand ----------------------------------------
+    def test_left_plus_full_model_coverage(self):
+        """Left terminus + strand, full model coverage (hmm_start=1, hmm_end=model_len)."""
+        # hit: 100-150, model_len=50, tsd_length=5
+        # inner_pos = hit_end + (model_len - hmm_end) = 150 + (50-50) = 150
+        # TSD: [146, 150]
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=100, hit_end=150, strand='+',
+            is_left_terminus=True,
+            hmm_start=1, hmm_end=50, model_len=50, tsd_length=5,
+        )
+        assert tsd_start == 146
+        assert tsd_end == 150
+
+    def test_left_plus_inner_offset(self):
+        """Left terminus + strand, inner offset of 3 (hmm_end = model_len - 3)."""
+        # hit: 100-147, model_len=50, hmm_end=47, tsd_length=5
+        # inner_pos = 147 + (50-47) = 150
+        # TSD: [146, 150]
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=100, hit_end=147, strand='+',
+            is_left_terminus=True,
+            hmm_start=1, hmm_end=47, model_len=50, tsd_length=5,
+        )
+        assert tsd_start == 146
+        assert tsd_end == 150
+
+    # ---- Left terminus, - strand ----------------------------------------
+    def test_left_minus_full_model_coverage(self):
+        """Left terminus - strand, full model coverage.
+
+        For -strand hits: hmmStart(1) aligns to hit_end (higher coord).
+        inner_pos = hit_end + (hmm_start - 1) = 150 + 0 = 150.
+        TSD occupies the last tsd_length positions from inner_pos: [146, 150].
+        """
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=100, hit_end=150, strand='-',
+            is_left_terminus=True,
+            hmm_start=1, hmm_end=50, model_len=50, tsd_length=5,
+        )
+        assert tsd_start == 146
+        assert tsd_end == 150
+
+    def test_left_minus_outer_offset(self):
+        """Left terminus - strand, outer offset of 2 (hmm_start=3 means 2 positions missing at outer edge)."""
+        # For -strand: hmmStart(3) aligns to hit_end(150)
+        # inner_pos = 150 + (3 - 1) = 152
+        # TSD: [148, 152]
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=100, hit_end=150, strand='-',
+            is_left_terminus=True,
+            hmm_start=3, hmm_end=50, model_len=50, tsd_length=5,
+        )
+        assert tsd_start == 148
+        assert tsd_end == 152
+
+    # ---- Right terminus, + strand ---------------------------------------
+    def test_right_plus_full_model_coverage(self):
+        """Right terminus + strand, full model coverage.
+
+        inner_pos = hit_start - (hmm_start - 1) = 200 - 0 = 200.
+        TSD: [200, 204].
+        """
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=200, hit_end=250, strand='+',
+            is_left_terminus=False,
+            hmm_start=1, hmm_end=50, model_len=50, tsd_length=5,
+        )
+        assert tsd_start == 200
+        assert tsd_end == 204
+
+    def test_right_plus_inner_offset(self):
+        """Right terminus + strand, inner offset of 3 (hmm_start=4 means 3 positions before alignment)."""
+        # inner_pos = hit_start - (hmm_start - 1) = 200 - 3 = 197
+        # TSD: [197, 201]
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=200, hit_end=250, strand='+',
+            is_left_terminus=False,
+            hmm_start=4, hmm_end=50, model_len=50, tsd_length=5,
+        )
+        assert tsd_start == 197
+        assert tsd_end == 201
+
+    # ---- Right terminus, - strand ---------------------------------------
+    def test_right_minus_full_model_coverage(self):
+        """Right terminus - strand, full model coverage.
+
+        For -strand: hmmStart(1) aligns to hit_end(250), hmmEnd(50) aligns to hit_start(200).
+        inner_pos = hit_start - (model_len - hmm_end) = 200 - 0 = 200.
+        TSD: [200, 204].
+        """
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=200, hit_end=250, strand='-',
+            is_left_terminus=False,
+            hmm_start=1, hmm_end=50, model_len=50, tsd_length=5,
+        )
+        assert tsd_start == 200
+        assert tsd_end == 204
+
+    def test_right_minus_inner_offset(self):
+        """Right terminus - strand with inner offset (hmm_end < model_len on - strand)."""
+        # hmm_end=47 means 3 model positions not covered at inner end
+        # inner_pos = hit_start - (model_len - hmm_end) = 200 - (50-47) = 197
+        # TSD: [197, 201]
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=200, hit_end=250, strand='-',
+            is_left_terminus=False,
+            hmm_start=1, hmm_end=47, model_len=50, tsd_length=5,
+        )
+        assert tsd_start == 197
+        assert tsd_end == 201
+
+    def test_tsd_length_one(self):
+        """Single-base TSD."""
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=100, hit_end=150, strand='+',
+            is_left_terminus=True,
+            hmm_start=1, hmm_end=50, model_len=50, tsd_length=1,
+        )
+        assert tsd_start == 150
+        assert tsd_end == 150
+
+    def test_inner_outer_complementary_with_flank(self):
+        """Inner TSD start should be adjacent to (or touching) the inner end of the hit.
+
+        For left terminus + strand, full coverage:
+          compute_flank_coordinates gives flank just LEFT of the OUTER boundary.
+          compute_inner_tsd_coordinates gives TSD at the INNER boundary (right end).
+          These should be at opposite ends of the hit region.
+        """
+        hit_start, hit_end = 100, 150
+        hmm_start, hmm_end, model_len = 1, 50, 50
+
+        flank_start, flank_end, offset = compute_flank_coordinates(
+            hit_start=hit_start, hit_end=hit_end, strand='+',
+            is_left_terminus=True,
+            hmm_start=hmm_start, hmm_end=hmm_end,
+            model_len=model_len, flank_len=10,
+        )
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=hit_start, hit_end=hit_end, strand='+',
+            is_left_terminus=True,
+            hmm_start=hmm_start, hmm_end=hmm_end,
+            model_len=model_len, tsd_length=5,
+        )
+        # Outer flank ends just left of outer boundary (hit_start=100)
+        assert flank_end == hit_start - 1  # 99
+        # Inner TSD ends at the inner boundary (hit_end=150)
+        assert tsd_end == hit_end  # 150
 
 
 # ---------------------------------------------------------------------------

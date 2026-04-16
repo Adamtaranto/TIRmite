@@ -1563,7 +1563,7 @@ def writeElements(
     Notes
     -----
     Only creates files for models that have at least one element.
-    Output filename format: {prefix}{model}_elements.fasta
+    Output filename format: {prefix}{model}_elements_{count}.fasta
     """
     assert eleDict is not None, 'eleDict cannot be None'
     if prefix:
@@ -1573,7 +1573,11 @@ def writeElements(
 
     for model in eleDict.keys():
         if len(eleDict[model]) > 0:  # Only write files for models with actual elements
-            outfile = os.path.join(outDir, prefix + model + '_elements.fasta')
+            count = len(eleDict[model])
+            outfile = os.path.join(
+                outDir,
+                prefix + model + '_elements_' + str(count) + '.fasta',
+            )
             with open(outfile, 'w') as handle:
                 for element in eleDict[model]:
                     element.seq.id = prefix + str(element.seq.id)
@@ -2263,6 +2267,20 @@ def writeFlanks(
     # ------------------------------------------------------------------
     paired_hit_ids: Set[int] = set()
 
+    # Separate accumulators for paired-only flanks (with element IDs)
+    paired_left_flanks: Dict[str, List[Any]] = {}
+    paired_right_flanks: Dict[str, List[Any]] = {}
+
+    def _make_paired_flank_record(
+        source_rec: SeqRecord, element_id: str, pair_id: str, suffix: str
+    ) -> SeqRecord:
+        """Create a paired-only flank record with element ID in the header."""
+        rec = SeqRecord(source_rec.seq)
+        rec.id = f'{element_id}_{pair_id}_{suffix}'
+        rec.name = rec.id
+        rec.description = source_rec.description
+        return rec
+
     for model in paired.keys():
         model_counter = 0
         for pair in paired[model]:
@@ -2273,14 +2291,21 @@ def writeFlanks(
             y = get_hit_record(y_id)
             leftHit, rightHit = flipTIRs(x, y)
             pair_id = f'{model}_{model_counter}'
+            element_id = f'Element_{model_counter}'
 
             left_rec = build_flank_record(leftHit, is_left=True, record_id=pair_id)
             right_rec = build_flank_record(rightHit, is_left=False, record_id=pair_id)
 
             if left_rec:
                 left_flanks.setdefault(leftHit.model, []).append(left_rec)
+                paired_left_flanks.setdefault(leftHit.model, []).append(
+                    _make_paired_flank_record(left_rec, element_id, pair_id, 'L')
+                )
             if right_rec:
                 right_flanks.setdefault(rightHit.model, []).append(right_rec)
+                paired_right_flanks.setdefault(rightHit.model, []).append(
+                    _make_paired_flank_record(right_rec, element_id, pair_id, 'R')
+                )
 
             paired_hit_ids.add(leftHit.idx)
             paired_hit_ids.add(rightHit.idx)
@@ -2312,7 +2337,7 @@ def writeFlanks(
                         right_flanks.setdefault(hit.model, []).append(rec)
 
     # ------------------------------------------------------------------
-    # Write output files
+    # Write output files (all flanks)
     # ------------------------------------------------------------------
     for model, flanks in left_flanks.items():
         if flanks:
@@ -2328,6 +2353,31 @@ def writeFlanks(
         if flanks:
             outfile = os.path.join(
                 outDir, prefix + model + '_right_flank_' + str(len(flanks)) + '.fasta'
+            )
+            with open(outfile, 'w') as handle:
+                for seq in flanks:
+                    seq.id = prefix + str(seq.id)
+                    SeqIO.write(seq, handle, 'fasta')
+
+    # ------------------------------------------------------------------
+    # Write paired-only flank files (with element IDs in headers)
+    # ------------------------------------------------------------------
+    for model, flanks in paired_left_flanks.items():
+        if flanks:
+            outfile = os.path.join(
+                outDir,
+                prefix + model + '_paired_left_flank_' + str(len(flanks)) + '.fasta',
+            )
+            with open(outfile, 'w') as handle:
+                for seq in flanks:
+                    seq.id = prefix + str(seq.id)
+                    SeqIO.write(seq, handle, 'fasta')
+
+    for model, flanks in paired_right_flanks.items():
+        if flanks:
+            outfile = os.path.join(
+                outDir,
+                prefix + model + '_paired_right_flank_' + str(len(flanks)) + '.fasta',
             )
             with open(outfile, 'w') as handle:
                 for seq in flanks:

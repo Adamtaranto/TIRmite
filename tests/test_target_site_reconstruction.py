@@ -80,9 +80,14 @@ class TestComputeInnerTsdCoordinates:
         # inner_pos = hit_end + (model_len - hmm_end) = 150 + (50-50) = 150
         # TSD: [146, 150]
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=100, hit_end=150, strand='+',
+            hit_start=100,
+            hit_end=150,
+            strand='+',
             is_left_terminus=True,
-            hmm_start=1, hmm_end=50, model_len=50, tsd_length=5,
+            hmm_start=1,
+            hmm_end=50,
+            model_len=50,
+            tsd_length=5,
         )
         assert tsd_start == 146
         assert tsd_end == 150
@@ -93,9 +98,14 @@ class TestComputeInnerTsdCoordinates:
         # inner_pos = 147 + (50-47) = 150
         # TSD: [146, 150]
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=100, hit_end=147, strand='+',
+            hit_start=100,
+            hit_end=147,
+            strand='+',
             is_left_terminus=True,
-            hmm_start=1, hmm_end=47, model_len=50, tsd_length=5,
+            hmm_start=1,
+            hmm_end=47,
+            model_len=50,
+            tsd_length=5,
         )
         assert tsd_start == 146
         assert tsd_end == 150
@@ -109,9 +119,14 @@ class TestComputeInnerTsdCoordinates:
         TSD occupies the last tsd_length positions from inner_pos: [146, 150].
         """
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=100, hit_end=150, strand='-',
+            hit_start=100,
+            hit_end=150,
+            strand='-',
             is_left_terminus=True,
-            hmm_start=1, hmm_end=50, model_len=50, tsd_length=5,
+            hmm_start=1,
+            hmm_end=50,
+            model_len=50,
+            tsd_length=5,
         )
         assert tsd_start == 146
         assert tsd_end == 150
@@ -122,9 +137,14 @@ class TestComputeInnerTsdCoordinates:
         # inner_pos = 150 + (3 - 1) = 152
         # TSD: [148, 152]
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=100, hit_end=150, strand='-',
+            hit_start=100,
+            hit_end=150,
+            strand='-',
             is_left_terminus=True,
-            hmm_start=3, hmm_end=50, model_len=50, tsd_length=5,
+            hmm_start=3,
+            hmm_end=50,
+            model_len=50,
+            tsd_length=5,
         )
         assert tsd_start == 148
         assert tsd_end == 152
@@ -137,9 +157,14 @@ class TestComputeInnerTsdCoordinates:
         TSD: [200, 204].
         """
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=200, hit_end=250, strand='+',
+            hit_start=200,
+            hit_end=250,
+            strand='+',
             is_left_terminus=False,
-            hmm_start=1, hmm_end=50, model_len=50, tsd_length=5,
+            hmm_start=1,
+            hmm_end=50,
+            model_len=50,
+            tsd_length=5,
         )
         assert tsd_start == 200
         assert tsd_end == 204
@@ -149,9 +174,14 @@ class TestComputeInnerTsdCoordinates:
         # inner_pos = hit_start - (hmm_start - 1) = 200 - 3 = 197
         # TSD: [197, 201]
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=200, hit_end=250, strand='+',
+            hit_start=200,
+            hit_end=250,
+            strand='+',
             is_left_terminus=False,
-            hmm_start=4, hmm_end=50, model_len=50, tsd_length=5,
+            hmm_start=4,
+            hmm_end=50,
+            model_len=50,
+            tsd_length=5,
         )
         assert tsd_start == 197
         assert tsd_end == 201
@@ -165,9 +195,14 @@ class TestComputeInnerTsdCoordinates:
         TSD: [200, 204].
         """
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=200, hit_end=250, strand='-',
+            hit_start=200,
+            hit_end=250,
+            strand='-',
             is_left_terminus=False,
-            hmm_start=1, hmm_end=50, model_len=50, tsd_length=5,
+            hmm_start=1,
+            hmm_end=50,
+            model_len=50,
+            tsd_length=5,
         )
         assert tsd_start == 200
         assert tsd_end == 204
@@ -178,9 +213,14 @@ class TestComputeInnerTsdCoordinates:
         # inner_pos = hit_start - (model_len - hmm_end) = 200 - (50-47) = 197
         # TSD: [197, 201]
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=200, hit_end=250, strand='-',
+            hit_start=200,
+            hit_end=250,
+            strand='-',
             is_left_terminus=False,
-            hmm_start=1, hmm_end=47, model_len=50, tsd_length=5,
+            hmm_start=1,
+            hmm_end=47,
+            model_len=50,
+            tsd_length=5,
         )
         assert tsd_start == 197
         assert tsd_end == 201
@@ -188,9 +228,14 @@ class TestComputeInnerTsdCoordinates:
     def test_tsd_length_one(self):
         """Single-base TSD."""
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=100, hit_end=150, strand='+',
+            hit_start=100,
+            hit_end=150,
+            strand='+',
             is_left_terminus=True,
-            hmm_start=1, hmm_end=50, model_len=50, tsd_length=1,
+            hmm_start=1,
+            hmm_end=50,
+            model_len=50,
+            tsd_length=1,
         )
         assert tsd_start == 150
         assert tsd_end == 150
@@ -207,16 +252,24 @@ class TestComputeInnerTsdCoordinates:
         hmm_start, hmm_end, model_len = 1, 50, 50
 
         flank_start, flank_end, offset = compute_flank_coordinates(
-            hit_start=hit_start, hit_end=hit_end, strand='+',
+            hit_start=hit_start,
+            hit_end=hit_end,
+            strand='+',
             is_left_terminus=True,
-            hmm_start=hmm_start, hmm_end=hmm_end,
-            model_len=model_len, flank_len=10,
+            hmm_start=hmm_start,
+            hmm_end=hmm_end,
+            model_len=model_len,
+            flank_len=10,
         )
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
-            hit_start=hit_start, hit_end=hit_end, strand='+',
+            hit_start=hit_start,
+            hit_end=hit_end,
+            strand='+',
             is_left_terminus=True,
-            hmm_start=hmm_start, hmm_end=hmm_end,
-            model_len=model_len, tsd_length=5,
+            hmm_start=hmm_start,
+            hmm_end=hmm_end,
+            model_len=model_len,
+            tsd_length=5,
         )
         # Outer flank ends just left of outer boundary (hit_start=100)
         assert flank_end == hit_start - 1  # 99

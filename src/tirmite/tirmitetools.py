@@ -2950,12 +2950,16 @@ def writeTargetSites(
         model = hit.model
         model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
         if model_len is None:
-            logging.warning(f'Model length not found for {model}, skipping TSD extraction')
+            logging.warning(
+                f'Model length not found for {model}, skipping TSD extraction'
+            )
             return None
 
         hmm_start, hmm_end = get_hmm_coords(hit.idx)
         if hmm_start is None or hmm_end is None:
-            logging.debug(f'HMM coordinates unavailable for hit {hit.idx}, skipping TSD')
+            logging.debug(
+                f'HMM coordinates unavailable for hit {hit.idx}, skipping TSD'
+            )
             return None
 
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
@@ -3015,8 +3019,13 @@ def writeTargetSites(
                 # TSD is inside the terminus model – extract from the inner boundary
                 # of each hit, not from the external flank.
                 # Reconstruction: left_flank + TSD + right_flank
-                left_tsd = extract_inner_tsd(leftHit, is_left=True, tsd_len=pair_tsd_len) or ''
-                right_tsd = extract_inner_tsd(rightHit, is_left=False, tsd_len=pair_tsd_len) or ''
+                left_tsd = (
+                    extract_inner_tsd(leftHit, is_left=True, tsd_len=pair_tsd_len) or ''
+                )
+                right_tsd = (
+                    extract_inner_tsd(rightHit, is_left=False, tsd_len=pair_tsd_len)
+                    or ''
+                )
 
                 # Use left TSD (arbitrarily) to fill the gap; warn if mismatched
                 tsd_seq = left_tsd if left_tsd else right_tsd

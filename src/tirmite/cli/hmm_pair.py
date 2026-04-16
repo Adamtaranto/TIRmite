@@ -17,7 +17,7 @@ import logging
 import os
 from pathlib import Path
 import sys
-from typing import Any, Dict, List, Optional, Set, cast
+from typing import Any, Dict, List, Optional, cast
 
 import pandas as pd  # type: ignore[import-untyped]
 

@@ -1066,73 +1066,81 @@ def extractTIRs_blastdb(
     hitcount = 0
     seqList = []
 
-    for index, row in hitTable[hitTable['model'] == model].iterrows():
-        if float(row['evalue']) <= maxeval:
-            hitcount += 1
+    eligible_hits = hitTable[
+        (hitTable['model'] == model) & (hitTable['evalue'].astype(float) <= maxeval)
+    ]
+    total_eligible = len(eligible_hits)
+    logging.info(f'Extracting {total_eligible} hits for model "{model}" from BLAST database...')
+    _log_step = max(1, min(100, total_eligible // 10)) if total_eligible > 0 else 1
 
-            # blastdbcmd uses 1-based coordinates
-            start = int(row['hitStart'])
-            end = int(row['hitEnd'])
+    for index, row in eligible_hits.iterrows():
+        hitcount += 1
+        if hitcount % _log_step == 0 or hitcount == total_eligible:
+            logging.info(f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"')
 
-            # Extract sequence (possibly with padding)
-            if padlen:
-                # Extract with padding
-                pad_start = max(1, start - padlen)
-                pad_end = end + padlen
+        # blastdbcmd uses 1-based coordinates
+        start = int(row['hitStart'])
+        end = int(row['hitEnd'])
 
-                # Extract the full padded region
-                full_seq = extract_from_blastdb(
-                    blastdb, row['target'], pad_start, pad_end, row['strand']
-                )
+        # Extract sequence (possibly with padding)
+        if padlen:
+            # Extract with padding
+            pad_start = max(1, start - padlen)
+            pad_end = end + padlen
 
-                if full_seq is None:
-                    logging.warning(
-                        f'Failed to extract sequence for {model}_{index}, skipping'
-                    )
-                    continue
-
-                # Calculate positions within extracted sequence to apply case formatting
-                # blastdbcmd uses 1-based inclusive coordinates
-                # Convert to 0-based for Python string slicing
-                hit_start_in_seq = start - pad_start
-                hit_end_in_seq = (
-                    end - pad_start + 1
-                )  # +1 for inclusive end in blastdbcmd
-
-                # Convert to lowercase/uppercase
-                hit_seq_str = (
-                    full_seq[:hit_start_in_seq].lower()
-                    + full_seq[hit_start_in_seq:hit_end_in_seq]
-                    + full_seq[hit_end_in_seq:].lower()
-                )
-            else:
-                # Extract without padding
-                hit_seq_str = extract_from_blastdb(
-                    blastdb, row['target'], start, end, row['strand']
-                )
-
-                if hit_seq_str is None:
-                    logging.warning(
-                        f'Failed to extract sequence for {model}_{index}, skipping'
-                    )
-                    continue
-
-            # Create SeqRecord
-            hitrecord = SeqRecord(Seq.Seq(hit_seq_str))
-            hitrecord.id = model + '_' + str(index)
-            hitrecord.name = hitrecord.id
-
-            # Build description
-            hitrecord.description = '_'.join(
-                [
-                    '[' + str(row['target']) + ':' + str(row['strand']),
-                    str(row['hitStart']),
-                    str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
-                    str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
-                ]
+            # Extract the full padded region
+            full_seq = extract_from_blastdb(
+                blastdb, row['target'], pad_start, pad_end, row['strand']
             )
 
-            seqList.append(hitrecord)
+            if full_seq is None:
+                logging.warning(
+                    f'Failed to extract sequence for {model}_{index}, skipping'
+                )
+                continue
+
+            # Calculate positions within extracted sequence to apply case formatting
+            # blastdbcmd uses 1-based inclusive coordinates
+            # Convert to 0-based for Python string slicing
+            hit_start_in_seq = start - pad_start
+            hit_end_in_seq = (
+                end - pad_start + 1
+            )  # +1 for inclusive end in blastdbcmd
+
+            # Convert to lowercase/uppercase
+            hit_seq_str = (
+                full_seq[:hit_start_in_seq].lower()
+                + full_seq[hit_start_in_seq:hit_end_in_seq]
+                + full_seq[hit_end_in_seq:].lower()
+            )
+        else:
+            # Extract without padding
+            hit_seq_str = extract_from_blastdb(
+                blastdb, row['target'], start, end, row['strand']
+            )
+
+            if hit_seq_str is None:
+                logging.warning(
+                    f'Failed to extract sequence for {model}_{index}, skipping'
+                )
+                continue
+
+        # Create SeqRecord
+        hitrecord = SeqRecord(Seq.Seq(hit_seq_str))
+        hitrecord.id = model + '_' + str(index)
+        hitrecord.name = hitrecord.id
+
+        # Build description
+        hitrecord.description = '_'.join(
+            [
+                '[' + str(row['target']) + ':' + str(row['strand']),
+                str(row['hitStart']),
+                str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
+                str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
+            ]
+        )
+
+        seqList.append(hitrecord)
 
     return seqList, hitcount
 
@@ -1184,59 +1192,67 @@ def extractTIRs(
     hitcount = 0
     seqList = []
 
-    for index, row in hitTable[hitTable['model'] == model].iterrows():
-        if float(row['evalue']) <= maxeval:
-            hitcount += 1
+    eligible_hits = hitTable[
+        (hitTable['model'] == model) & (hitTable['evalue'].astype(float) <= maxeval)
+    ]
+    total_eligible = len(eligible_hits)
+    logging.info(f'Extracting {total_eligible} hits for model "{model}" from indexed genome...')
+    _log_step = max(1, min(100, total_eligible // 10)) if total_eligible > 0 else 1
 
-            # Extract sequence using pyfaidx (0-based indexing)
-            chrom = genome[row['target']]
-            start = int(row['hitStart']) - 1  # Convert to 0-based
-            end = int(row['hitEnd'])  # End is exclusive in slicing
+    for index, row in eligible_hits.iterrows():
+        hitcount += 1
+        if hitcount % _log_step == 0 or hitcount == total_eligible:
+            logging.info(f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"')
 
-            if padlen:
-                # Extract with padding
-                pad_start = max(0, start - padlen)
-                pad_end = min(len(chrom), end + padlen)
+        # Extract sequence using pyfaidx (0-based indexing)
+        chrom = genome[row['target']]
+        start = int(row['hitStart']) - 1  # Convert to 0-based
+        end = int(row['hitEnd'])  # End is exclusive in slicing
 
-                # Build sequence with padding in lowercase
-                seq_parts = []
-                if start > pad_start:
-                    seq_parts.append(str(chrom[pad_start:start]).lower())
-                seq_parts.append(str(chrom[start:end]))
-                if end < pad_end:
-                    seq_parts.append(str(chrom[end:pad_end]).lower())
+        if padlen:
+            # Extract with padding
+            pad_start = max(0, start - padlen)
+            pad_end = min(len(chrom), end + padlen)
 
-                hit_seq_str = ''.join(seq_parts)
-            else:
-                hit_seq_str = str(chrom[start:end])
+            # Build sequence with padding in lowercase
+            seq_parts = []
+            if start > pad_start:
+                seq_parts.append(str(chrom[pad_start:start]).lower())
+            seq_parts.append(str(chrom[start:end]))
+            if end < pad_end:
+                seq_parts.append(str(chrom[end:pad_end]).lower())
 
-            # Create SeqRecord
-            hitrecord = SeqRecord(Seq.Seq(hit_seq_str))
-            hitrecord.id = model + '_' + str(index)
+            hit_seq_str = ''.join(seq_parts)
+        else:
+            hit_seq_str = str(chrom[start:end])
 
-            if row['strand'] == '-':
-                hitrecord = hitrecord.reverse_complement(id=hitrecord.id + '_rc')
+        # Create SeqRecord
+        hitrecord = SeqRecord(Seq.Seq(hit_seq_str))
+        hitrecord.id = model + '_' + str(index)
 
-            hitrecord.name = hitrecord.id
+        if row['strand'] == '-':
+            hitrecord = hitrecord.reverse_complement(id=hitrecord.id + '_rc')
 
-            # Build description with genome description
-            coord_info = '_'.join(
-                [
-                    '[' + str(row['target']) + ':' + str(row['strand']),
-                    str(row['hitStart']),
-                    str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
-                    str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
-                ]
-            )
+        hitrecord.name = hitrecord.id
 
-            # Add genome description if available
-            if genome_descriptions and row['target'] in genome_descriptions:
-                genome_desc = genome_descriptions[row['target']]
-                hitrecord.description = f'{coord_info} {genome_desc}'
-            else:
-                hitrecord.description = coord_info
+        # Build description with genome description
+        coord_info = '_'.join(
+            [
+                '[' + str(row['target']) + ':' + str(row['strand']),
+                str(row['hitStart']),
+                str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
+                str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
+            ]
+        )
 
-            seqList.append(hitrecord)
+        # Add genome description if available
+        if genome_descriptions and row['target'] in genome_descriptions:
+            genome_desc = genome_descriptions[row['target']]
+            hitrecord.description = f'{coord_info} {genome_desc}'
+        else:
+            hitrecord.description = coord_info
+
+        seqList.append(hitrecord)
 
     return seqList, hitcount
 
@@ -1460,9 +1476,14 @@ def fetchElements(
         if len(paired[model]) > 0:
             TIRelements[model] = []
             model_counter = 0
+            total_pairs = len(paired[model])
+            logging.info(f'Extracting sequences for {total_pairs} paired elements (model "{model}")...')
+            _log_step = max(1, min(100, total_pairs // 10)) if total_pairs > 0 else 1
 
             for pair in paired[model]:
                 model_counter += 1
+                if model_counter % _log_step == 0 or model_counter == total_pairs:
+                    logging.info(f'  Extracted {model_counter}/{total_pairs} elements for model "{model}"')
                 # Convert set to list for indexing
                 hit_ids = list(pair)
                 x_id, y_id = hit_ids[0], hit_ids[1]
@@ -1684,9 +1705,14 @@ def writePairedTIRs(
         if len(paired[model]) > 0:  # Only write files for models with actual pairs
             model_counter = 0
             seqList = []  # Just collect sequences for FASTA output
+            total_pairs = len(paired[model])
+            logging.info(f'Extracting TIR sequences for {total_pairs} pairs (model "{model}")...')
+            _log_step = max(1, min(100, total_pairs // 10)) if total_pairs > 0 else 1
 
             for pair in paired[model]:
                 model_counter += 1
+                if model_counter % _log_step == 0 or model_counter == total_pairs:
+                    logging.info(f'  Extracted {model_counter}/{total_pairs} TIR pairs for model "{model}"')
                 # Convert set to list for indexing
                 hit_ids = list(pair)
                 x_id, y_id = hit_ids[0], hit_ids[1]

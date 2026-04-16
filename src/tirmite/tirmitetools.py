@@ -3812,7 +3812,7 @@ def _check_distance(
 
     # Check for negative distances (invalid pairing)
     if distance < 0:
-        logging.warning(
+        logging.debug(
             f'Negative distance ({distance}) between {ref_hit.model} and {candidate.model} '
             f'on {ref_hit.target}. Ref: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}, '
             f'Candidate: {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'

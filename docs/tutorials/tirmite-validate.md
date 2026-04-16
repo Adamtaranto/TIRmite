@@ -32,7 +32,7 @@ nhmmer --dna --cpu 8 --tblout $NHMMERFILE $HMMFILE $GENOME
 
 ### Step 2: Run `tirmite pair` with target site reconstruction
 
-Use `--flank-len` to extract flanking sequence, and `--tsd-length` to specify the TSD length.  Add `--tsd-in-model` if the TSD is encoded at the inner end of your terminus HMM model.
+Use `--flank-len` to extract flanking sequence and `--insertion-site` to enable target site reconstruction.  Set `--tsd-length` to specify the TSD length and add `--tsd-in-model` if the TSD is encoded at the inner end of your terminus HMM model.
 
 #### Case A: TSD is outside the termini model (TSD is in the flank)
 
@@ -51,6 +51,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --insertion-site \
   --tsd-length 8 \
   --outdir TIR_OUTPUT \
   --gff-out
@@ -73,6 +74,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --insertion-site \
   --tsd-length 8 \
   --tsd-in-model \
   --outdir TIR_OUTPUT \
@@ -100,6 +102,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --insertion-site \
   --tsd-length-map tsd_lengths.tsv \
   --outdir TIR_OUTPUT \
   --gff-out
@@ -107,7 +110,7 @@ tirmite pair \
 
 ### Target site reconstruction output files
 
-When `--tsd-length` (or `--tsd-length-map`) is set alongside `--flank-len`, `tirmite pair` writes two additional FASTA files:
+When `--insertion-site` is set alongside `--flank-len`, `tirmite pair` writes two additional FASTA files:
 
 | File | Contents |
 |------|----------|
@@ -156,7 +159,7 @@ flowchart TD
     B --> D{--flank-len set?}
     D -->|No| E[Done]
     D -->|Yes| F[Extract external flanks\nper terminus hit]
-    F --> G{--tsd-length or\n--tsd-length-map set?}
+    F --> G{--insertion-site\nset?}
     G -->|No| H[Write left/right\nflank FASTA files]
     G -->|Yes| I{--tsd-in-model?}
     I -->|No\nTSD is in flank| J[Extract TSD from\nflank boundary\nHamming report]
@@ -302,6 +305,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --insertion-site \
   --tsd-length 8 \
   --outdir PAIR_OUTPUT \
   --gff-out
@@ -328,8 +332,9 @@ tirmite validate \
 | `--flank-len N` | Extract N bp of external flanking sequence per terminus (required for reconstruction) |
 | `--flank-max-offset N` | Skip flanks for hits where alignment offset from model edge exceeds N bp |
 | `--flank-paired-only` | Only extract flanks for hits that form a valid pair |
-| `--tsd-length N` | Length of TSD/DR feature (bp) for a single model pair |
-| `--tsd-length-map FILE` | Tab-delimited file mapping model pairs to TSD lengths (for multiple models) |
+| `--insertion-site` | Enable insertion site reconstruction and reporting (requires `--flank-len`) |
+| `--tsd-length N` | Length of TSD/DR feature (bp) for a single model pair (requires `--insertion-site`) |
+| `--tsd-length-map FILE` | Tab-delimited file mapping model pairs to TSD lengths (requires `--insertion-site`) |
 | `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |
 
 ### `tirmite validate` options

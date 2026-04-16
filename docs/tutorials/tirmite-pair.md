@@ -1,6 +1,6 @@
 # Using tirmite pair
 
-`tirmite pair` takes precomputed nhmmer or BLAST search results and applies the TIRmite pairing algorithm to identify valid transposon termini pairs. It outputs paired elements, hit sequences, and GFF3 annotations. When `--flank-len` is set, flanking sequences are extracted and, optionally, the original **target site** can be reconstructed.
+`tirmite pair` takes precomputed nhmmer or BLAST search results and applies the TIRmite pairing algorithm to identify valid transposon termini pairs. It outputs paired elements, hit sequences, and GFF3 annotations. When `--flank-len` is set, flanking sequences are extracted. Add `--insertion-site` to enable reconstruction of the original **target site** for each paired element.
 
 ## Overview
 
@@ -20,7 +20,7 @@ flowchart TD
     H --> I{--flank-len\nset?}
     I -->|Yes| J[Extract external flanking\nsequences per terminus]
     I -->|No| K[Done]
-    J --> L{--tsd-length or\n--tsd-length-map set?}
+    J --> L{--insertion-site\nset?}
     L -->|No| K
     L -->|Yes| M{--tsd-in-model?}
     M -->|No\nTSD is in flank| N[Trim TSD from\nflank boundary]
@@ -267,7 +267,7 @@ tirmite pair \
 
 ## Reconstructing Target Sites
 
-When `--flank-len` is set together with `--tsd-length` (or `--tsd-length-map`), TIRmite reconstructs the original **target site** for each paired element. The target site is the genomic sequence that was present at the insertion location before the transposon arrived — a TSD-flanked sequence that appears once in empty sites and duplicated around inserted elements.
+When `--flank-len` is set together with `--insertion-site`, TIRmite reconstructs the original **target site** for each paired element. The target site is the genomic sequence that was present at the insertion location before the transposon arrived — a TSD-flanked sequence that appears once in empty sites and duplicated around inserted elements. Use `--tsd-length` (or `--tsd-length-map`) and optionally `--tsd-in-model` to configure how the TSD is handled during reconstruction.
 
 ### How the reconstruction works
 
@@ -337,6 +337,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --insertion-site \
   --tsd-length-map tsd_lengths.tsv \
   --outdir OUTPUT \
   --gff-out
@@ -523,7 +524,8 @@ tirmite pair \
 | `--flank-len` | Length of external flanking region to extract per terminus (bp) |
 | `--flank-max-offset` | Skip flank extraction for hits where offset from outer model edge exceeds this value |
 | `--flank-paired-only` | Only extract flanks for hits that form a valid pair |
-| `--tsd-length` | TSD/DR length for target site reconstruction (requires `--flank-len`) |
+| `--insertion-site` | Enable insertion site reconstruction and reporting (requires `--flank-len`) |
+| `--tsd-length` | TSD/DR length for target site reconstruction (requires `--insertion-site` and `--flank-len`) |
 | `--tsd-length-map` | Per-model-pair TSD length map (TSV: left_model, right_model, tsd_length) |
 | `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |
 | `--report` | Reporting mode: `all`, `paired`, or `unpaired` |

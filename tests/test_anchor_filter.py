@@ -4,7 +4,6 @@ import pandas as pd
 
 from tirmite.cli.hmm_pair import compute_outer_edge_offset, filter_hits_by_anchor
 
-
 # ---------------------------------------------------------------------------
 # compute_outer_edge_offset tests
 # ---------------------------------------------------------------------------

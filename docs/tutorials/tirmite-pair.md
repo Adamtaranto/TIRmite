@@ -8,12 +8,19 @@
 flowchart TD
     A[nhmmer .tab\nor BLAST .tab] --> B[Load hits]
     B --> C[Filter by e-value\nand model coverage]
-    C --> D{Pairing map\nprovided?}
+    C --> C2{--max-offset\nset?}
+    C2 -->|Yes| C3[Anchor filter:\nremove hits not reaching\nouter model edge]
+    C2 -->|No| D
+    C3 --> D{Pairing map\nprovided?}
     D -->|Yes| E[Split hits by model pair\nRun independent pairing\nfor each combination]
     D -->|No| F[Run single pairing\nprocedure]
     E --> G[Pairing algorithm\nper model pair]
     F --> G
     G --> H[Output paired elements,\nhit sequences, GFF3]
+    H --> I{--flank-len\nset?}
+    I -->|Yes| J[Extract external flanking\nsequences per terminus]
+    I -->|No| K[Done]
+    J --> K
 ```
 
 ## Input Types
@@ -182,11 +189,39 @@ tirmite pair \
 
 ## Extracting Flanking Regions
 
-Use `--padlen` to include flanking sequence adjacent to each hit or predicted element in the output FASTA files. This is useful for:
+Use `--flank-len` to extract the genomic sequence immediately **outside** each terminus hit – upstream of the left terminus and downstream of the right terminus. These external flanks are useful for:
 
-- Checking whether element boundaries are correctly identified
 - Examining Target Site Duplications (TSDs)
-- Providing context for downstream analysis
+- Checking whether element boundaries are correctly identified
+- Providing flanking context for downstream analysis
+
+!!! note "Difference between `--padlen` and `--flank-len`"
+    `--padlen` pads the hit or element sequence itself (i.e. adds bases to both sides of the hit/element in the output FASTA). `--flank-len` extracts the sequence that lies *outside* the element boundary – the true external flank. Use `--flank-len` when you want to study TSDs or the sequence context beyond the termini.
+
+### Flank output files
+
+When `--flank-len` is set, TIRmite writes the following FASTA files to the output directory:
+
+| Filename pattern | Contents |
+|-----------------|----------|
+| `{prefix}{model}_left_flank_{count}.fasta` | External flanks for all left terminus hits |
+| `{prefix}{model}_right_flank_{count}.fasta` | External flanks for all right terminus hits |
+| `{prefix}{model}_paired_left_flank_{count}.fasta` | External flanks for **paired** left terminus hits only (element ID in header) |
+| `{prefix}{model}_paired_right_flank_{count}.fasta` | External flanks for **paired** right terminus hits only (element ID in header) |
+
+The **paired-only** flank files include the element identifier (`Element_N`) in each sequence header, making it easy to link flanks back to specific annotated elements.
+
+Example FASTA header for a paired flank:
+
+```
+>Element_1_MY_TIR_1_L  chr1:1000-1019(+)
+```
+
+### Offset correction
+
+The external flank starts at the genomic coordinate corresponding to model position 1 (for a left terminus) or model position `model_len` (for a right terminus). If the hit alignment does not reach that outer model edge, TIRmite corrects the flank coordinate by the gap (offset).
+
+Use `--flank-max-offset` to skip hits where this offset is too large (i.e. the hit does not extend close enough to the terminus edge):
 
 ```bash
 tirmite pair \
@@ -196,10 +231,83 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
-  --padlen 20 \
+  --flank-len 20 \
+  --flank-max-offset 5 \
   --outdir MY_TIR_OUTPUT \
   --gff-out
 ```
+
+### Paired-only flank extraction
+
+By default, `--flank-len` extracts flanks for both paired and unpaired hits. To restrict output to hits that form a valid pair, add `--flank-paired-only`:
+
+```bash
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file $NHMMERFILE \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --flank-len 20 \
+  --flank-paired-only \
+  --outdir MY_TIR_OUTPUT \
+  --gff-out
+```
+
+!!! tip
+    Even without `--flank-paired-only`, the `_paired_left_flank_` and `_paired_right_flank_` files are **always** written for paired hits only when `--flank-len` is set. The `--flank-paired-only` flag additionally suppresses the `_left_flank_` and `_right_flank_` all-hits files.
+
+## Hit Anchoring: Filtering by Model Edge Proximity
+
+The `--max-offset` flag filters out hits whose alignment does not reach close enough to the **outer edge** of the query model. This removes spurious interior fragment hits that are unlikely to represent true element termini.
+
+### What is the outer edge?
+
+Each terminus model has an external end that faces away from the element interior:
+
+- **Left terminus**: the outer edge is model position 1 (the very start of the model)
+- **Right terminus**: the outer edge is model position `model_len` (the very end of the model)
+
+If a hit's alignment starts at model position 5 (for a left terminus hit on the + strand), the offset is 4. Setting `--max-offset 5` would keep this hit; setting `--max-offset 3` would remove it.
+
+```mermaid
+flowchart LR
+    subgraph "Left terminus hit on + strand"
+        direction LR
+        M1[Model pos 1\n← outer edge] -.offset.- A1[alignment\nstart] --> A2[alignment\nend]
+    end
+    subgraph "Right terminus hit on + strand"
+        direction LR
+        B1[alignment\nstart] --> B2[alignment\nend] -.offset.- M2[Model pos N\nouter edge →]
+    end
+```
+
+### Terminus type determination
+
+TIRmite determines whether each hit is a left or right terminus using:
+
+1. **Pairing map** (if provided): model name determines the terminus type
+2. **F,R orientation** (strands differ): + strand hits → left terminus; − strand hits → right terminus
+3. **F,F or R,R** (same-strand, no pairing map): the hit must be within `--max-offset` of **both** ends of the query model (i.e. the full model must be nearly covered)
+
+### Example
+
+```bash
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file $NHMMERFILE \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --max-offset 5 \
+  --outdir MY_TIR_OUTPUT \
+  --gff-out
+```
+
+!!! note
+    `--max-offset` is applied **before** the pairing step, so it reduces the pool of candidate hits available for pairing. It is complementary to `--mincov`, which filters on overall fractional coverage of the model rather than the proximity of the alignment to the outer edge.
 
 ## Multiple Models: Using the Pairing Map
 
@@ -301,8 +409,12 @@ tirmite pair \
 | `--mincov` | Minimum fraction of model covered by hit (0–1) |
 | `--maxdist` | Maximum distance between paired terminus hits (bp) |
 | `--maxeval` | Maximum e-value for hit filtering |
+| `--max-offset` | Maximum unaligned model positions between hit edge and outer terminus edge (anchor filter) |
 | `--stable-reps` | Iterations without new pairing before stopping (default: 2) |
-| `--padlen` | Flanking bases to include in extracted sequences |
+| `--padlen` | Flanking bases to pad the extracted hit/element sequences |
+| `--flank-len` | Length of external flanking region to extract per terminus (bp) |
+| `--flank-max-offset` | Skip flank extraction for hits where offset from outer model edge exceeds this value |
+| `--flank-paired-only` | Only extract flanks for hits that form a valid pair |
 | `--report` | Reporting mode: `all`, `paired`, or `unpaired` |
 | `--gff-out` | Write GFF3 annotation file |
 | `--logfile` | Write log to file |

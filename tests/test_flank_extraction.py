@@ -380,11 +380,17 @@ class TestWriteFlanks:
                 flank_len=10,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f]
-            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f]
+            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
+            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f and 'paired' not in f]
 
             assert len(left_files) == 1, 'Expected one left flank file'
             assert len(right_files) == 1, 'Expected one right flank file'
+
+            # Also check that paired flank files were written
+            paired_left = [f for f in os.listdir(tmpdir) if 'paired_left_flank' in f]
+            paired_right = [f for f in os.listdir(tmpdir) if 'paired_right_flank' in f]
+            assert len(paired_left) == 1, 'Expected one paired left flank file'
+            assert len(paired_right) == 1, 'Expected one paired right flank file'
 
             # Left flank: upstream of pos 200 → bases 190-199 (1-based)
             # All 'A' in our mock genome
@@ -453,11 +459,17 @@ class TestWriteFlanks:
                 flank_len=10,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f]
-            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f]
+            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
+            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f and 'paired' not in f]
 
             assert len(left_files) == 1
             assert len(right_files) == 1
+
+            # Also check paired flank files exist
+            paired_left = [f for f in os.listdir(tmpdir) if 'paired_left_flank' in f]
+            paired_right = [f for f in os.listdir(tmpdir) if 'paired_right_flank' in f]
+            assert len(paired_left) == 1
+            assert len(paired_right) == 1
 
     def test_offset_correction_left_plus(self):
         """hmmStart=3 shifts left flank 2bp further upstream."""
@@ -499,7 +511,7 @@ class TestWriteFlanks:
                 flank_len=5,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f]
+            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
             assert len(left_files) == 1
 
             with open(os.path.join(tmpdir, left_files[0])) as fh:
@@ -554,9 +566,12 @@ class TestWriteFlanks:
             )
 
             files = os.listdir(tmpdir)
-            left_files = [f for f in files if 'left_flank' in f]
+            left_files = [f for f in files if 'left_flank' in f and 'paired' not in f]
             # Left hit has offset=5 > 3, so no left flank file
             assert len(left_files) == 0
+            # Also no paired left flank
+            paired_left = [f for f in files if 'paired_left_flank' in f]
+            assert len(paired_left) == 0
 
     def test_paired_only_flag_skips_unpaired(self):
         """When paired_only=True, unpaired hits must not produce flank files."""
@@ -614,8 +629,8 @@ class TestWriteFlanks:
                 paired_only=True,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f]
-            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f]
+            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
+            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f and 'paired' not in f]
             # Only the paired hits produce flanks → 1 left + 1 right
             assert len(left_files) == 1
             assert len(right_files) == 1
@@ -682,13 +697,20 @@ class TestWriteFlanks:
                 paired_only=False,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f]
+            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
             assert len(left_files) == 1
 
             with open(os.path.join(tmpdir, left_files[0])) as fh:
                 seqs = [line for line in fh.read().splitlines() if line.startswith('>')]
             # 1 from paired + 1 from unpaired = 2 left flank seqs
             assert len(seqs) == 2
+
+            # Separate paired-only left flank file should have just 1 seq
+            paired_left = [f for f in os.listdir(tmpdir) if 'paired_left_flank' in f]
+            assert len(paired_left) == 1
+            with open(os.path.join(tmpdir, paired_left[0])) as fh:
+                pseqs = [line for line in fh.read().splitlines() if line.startswith('>')]
+            assert len(pseqs) == 1
 
     def test_rr_orientation_unpaired_returns_none(self):
         """R,R same-strand: unpaired hits can't be classified, no extra flanks."""
@@ -745,9 +767,12 @@ class TestWriteFlanks:
             )
 
             all_files = os.listdir(tmpdir)
-            flank_files = [f for f in all_files if 'flank' in f]
-            # Only the paired hits produce flanks
+            flank_files = [f for f in all_files if 'flank' in f and 'paired' not in f]
+            # Only the paired hits produce flanks (in all-flanks files)
             assert len(flank_files) == 2  # one left, one right for the pair
+            # Also paired-only files: one left, one right
+            paired_flank_files = [f for f in all_files if 'paired' in f and 'flank' in f]
+            assert len(paired_flank_files) == 2
 
     def test_no_flanks_when_flank_len_zero(self):
         """flank_len=0 should produce no output files."""
@@ -789,3 +814,157 @@ class TestWriteFlanks:
             )
             flank_files = [f for f in os.listdir(tmpdir) if 'flank' in f]
             assert len(flank_files) == 0
+
+    def test_paired_flanks_have_element_id_in_header(self):
+        """Paired flank files should contain element IDs in sequence headers."""
+        rows = [
+            {
+                'model': 'TIR',
+                'target': 'chr1',
+                'hit_start': 200,
+                'hit_end': 299,
+                'strand': '+',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+            {
+                'model': 'TIR',
+                'target': 'chr1',
+                'hit_start': 700,
+                'hit_end': 799,
+                'strand': '-',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+        ]
+        hitTable = _make_hitTable(rows)
+        _, hitIndex, paired = _make_paired_data(hitTable)
+
+        config = PairingConfig(orientation='F,R', single_model='TIR')
+        model_lengths = {'TIR': 100}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            writeFlanks(
+                outDir=tmpdir,
+                hitTable=hitTable,
+                model_lengths=model_lengths,
+                paired=paired,
+                hitIndex=hitIndex,
+                config=config,
+                genome=self._genome(),
+                flank_len=10,
+            )
+
+            # Check paired left flank file headers contain element ID
+            paired_left = [f for f in os.listdir(tmpdir) if 'paired_left_flank' in f]
+            assert len(paired_left) == 1
+            with open(os.path.join(tmpdir, paired_left[0])) as fh:
+                headers = [l for l in fh.read().splitlines() if l.startswith('>')]
+            assert len(headers) == 1
+            assert 'Element_1' in headers[0]
+
+            # Check paired right flank file headers contain element ID
+            paired_right = [f for f in os.listdir(tmpdir) if 'paired_right_flank' in f]
+            assert len(paired_right) == 1
+            with open(os.path.join(tmpdir, paired_right[0])) as fh:
+                headers = [l for l in fh.read().splitlines() if l.startswith('>')]
+            assert len(headers) == 1
+            assert 'Element_1' in headers[0]
+
+
+# ---------------------------------------------------------------------------
+# writeElements filename tests
+# ---------------------------------------------------------------------------
+
+
+class TestWriteElements:
+    """Tests for writeElements output filename format."""
+
+    def test_element_filename_includes_count(self):
+        """Element FASTA filename should include the count of elements."""
+        from collections import namedtuple
+
+        from Bio import Seq
+        from Bio.SeqRecord import SeqRecord
+
+        gffTup = namedtuple(
+            'gffTup',
+            [
+                'model',
+                'chromosome',
+                'start',
+                'end',
+                'strand',
+                'type',
+                'id',
+                'leftHit',
+                'rightHit',
+                'seq',
+                'evalue',
+            ],
+        )
+
+        # Create mock element records
+        seq1 = SeqRecord(Seq.Seq('ATCG' * 25))
+        seq1.id = 'Element_1'
+        seq1.name = 'Element_1'
+        seq1.description = 'test'
+
+        seq2 = SeqRecord(Seq.Seq('GCTA' * 25))
+        seq2.id = 'Element_2'
+        seq2.name = 'Element_2'
+        seq2.description = 'test'
+
+        ele1 = gffTup('TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA')
+        ele2 = gffTup('TIR', 'chr1', 300, 400, '+', 'Element', 'E2', None, None, seq2, 'NA')
+
+        eleDict = {'TIR': [ele1, ele2]}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tirmite.writeElements(outDir=tmpdir, eleDict=eleDict)
+
+            files = os.listdir(tmpdir)
+            assert len(files) == 1
+            # Filename should include count: TIR_elements_2.fasta
+            assert files[0] == 'TIR_elements_2.fasta'
+
+    def test_element_filename_with_prefix_includes_count(self):
+        """Element FASTA filename with prefix should include the count."""
+        from collections import namedtuple
+
+        from Bio import Seq
+        from Bio.SeqRecord import SeqRecord
+
+        gffTup = namedtuple(
+            'gffTup',
+            [
+                'model',
+                'chromosome',
+                'start',
+                'end',
+                'strand',
+                'type',
+                'id',
+                'leftHit',
+                'rightHit',
+                'seq',
+                'evalue',
+            ],
+        )
+
+        seq1 = SeqRecord(Seq.Seq('ATCG' * 25))
+        seq1.id = 'Element_1'
+        seq1.name = 'Element_1'
+        seq1.description = 'test'
+
+        ele1 = gffTup('TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA')
+
+        eleDict = {'TIR': [ele1]}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tirmite.writeElements(outDir=tmpdir, eleDict=eleDict, prefix='myrun')
+
+            files = os.listdir(tmpdir)
+            assert len(files) == 1
+            # Filename should include count: myrun_TIR_elements_1.fasta
+            assert files[0] == 'myrun_TIR_elements_1.fasta'

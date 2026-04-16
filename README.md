@@ -140,29 +140,12 @@ tirmite pair \
   --nhmmer-file $NHMMERFILE \
   --hmm-file $HMMFILE \
   --orientation F,R \
-  --mincov 0.4 \
+  --mincov 0.6 \
   --maxdist 20000 \
   --flank-len 30 \
-  --tsd-length 8 \
+  --tsd-length 2 \
   --outdir MY_TIR_OUTPUT \
   --gff-out
-```
-
-#### Legacy mode
-
-`tirmite legacy` takes a TIR-pHMM and target genome FASTA as input and runs the full standard workflow. This mode will be phased out in a later release in favour of custom workflows using `tirmite seed`, `tirmite pair`, and `tirmite validate`.
-
-```bash
-tirmite legacy \
-  --genome $GENOME \
-  --hmm-file $HMMFILE \
-  --orientation F,R \
-  --outdir results \
-  --stable-reps 2 \
-  --report all \
-  --gff-out \
-  --maxdist 20000 \
-  --mincov 0.4
 ```
 
 ### Standard options

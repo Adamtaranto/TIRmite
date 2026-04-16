@@ -380,8 +380,14 @@ class TestWriteFlanks:
                 flank_len=10,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
-            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f and 'paired' not in f]
+            left_files = [
+                f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
+            ]
+            right_files = [
+                f
+                for f in os.listdir(tmpdir)
+                if 'right_flank' in f and 'paired' not in f
+            ]
 
             assert len(left_files) == 1, 'Expected one left flank file'
             assert len(right_files) == 1, 'Expected one right flank file'
@@ -459,8 +465,14 @@ class TestWriteFlanks:
                 flank_len=10,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
-            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f and 'paired' not in f]
+            left_files = [
+                f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
+            ]
+            right_files = [
+                f
+                for f in os.listdir(tmpdir)
+                if 'right_flank' in f and 'paired' not in f
+            ]
 
             assert len(left_files) == 1
             assert len(right_files) == 1
@@ -511,7 +523,9 @@ class TestWriteFlanks:
                 flank_len=5,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
+            left_files = [
+                f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
+            ]
             assert len(left_files) == 1
 
             with open(os.path.join(tmpdir, left_files[0])) as fh:
@@ -629,8 +643,14 @@ class TestWriteFlanks:
                 paired_only=True,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
-            right_files = [f for f in os.listdir(tmpdir) if 'right_flank' in f and 'paired' not in f]
+            left_files = [
+                f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
+            ]
+            right_files = [
+                f
+                for f in os.listdir(tmpdir)
+                if 'right_flank' in f and 'paired' not in f
+            ]
             # Only the paired hits produce flanks → 1 left + 1 right
             assert len(left_files) == 1
             assert len(right_files) == 1
@@ -697,7 +717,9 @@ class TestWriteFlanks:
                 paired_only=False,
             )
 
-            left_files = [f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f]
+            left_files = [
+                f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
+            ]
             assert len(left_files) == 1
 
             with open(os.path.join(tmpdir, left_files[0])) as fh:
@@ -709,7 +731,9 @@ class TestWriteFlanks:
             paired_left = [f for f in os.listdir(tmpdir) if 'paired_left_flank' in f]
             assert len(paired_left) == 1
             with open(os.path.join(tmpdir, paired_left[0])) as fh:
-                pseqs = [line for line in fh.read().splitlines() if line.startswith('>')]
+                pseqs = [
+                    line for line in fh.read().splitlines() if line.startswith('>')
+                ]
             assert len(pseqs) == 1
 
     def test_rr_orientation_unpaired_returns_none(self):
@@ -771,7 +795,9 @@ class TestWriteFlanks:
             # Only the paired hits produce flanks (in all-flanks files)
             assert len(flank_files) == 2  # one left, one right for the pair
             # Also paired-only files: one left, one right
-            paired_flank_files = [f for f in all_files if 'paired' in f and 'flank' in f]
+            paired_flank_files = [
+                f for f in all_files if 'paired' in f and 'flank' in f
+            ]
             assert len(paired_flank_files) == 2
 
     def test_no_flanks_when_flank_len_zero(self):
@@ -859,7 +885,7 @@ class TestWriteFlanks:
             paired_left = [f for f in os.listdir(tmpdir) if 'paired_left_flank' in f]
             assert len(paired_left) == 1
             with open(os.path.join(tmpdir, paired_left[0])) as fh:
-                headers = [l for l in fh.read().splitlines() if l.startswith('>')]
+                headers = [ln for ln in fh.read().splitlines() if ln.startswith('>')]
             assert len(headers) == 1
             assert 'Element_1' in headers[0]
 
@@ -867,7 +893,7 @@ class TestWriteFlanks:
             paired_right = [f for f in os.listdir(tmpdir) if 'paired_right_flank' in f]
             assert len(paired_right) == 1
             with open(os.path.join(tmpdir, paired_right[0])) as fh:
-                headers = [l for l in fh.read().splitlines() if l.startswith('>')]
+                headers = [ln for ln in fh.read().splitlines() if ln.startswith('>')]
             assert len(headers) == 1
             assert 'Element_1' in headers[0]
 
@@ -914,8 +940,12 @@ class TestWriteElements:
         seq1 = self._make_element_seq('ATCG' * 25, 'Element_1')
         seq2 = self._make_element_seq('GCTA' * 25, 'Element_2')
 
-        ele1 = self._gffTup('TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA')
-        ele2 = self._gffTup('TIR', 'chr1', 300, 400, '+', 'Element', 'E2', None, None, seq2, 'NA')
+        ele1 = self._gffTup(
+            'TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA'
+        )
+        ele2 = self._gffTup(
+            'TIR', 'chr1', 300, 400, '+', 'Element', 'E2', None, None, seq2, 'NA'
+        )
 
         eleDict = {'TIR': [ele1, ele2]}
 
@@ -931,7 +961,9 @@ class TestWriteElements:
         """Element FASTA filename with prefix should include the count."""
         seq1 = self._make_element_seq('ATCG' * 25, 'Element_1')
 
-        ele1 = self._gffTup('TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA')
+        ele1 = self._gffTup(
+            'TIR', 'chr1', 100, 200, '+', 'Element', 'E1', None, None, seq1, 'NA'
+        )
 
         eleDict = {'TIR': [ele1]}
 

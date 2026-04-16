@@ -1,7 +1,6 @@
 """Tests for the --max-offset anchor filter in tirmite pair."""
 
 import pandas as pd
-import pytest
 
 from tirmite.cli.hmm_pair import compute_outer_edge_offset, filter_hits_by_anchor
 
@@ -76,7 +75,9 @@ class TestFilterHitsByAnchorFR:
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=10, orientation='F,R')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
         assert len(result) == 1
 
     def test_left_plus_removed_exceeds_offset(self):
@@ -95,7 +96,9 @@ class TestFilterHitsByAnchorFR:
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=10, orientation='F,R')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
         assert len(result) == 0
 
     def test_right_minus_passes_within_offset(self):
@@ -114,7 +117,9 @@ class TestFilterHitsByAnchorFR:
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=10, orientation='F,R')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
         assert len(result) == 1
 
     def test_right_minus_removed_exceeds_offset(self):
@@ -133,7 +138,9 @@ class TestFilterHitsByAnchorFR:
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=10, orientation='F,R')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=10, orientation='F,R'
+        )
         assert len(result) == 0
 
 
@@ -191,12 +198,14 @@ class TestFilterHitsByAnchorSymmetricSameStrand:
                     'hitEnd': '200',
                     'strand': '+',
                     'evalue': '1e-10',
-                    'hmmStart': '3',   # offset_start = 2
-                    'hmmEnd': '98',    # offset_end = 2
+                    'hmmStart': '3',  # offset_start = 2
+                    'hmmEnd': '98',  # offset_end = 2
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=5, orientation='F,F')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation='F,F'
+        )
         assert len(result) == 1
 
     def test_ff_start_exceeds_offset_removed(self):
@@ -210,12 +219,14 @@ class TestFilterHitsByAnchorSymmetricSameStrand:
                     'hitEnd': '200',
                     'strand': '+',
                     'evalue': '1e-10',
-                    'hmmStart': '20',   # offset_start = 19 > 5
-                    'hmmEnd': '100',    # offset_end = 0
+                    'hmmStart': '20',  # offset_start = 19 > 5
+                    'hmmEnd': '100',  # offset_end = 0
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=5, orientation='F,F')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation='F,F'
+        )
         assert len(result) == 0
 
     def test_ff_end_exceeds_offset_removed(self):
@@ -229,12 +240,14 @@ class TestFilterHitsByAnchorSymmetricSameStrand:
                     'hitEnd': '200',
                     'strand': '+',
                     'evalue': '1e-10',
-                    'hmmStart': '1',    # offset_start = 0
-                    'hmmEnd': '80',     # offset_end = 20 > 5
+                    'hmmStart': '1',  # offset_start = 0
+                    'hmmEnd': '80',  # offset_end = 20 > 5
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=5, orientation='F,F')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation='F,F'
+        )
         assert len(result) == 0
 
     def test_rr_both_ends_within_offset_passes(self):
@@ -248,12 +261,14 @@ class TestFilterHitsByAnchorSymmetricSameStrand:
                     'hitEnd': '200',
                     'strand': '-',
                     'evalue': '1e-10',
-                    'hmmStart': '2',   # offset_start = 1
-                    'hmmEnd': '99',    # offset_end = 1
+                    'hmmStart': '2',  # offset_start = 1
+                    'hmmEnd': '99',  # offset_end = 1
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=5, orientation='R,R')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation='R,R'
+        )
         assert len(result) == 1
 
     def test_rr_both_ends_exceed_offset_removed(self):
@@ -267,12 +282,14 @@ class TestFilterHitsByAnchorSymmetricSameStrand:
                     'hitEnd': '200',
                     'strand': '-',
                     'evalue': '1e-10',
-                    'hmmStart': '20',   # offset_start = 19 > 5
-                    'hmmEnd': '80',     # offset_end = 20 > 5
+                    'hmmStart': '20',  # offset_start = 19 > 5
+                    'hmmEnd': '80',  # offset_end = 20 > 5
                 }
             ]
         )
-        result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=5, orientation='R,R')
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation='R,R'
+        )
         assert len(result) == 0
 
 
@@ -282,7 +299,16 @@ class TestFilterHitsByAnchorDefault:
     def test_empty_table_returns_empty(self):
         """Empty DataFrame should pass through."""
         df = pd.DataFrame(
-            columns=['model', 'target', 'hitStart', 'hitEnd', 'strand', 'evalue', 'hmmStart', 'hmmEnd']
+            columns=[
+                'model',
+                'target',
+                'hitStart',
+                'hitEnd',
+                'strand',
+                'evalue',
+                'hmmStart',
+                'hmmEnd',
+            ]
         )
         result = filter_hits_by_anchor(df, {'TIR': 100}, max_offset=10)
         assert len(result) == 0

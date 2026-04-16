@@ -2366,11 +2366,7 @@ def writeFlanks(
         if flanks:
             outfile = os.path.join(
                 outDir,
-                prefix
-                + model
-                + '_paired_left_flank_'
-                + str(len(flanks))
-                + '.fasta',
+                prefix + model + '_paired_left_flank_' + str(len(flanks)) + '.fasta',
             )
             with open(outfile, 'w') as handle:
                 for seq in flanks:
@@ -2381,11 +2377,7 @@ def writeFlanks(
         if flanks:
             outfile = os.path.join(
                 outDir,
-                prefix
-                + model
-                + '_paired_right_flank_'
-                + str(len(flanks))
-                + '.fasta',
+                prefix + model + '_paired_right_flank_' + str(len(flanks)) + '.fasta',
             )
             with open(outfile, 'w') as handle:
                 for seq in flanks:

@@ -1070,13 +1070,17 @@ def extractTIRs_blastdb(
         (hitTable['model'] == model) & (hitTable['evalue'].astype(float) <= maxeval)
     ]
     total_eligible = len(eligible_hits)
-    logging.info(f'Extracting {total_eligible} hits for model "{model}" from BLAST database...')
+    logging.info(
+        f'Extracting {total_eligible} hits for model "{model}" from BLAST database...'
+    )
     _log_step = max(1, min(100, total_eligible // 10)) if total_eligible > 0 else 1
 
     for index, row in eligible_hits.iterrows():
         hitcount += 1
         if hitcount % _log_step == 0 or hitcount == total_eligible:
-            logging.info(f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"')
+            logging.info(
+                f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"'
+            )
 
         # blastdbcmd uses 1-based coordinates
         start = int(row['hitStart'])
@@ -1103,9 +1107,7 @@ def extractTIRs_blastdb(
             # blastdbcmd uses 1-based inclusive coordinates
             # Convert to 0-based for Python string slicing
             hit_start_in_seq = start - pad_start
-            hit_end_in_seq = (
-                end - pad_start + 1
-            )  # +1 for inclusive end in blastdbcmd
+            hit_end_in_seq = end - pad_start + 1  # +1 for inclusive end in blastdbcmd
 
             # Convert to lowercase/uppercase
             hit_seq_str = (
@@ -1196,13 +1198,17 @@ def extractTIRs(
         (hitTable['model'] == model) & (hitTable['evalue'].astype(float) <= maxeval)
     ]
     total_eligible = len(eligible_hits)
-    logging.info(f'Extracting {total_eligible} hits for model "{model}" from indexed genome...')
+    logging.info(
+        f'Extracting {total_eligible} hits for model "{model}" from indexed genome...'
+    )
     _log_step = max(1, min(100, total_eligible // 10)) if total_eligible > 0 else 1
 
     for index, row in eligible_hits.iterrows():
         hitcount += 1
         if hitcount % _log_step == 0 or hitcount == total_eligible:
-            logging.info(f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"')
+            logging.info(
+                f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"'
+            )
 
         # Extract sequence using pyfaidx (0-based indexing)
         chrom = genome[row['target']]
@@ -1477,13 +1483,17 @@ def fetchElements(
             TIRelements[model] = []
             model_counter = 0
             total_pairs = len(paired[model])
-            logging.info(f'Extracting sequences for {total_pairs} paired elements (model "{model}")...')
+            logging.info(
+                f'Extracting sequences for {total_pairs} paired elements (model "{model}")...'
+            )
             _log_step = max(1, min(100, total_pairs // 10)) if total_pairs > 0 else 1
 
             for pair in paired[model]:
                 model_counter += 1
                 if model_counter % _log_step == 0 or model_counter == total_pairs:
-                    logging.info(f'  Extracted {model_counter}/{total_pairs} elements for model "{model}"')
+                    logging.info(
+                        f'  Extracted {model_counter}/{total_pairs} elements for model "{model}"'
+                    )
                 # Convert set to list for indexing
                 hit_ids = list(pair)
                 x_id, y_id = hit_ids[0], hit_ids[1]
@@ -1706,13 +1716,17 @@ def writePairedTIRs(
             model_counter = 0
             seqList = []  # Just collect sequences for FASTA output
             total_pairs = len(paired[model])
-            logging.info(f'Extracting TIR sequences for {total_pairs} pairs (model "{model}")...')
+            logging.info(
+                f'Extracting TIR sequences for {total_pairs} pairs (model "{model}")...'
+            )
             _log_step = max(1, min(100, total_pairs // 10)) if total_pairs > 0 else 1
 
             for pair in paired[model]:
                 model_counter += 1
                 if model_counter % _log_step == 0 or model_counter == total_pairs:
-                    logging.info(f'  Extracted {model_counter}/{total_pairs} TIR pairs for model "{model}"')
+                    logging.info(
+                        f'  Extracted {model_counter}/{total_pairs} TIR pairs for model "{model}"'
+                    )
                 # Convert set to list for indexing
                 hit_ids = list(pair)
                 x_id, y_id = hit_ids[0], hit_ids[1]

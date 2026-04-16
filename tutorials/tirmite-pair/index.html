@@ -1,0 +1,2181 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Map profile HMMs of transposon termini to genomic sequences for annotation of cryptic transposon variants.">
+      
+      
+        <meta name="author" content="Adam Taranto">
+      
+      
+        <link rel="canonical" href="https://adamtaranto.github.io/TIRmite/tutorials/tirmite-pair/">
+      
+      
+        <link rel="prev" href="../tirmite-search/">
+      
+      
+        <link rel="next" href="../tirmite-validate/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../tirmite_hexlogo.jpg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Using tirmite pair - TIRmite</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#using-tirmite-pair" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TIRmite" class="md-header__button md-logo" aria-label="TIRmite" data-md-component="logo">
+      
+  <img src="../../tirmite_hexlogo.jpg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TIRmite
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Using tirmite pair
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="cyan"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/Adamtaranto/TIRmite" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    adamtaranto/TIRmite
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../building-hmms/" class="md-tabs__link">
+          
+  
+  
+  Tutorials
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TIRmite" class="md-nav__button md-logo" aria-label="TIRmite" data-md-component="logo">
+      
+  <img src="../../tirmite_hexlogo.jpg" alt="logo">
+
+    </a>
+    TIRmite
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/Adamtaranto/TIRmite" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    adamtaranto/TIRmite
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../building-hmms/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building HMMs for Transposon Termini
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tirmite-search/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using tirmite search
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using tirmite pair
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Using tirmite pair
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#input-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input Types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Input Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-is-the-hmm-file-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When is the HMM file required?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-is-the-lengths-file-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When is the lengths file required?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pairing-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Pairing Algorithm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Pairing Algorithm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#algorithm-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Algorithm steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#orientation-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Orientation settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage-with-nhmmer-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic usage with nhmmer output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with-blast-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        With BLAST input
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with-pre-filtered-results-from-tirmite-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        With pre-filtered results from tirmite search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-a-blast-database-for-sequence-extraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using a BLAST database for sequence extraction
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extracting-flanking-regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extracting Flanking Regions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Extracting Flanking Regions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flank-output-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flank output files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#offset-correction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offset correction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#paired-only-flank-extraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paired-only flank extraction
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reconstructing-target-sites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconstructing Target Sites
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconstructing Target Sites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-reconstruction-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the reconstruction works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How the reconstruction works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-tsd-in-model-is-not-set-tsd-is-outside-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When --tsd-in-model is NOT set (TSD is outside the model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-tsd-in-model-is-set-tsd-is-inside-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When --tsd-in-model IS set (TSD is inside the model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flank-coordinate-and-offset-corrections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flank coordinate and offset corrections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tsd-length-map-for-multiple-model-pairs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TSD length map for multiple model pairs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-site-output-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target site output files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hit-anchoring-filtering-by-model-edge-proximity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hit Anchoring: Filtering by Model Edge Proximity
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hit Anchoring: Filtering by Model Edge Proximity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-the-outer-edge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is the outer edge?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#terminus-type-determination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminus type determination
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-models-using-the-pairing-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Models: Using the Pairing Map
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multiple Models: Using the Pairing Map">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pairing-map-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pairing map format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-pairing-map-logic-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How pairing map logic works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-with-multiple-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example with multiple models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting Options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reporting Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gff3-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GFF3 output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-options-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Options Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../tirmite-validate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reconstructing and Validating Target Sites
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#input-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Input Types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Input Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-is-the-hmm-file-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When is the HMM file required?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-is-the-lengths-file-required" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When is the lengths file required?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-pairing-algorithm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Pairing Algorithm
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The Pairing Algorithm">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#algorithm-steps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Algorithm steps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#orientation-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Orientation settings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage-with-nhmmer-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Basic usage with nhmmer output
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with-blast-input" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        With BLAST input
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#with-pre-filtered-results-from-tirmite-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        With pre-filtered results from tirmite search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#using-a-blast-database-for-sequence-extraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using a BLAST database for sequence extraction
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extracting-flanking-regions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extracting Flanking Regions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Extracting Flanking Regions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#flank-output-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flank output files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#offset-correction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Offset correction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#paired-only-flank-extraction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paired-only flank extraction
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reconstructing-target-sites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reconstructing Target Sites
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reconstructing Target Sites">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-the-reconstruction-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the reconstruction works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How the reconstruction works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-tsd-in-model-is-not-set-tsd-is-outside-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When --tsd-in-model is NOT set (TSD is outside the model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-tsd-in-model-is-set-tsd-is-inside-the-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When --tsd-in-model IS set (TSD is inside the model)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#flank-coordinate-and-offset-corrections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Flank coordinate and offset corrections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tsd-length-map-for-multiple-model-pairs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TSD length map for multiple model pairs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-site-output-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target site output files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hit-anchoring-filtering-by-model-edge-proximity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hit Anchoring: Filtering by Model Edge Proximity
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Hit Anchoring: Filtering by Model Edge Proximity">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-the-outer-edge" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is the outer edge?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#terminus-type-determination" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminus type determination
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multiple-models-using-the-pairing-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multiple Models: Using the Pairing Map
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multiple Models: Using the Pairing Map">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pairing-map-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pairing map format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-pairing-map-logic-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How pairing map logic works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-with-multiple-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example with multiple models
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting Options
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Reporting Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gff3-output" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GFF3 output
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-options-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Options Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/Adamtaranto/TIRmite/edit/main/docs/tutorials/tirmite-pair.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="using-tirmite-pair">Using tirmite pair<a class="headerlink" href="#using-tirmite-pair" title="Permanent link">&para;</a></h1>
+<p><code>tirmite pair</code> takes precomputed nhmmer or BLAST search results and applies the TIRmite pairing algorithm to identify valid transposon termini pairs. It outputs paired elements, hit sequences, and GFF3 annotations. When <code>--flank-len</code> is set, flanking sequences are extracted. Add <code>--insertion-site</code> to enable reconstruction of the original <strong>target site</strong> for each paired element.</p>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart TD
+    A[nhmmer .tab\nor BLAST .tab] --&gt; B[Load hits]
+    B --&gt; C[Filter by e-value\nand model coverage]
+    C --&gt; C2{--max-offset\nset?}
+    C2 --&gt;|Yes| C3[Anchor filter:\nremove hits not reaching\nouter model edge]
+    C2 --&gt;|No| D
+    C3 --&gt; D{Pairing map\nprovided?}
+    D --&gt;|Yes| E[Split hits by model pair\nRun independent pairing\nfor each combination]
+    D --&gt;|No| F[Run single pairing\nprocedure]
+    E --&gt; G[Pairing algorithm\nper model pair]
+    F --&gt; G
+    G --&gt; H[Output paired elements,\nhit sequences, GFF3]
+    H --&gt; I{--flank-len\nset?}
+    I --&gt;|Yes| J[Extract external flanking\nsequences per terminus]
+    I --&gt;|No| K[Done]
+    J --&gt; L{--insertion-site\nset?}
+    L --&gt;|No| K
+    L --&gt;|Yes| M{--tsd-in-model?}
+    M --&gt;|No\nTSD is in flank| N[Trim TSD from\nflank boundary]
+    M --&gt;|Yes\nTSD is in hit| O[Extract TSD from\nhit inner boundary]
+    N --&gt; P[Write target_sites.fasta\nand interleaved_flanks.fasta]
+    O --&gt; P
+    P --&gt; K</code></pre>
+<h2 id="input-types">Input Types<a class="headerlink" href="#input-types" title="Permanent link">&para;</a></h2>
+<p><code>tirmite pair</code> accepts three types of hit input:</p>
+<table>
+<thead>
+<tr>
+<th>Input flag</th>
+<th>Format</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--nhmmer-file</code></td>
+<td>nhmmer tabular (<code>--tblout</code>)</td>
+<td>Results from nhmmer search</td>
+</tr>
+<tr>
+<td><code>--blast-file</code></td>
+<td>BLAST tabular (<code>-outfmt 6</code>)</td>
+<td>Results from blastn or megablast</td>
+</tr>
+<tr>
+<td>Pre-filtered results</td>
+<td>Either format</td>
+<td>Output from <code>tirmite search</code> can be passed directly</td>
+</tr>
+</tbody>
+</table>
+<h3 id="when-is-the-hmm-file-required">When is the HMM file required?<a class="headerlink" href="#when-is-the-hmm-file-required" title="Permanent link">&para;</a></h3>
+<p>Provide <code>--hmm-file</code> when using nhmmer input and you want TIRmite to calculate hit <strong>coverage</strong> (the fraction of the model that the hit spans). This requires knowing the model length, which is read directly from the HMM file.</p>
+<p>If you don't have the HMM file, you can provide <code>--lengths-file</code> with a tab-delimited file mapping model names to their lengths.</p>
+<h3 id="when-is-the-lengths-file-required">When is the lengths file required?<a class="headerlink" href="#when-is-the-lengths-file-required" title="Permanent link">&para;</a></h3>
+<p>Provide <code>--lengths-file</code> when:</p>
+<ul>
+<li>Your input contains hits from <strong>multiple models</strong> but you don't have HMM files for all of them</li>
+<li>You are using BLAST input and want coverage filtering (BLAST doesn't record query lengths in the hit table)</li>
+<li>You have pre-filtered results from <code>tirmite search</code> where the original HMM is no longer accessible</li>
+</ul>
+<p>Format of the lengths file (tab-delimited, one model per line):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a># model_name    model_length
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>MY_TIR    150
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>LEFT_TERMINUS    120
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>RIGHT_TERMINUS    135
+</code></pre></div>
+<h2 id="the-pairing-algorithm">The Pairing Algorithm<a class="headerlink" href="#the-pairing-algorithm" title="Permanent link">&para;</a></h2>
+<p>The pairing algorithm identifies the most parsimonious set of valid terminus pairs. The core logic iterates through unpaired hits and attempts to find a valid partner:</p>
+<pre class="mermaid"><code>flowchart TD
+    A[All filtered hits] --&gt; B[For each hit: find candidate partners]
+    B --&gt; C{Candidate on same\nsequence in correct\norientation within\nmaxdist?}
+    C --&gt;|No| D[Mark as unpaired]
+    C --&gt;|Yes| E[Rank candidates\nby proximity]
+    E --&gt; F[Pair reciprocal\ntop candidates]
+    F --&gt; G{Unpaired hits\nremaining?}
+    G --&gt;|Yes| H[Find nearest unpaired\ncandidate]
+    H --&gt; I{Reciprocal?}
+    I --&gt;|Yes| J[Pair them]
+    I --&gt;|No| K{2nd-order\nreciprocal?}
+    K --&gt;|Yes| J
+    K --&gt;|No| L[Leave unpaired\nfor this iteration]
+    J --&gt; G
+    L --&gt; M{Iterations without\nnew pairing\n≥ stable-reps?}
+    M --&gt;|No| G
+    M --&gt;|Yes| N[End: report paired\nand unpaired hits]</code></pre>
+<h3 id="algorithm-steps">Algorithm steps<a class="headerlink" href="#algorithm-steps" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Use nhmmer (or BLAST) to query genome with termini models/sequences.</li>
+<li>Import all hits under <code>--maxeval</code> threshold.</li>
+<li>For each significant terminus match, identify candidate partners, where:</li>
+<li>Hit is on the same sequence</li>
+<li>Hit is in correct relative orientation</li>
+<li>Distance is ≤ <code>--maxdist</code></li>
+<li>Hit length is ≥ (model/query length × <code>--mincov</code>)</li>
+<li>Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.</li>
+<li>Pair reciprocal top candidate hits.</li>
+<li>For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.</li>
+<li>If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is the outbound top-candidate of the current candidate reciprocal?).</li>
+<li>Iterate steps 6–7 until all termini hits are paired OR number of iterations without a new pairing exceeds <code>--stable-reps</code>.</li>
+</ol>
+<h3 id="orientation-settings">Orientation settings<a class="headerlink" href="#orientation-settings" title="Permanent link">&para;</a></h3>
+<p>The <code>--orientation</code> flag controls which strand combinations are considered valid pairs:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Meaning</th>
+<th>Use case</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>F,R</code></td>
+<td>Forward hit paired with Reverse hit</td>
+<td>TIR elements (same model)</td>
+</tr>
+<tr>
+<td><code>F,F</code></td>
+<td>Forward hit paired with Forward hit</td>
+<td>LTR retrotransposons</td>
+</tr>
+<tr>
+<td><code>R,F</code></td>
+<td>Reverse hit paired with Forward hit</td>
+<td>Rarely used</td>
+</tr>
+<tr>
+<td><code>R,R</code></td>
+<td>Reverse hit paired with Reverse hit</td>
+<td>Rarely used</td>
+</tr>
+</tbody>
+</table>
+<p>For <strong>asymmetric elements</strong> using a pairing map, the orientation is applied independently for each left/right model pair defined in the pairing map.</p>
+<pre class="mermaid"><code>flowchart LR
+    subgraph "F,R pairing (TIRs)"
+        direction LR
+        L1[→ LEFT hit\nForward strand] --- E1[Element] --- R1[← RIGHT hit\nReverse strand]
+    end
+    subgraph "F,F pairing (LTRs)"
+        direction LR
+        L2[→ LEFT hit\nForward strand] --- E2[Element] --- R2[→ RIGHT hit\nForward strand]
+    end</code></pre>
+<h2 id="examples">Examples<a class="headerlink" href="#examples" title="Permanent link">&para;</a></h2>
+<h3 id="basic-usage-with-nhmmer-output">Basic usage with nhmmer output<a class="headerlink" href="#basic-usage-with-nhmmer-output" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">GENOME</span><span class="o">=</span><span class="s2">&quot;genome.fa&quot;</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nv">NHMMERFILE</span><span class="o">=</span><span class="s2">&quot;MY_TIR_nhmmer_hits.tab&quot;</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="nv">HMMFILE</span><span class="o">=</span><span class="s2">&quot;MY_TIR.hmm&quot;</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span>--nhmmer-file<span class="w"> </span><span class="nv">$NHMMERFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">  </span>--hmm-file<span class="w"> </span><span class="nv">$HMMFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">  </span>--outdir<span class="w"> </span>MY_TIR_OUTPUT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">  </span>--gff-out
+</code></pre></div>
+<h3 id="with-blast-input">With BLAST input<a class="headerlink" href="#with-blast-input" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span>--blast-file<span class="w"> </span>MY_TIR_blast_hits.tab<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>--query-len<span class="w"> </span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span>--outdir<span class="w"> </span>MY_TIR_BLAST_OUTPUT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span>--gff-out
+</code></pre></div>
+<h3 id="with-pre-filtered-results-from-tirmite-search">With pre-filtered results from <code>tirmite search</code><a class="headerlink" href="#with-pre-filtered-results-from-tirmite-search" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span>--blast-file<span class="w"> </span>SEARCH_OUTPUT/merged_hits.tab<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span>--lengths-file<span class="w"> </span>model_lengths.txt<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span>--pairing-map<span class="w"> </span>pairing_map.txt<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span>--outdir<span class="w"> </span>PAIR_OUTPUT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span>--gff-out
+</code></pre></div>
+<h3 id="using-a-blast-database-for-sequence-extraction">Using a BLAST database for sequence extraction<a class="headerlink" href="#using-a-blast-database-for-sequence-extraction" title="Permanent link">&para;</a></h3>
+<p>If your BLAST database was created with <code>-parse_seqids</code>, TIRmite can extract sequences directly from the database:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Create BLAST database with parsed sequence IDs</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>makeblastdb<span class="w"> </span>-in<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span>-dbtype<span class="w"> </span>nucl<span class="w"> </span>-out<span class="w"> </span>genome_db<span class="w"> </span>-parse_seqids
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>--blastdb<span class="w"> </span>genome_db<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span>--blast-file<span class="w"> </span>MY_TIR_blast_hits.tab<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span>--query-len<span class="w"> </span><span class="m">100</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">  </span>--outdir<span class="w"> </span>MY_TIR_OUTPUT
+</code></pre></div>
+<h2 id="extracting-flanking-regions">Extracting Flanking Regions<a class="headerlink" href="#extracting-flanking-regions" title="Permanent link">&para;</a></h2>
+<p>Use <code>--flank-len</code> to extract the genomic sequence immediately <strong>outside</strong> each terminus hit – upstream of the left terminus and downstream of the right terminus. These external flanks are useful for:</p>
+<ul>
+<li>Examining Target Site Duplications (TSDs)</li>
+<li>Checking whether element boundaries are correctly identified</li>
+<li>Providing flanking context for downstream analysis</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Difference between <code>--padlen</code> and <code>--flank-len</code></p>
+<p><code>--padlen</code> pads the hit or element sequence itself (i.e. adds bases to both sides of the hit/element in the output FASTA). <code>--flank-len</code> extracts the sequence that lies <em>outside</em> the element boundary – the true external flank. Use <code>--flank-len</code> when you want to study TSDs or the sequence context beyond the termini.</p>
+</div>
+<h3 id="flank-output-files">Flank output files<a class="headerlink" href="#flank-output-files" title="Permanent link">&para;</a></h3>
+<p>When <code>--flank-len</code> is set, TIRmite writes the following FASTA files to the output directory:</p>
+<table>
+<thead>
+<tr>
+<th>Filename pattern</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>{prefix}{model}_left_flank_{count}.fasta</code></td>
+<td>External flanks for all left terminus hits</td>
+</tr>
+<tr>
+<td><code>{prefix}{model}_right_flank_{count}.fasta</code></td>
+<td>External flanks for all right terminus hits</td>
+</tr>
+<tr>
+<td><code>{prefix}{model}_paired_left_flank_{count}.fasta</code></td>
+<td>External flanks for <strong>paired</strong> left terminus hits only (element ID in header)</td>
+</tr>
+<tr>
+<td><code>{prefix}{model}_paired_right_flank_{count}.fasta</code></td>
+<td>External flanks for <strong>paired</strong> right terminus hits only (element ID in header)</td>
+</tr>
+</tbody>
+</table>
+<p>The <strong>paired-only</strong> flank files include the element identifier (<code>Element_N</code>) in each sequence header, making it easy to link flanks back to specific annotated elements.</p>
+<p>Example FASTA header for a paired flank:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>&gt;Element_1_MY_TIR_1_L  chr1:1000-1019(+)
+</code></pre></div>
+<h3 id="offset-correction">Offset correction<a class="headerlink" href="#offset-correction" title="Permanent link">&para;</a></h3>
+<p>The external flank starts at the genomic coordinate corresponding to model position 1 (for a left terminus) or model position <code>model_len</code> (for a right terminus). If the hit alignment does not reach that outer model edge, TIRmite corrects the flank coordinate by the gap (offset).</p>
+<p>Use <code>--flank-max-offset</code> to skip hits where this offset is too large (i.e. the hit does not extend close enough to the terminus edge):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>--nhmmer-file<span class="w"> </span><span class="nv">$NHMMERFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span>--hmm-file<span class="w"> </span><span class="nv">$HMMFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span>--flank-len<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="w">  </span>--flank-max-offset<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">  </span>--outdir<span class="w"> </span>MY_TIR_OUTPUT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">  </span>--gff-out
+</code></pre></div>
+<h3 id="paired-only-flank-extraction">Paired-only flank extraction<a class="headerlink" href="#paired-only-flank-extraction" title="Permanent link">&para;</a></h3>
+<p>By default, <code>--flank-len</code> extracts flanks for both paired and unpaired hits. To restrict output to hits that form a valid pair, add <code>--flank-paired-only</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span>--nhmmer-file<span class="w"> </span><span class="nv">$NHMMERFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>--hmm-file<span class="w"> </span><span class="nv">$HMMFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">  </span>--flank-len<span class="w"> </span><span class="m">20</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">  </span>--flank-paired-only<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">  </span>--outdir<span class="w"> </span>MY_TIR_OUTPUT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a><span class="w">  </span>--gff-out
+</code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>Even without <code>--flank-paired-only</code>, the <code>_paired_left_flank_</code> and <code>_paired_right_flank_</code> files are <strong>always</strong> written for paired hits only when <code>--flank-len</code> is set. The <code>--flank-paired-only</code> flag additionally suppresses the <code>_left_flank_</code> and <code>_right_flank_</code> all-hits files.</p>
+</div>
+<h2 id="reconstructing-target-sites">Reconstructing Target Sites<a class="headerlink" href="#reconstructing-target-sites" title="Permanent link">&para;</a></h2>
+<p>When <code>--flank-len</code> is set together with <code>--insertion-site</code>, TIRmite reconstructs the original <strong>target site</strong> for each paired element. The target site is the genomic sequence that was present at the insertion location before the transposon arrived — a TSD-flanked sequence that appears once in empty sites and duplicated around inserted elements. Use <code>--tsd-length</code> (or <code>--tsd-length-map</code>) and optionally <code>--tsd-in-model</code> to configure how the TSD is handled during reconstruction.</p>
+<h3 id="how-the-reconstruction-works">How the reconstruction works<a class="headerlink" href="#how-the-reconstruction-works" title="Permanent link">&para;</a></h3>
+<p>Each transposon insertion results in one copy of the TSD at each end of the element. When the flanks are joined the duplicate TSD must be reduced to a single copy:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>Inserted element
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>←[left_flank][TSD]→[LEFT_TERMINUS]…[RIGHT_TERMINUS]←[TSD][right_flank]→
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>                 ↑ one copy trimmed here
+</code></pre></div>
+<h4 id="when-tsd-in-model-is-not-set-tsd-is-outside-the-model">When <code>--tsd-in-model</code> is NOT set (TSD is outside the model)<a class="headerlink" href="#when-tsd-in-model-is-not-set-tsd-is-outside-the-model" title="Permanent link">&para;</a></h4>
+<p>The TSD sequence appears as the innermost <code>n</code> bases of the extracted flanks — immediately adjacent to the terminus hit boundary. TIRmite reads the TSD from the flank boundary, computes the Hamming distance between the two copies, and trims one before joining.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>Genomic layout:
+<a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>  ←[upstream]←[TSD_L]←[LEFT_HIT]……[RIGHT_HIT]→[TSD_R]→[downstream]→
+<a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>
+<a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>  left_flank  = [upstream] + [TSD_L]   (TSD at right/inner end of left flank)
+<a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>  right_flank = [TSD_R] + [downstream] (TSD at left/inner end of right flank)
+<a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>
+<a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>Reconstruction: left_flank + right_flank[tsd_length:]
+<a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a>             = [upstream] + [TSD_L] + [downstream]
+</code></pre></div>
+<h4 id="when-tsd-in-model-is-set-tsd-is-inside-the-model">When <code>--tsd-in-model</code> IS set (TSD is inside the model)<a class="headerlink" href="#when-tsd-in-model-is-set-tsd-is-inside-the-model" title="Permanent link">&para;</a></h4>
+<p>The TSD is encoded within the terminus HMM model itself (at the element-facing end). The extracted flanks are clean sequences with no TSD. TIRmite uses the hit coordinates and HMM alignment positions to locate the TSD within the hit, extracts it directly, and inserts one copy between the clean flanks.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>Genomic layout:
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>  ←[upstream]←[LEFT_HIT][TSD_L]……[TSD_R][RIGHT_HIT]→[downstream]→
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>  left_flank  = [upstream]             (clean, no TSD)
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>  right_flank = [downstream]           (clean, no TSD)
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>  TSD_L extracted from LEFT_HIT inner boundary
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>
+<a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>Reconstruction: left_flank + TSD_L + right_flank
+<a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a>             = [upstream] + [TSD_L] + [downstream]
+</code></pre></div>
+<h3 id="flank-coordinate-and-offset-corrections">Flank coordinate and offset corrections<a class="headerlink" href="#flank-coordinate-and-offset-corrections" title="Permanent link">&para;</a></h3>
+<p>The external flank boundary is aligned to the <strong>outer edge of the terminus model</strong> (model position 1 for left terminus, model position <code>N</code> for right terminus). If the hit alignment does not reach the model outer edge, the flank coordinate is shifted inward by the number of uncovered model positions (the offset).</p>
+<p>Similarly, for <code>tsd_in_model=True</code>, the TSD inner boundary coordinates are computed from the hit start/end and HMM alignment positions (<code>hmmStart</code>/<code>hmmEnd</code>), accounting for any offset between the alignment end and the model inner edge. This ensures that orientation, strand, and hit offset are all correctly accounted for in the reconstruction.</p>
+<h3 id="tsd-length-map-for-multiple-model-pairs">TSD length map for multiple model pairs<a class="headerlink" href="#tsd-length-map-for-multiple-model-pairs" title="Permanent link">&para;</a></h3>
+<p>When processing hits from multiple models via <code>--pairing-map</code>, use <code>--tsd-length-map</code> instead of a single <code>--tsd-length</code>. The map is a three-column TSV file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a># tsd_lengths.tsv
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a># left_model    right_model    tsd_length
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>LEFT_TIR        RIGHT_TIR      8
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>ITR_5prime      ITR_3prime     5
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">  </span>--nhmmer-file<span class="w"> </span>multi_model_hits.tab<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">  </span>--lengths-file<span class="w"> </span>model_lengths.txt<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">  </span>--pairing-map<span class="w"> </span>pairing_map.txt<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9" href="#__codelineno-12-9"></a><span class="w">  </span>--flank-len<span class="w"> </span><span class="m">30</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10" href="#__codelineno-12-10"></a><span class="w">  </span>--insertion-site<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11" href="#__codelineno-12-11"></a><span class="w">  </span>--tsd-length-map<span class="w"> </span>tsd_lengths.tsv<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12" href="#__codelineno-12-12"></a><span class="w">  </span>--outdir<span class="w"> </span>OUTPUT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13" href="#__codelineno-12-13"></a><span class="w">  </span>--gff-out
+</code></pre></div>
+<h3 id="target-site-output-files">Target site output files<a class="headerlink" href="#target-site-output-files" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>{prefix}target_sites.fasta</code></td>
+<td>One reconstructed target site per paired element</td>
+</tr>
+<tr>
+<td><code>{prefix}interleaved_flanks.fasta</code></td>
+<td>Gap-padded left/right flank pairs showing TSD position</td>
+</tr>
+</tbody>
+</table>
+<p>FASTA headers in <code>target_sites.fasta</code> include metadata tags:</p>
+<table>
+<thead>
+<tr>
+<th>Tag</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flank_len</code></td>
+<td>Extracted flank length (bp)</td>
+</tr>
+<tr>
+<td><code>tsd_len</code></td>
+<td>User-specified TSD length</td>
+</tr>
+<tr>
+<td><code>tsd_in_model</code></td>
+<td>Whether TSD is inside the terminus model</td>
+</tr>
+<tr>
+<td><code>left_model</code> / <code>right_model</code></td>
+<td>Names of terminus models for this pair</td>
+</tr>
+<tr>
+<td><code>contig</code></td>
+<td>Sequence ID in the target genome</td>
+</tr>
+<tr>
+<td><code>left_flank_hit</code></td>
+<td>Strand and hit coordinates for the left terminus</td>
+</tr>
+<tr>
+<td><code>right_flank_hit</code></td>
+<td>Strand and hit coordinates for the right terminus</td>
+</tr>
+<tr>
+<td><code>tsd_hamming</code></td>
+<td>Hamming distance between left and right TSD copies</td>
+</tr>
+<tr>
+<td><code>left_tsd</code> / <code>right_tsd</code></td>
+<td>TSD sequences (when &gt; 0 bp)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Next step: validation</p>
+<p>Use the <code>target_sites.fasta</code> output as input to <a href="../tirmite-validate/"><code>tirmite validate</code></a> to search a reference genome for matching empty insertion sites and independently confirm the TSD length.</p>
+</div>
+<h2 id="hit-anchoring-filtering-by-model-edge-proximity">Hit Anchoring: Filtering by Model Edge Proximity<a class="headerlink" href="#hit-anchoring-filtering-by-model-edge-proximity" title="Permanent link">&para;</a></h2>
+<p>The <code>--max-offset</code> flag filters out hits whose alignment does not reach close enough to the <strong>outer edge</strong> of the query model. This removes spurious interior fragment hits that are unlikely to represent true element termini.</p>
+<h3 id="what-is-the-outer-edge">What is the outer edge?<a class="headerlink" href="#what-is-the-outer-edge" title="Permanent link">&para;</a></h3>
+<p>Each terminus model has an external end that faces away from the element interior:</p>
+<ul>
+<li><strong>Left terminus</strong>: the outer edge is model position 1 (the very start of the model)</li>
+<li><strong>Right terminus</strong>: the outer edge is model position <code>model_len</code> (the very end of the model)</li>
+</ul>
+<p>If a hit's alignment starts at model position 5 (for a left terminus hit on the + strand), the offset is 4. Setting <code>--max-offset 5</code> would keep this hit; setting <code>--max-offset 3</code> would remove it.</p>
+<pre class="mermaid"><code>flowchart LR
+    subgraph "Left terminus hit on + strand"
+        direction LR
+        M1[Model pos 1\n← outer edge] -.offset.- A1[alignment\nstart] --&gt; A2[alignment\nend]
+    end
+    subgraph "Right terminus hit on + strand"
+        direction LR
+        B1[alignment\nstart] --&gt; B2[alignment\nend] -.offset.- M2[Model pos N\nouter edge →]
+    end</code></pre>
+<h3 id="terminus-type-determination">Terminus type determination<a class="headerlink" href="#terminus-type-determination" title="Permanent link">&para;</a></h3>
+<p>TIRmite determines whether each hit is a left or right terminus using:</p>
+<ol>
+<li><strong>Pairing map</strong> (if provided): model name determines the terminus type</li>
+<li><strong>F,R orientation</strong> (strands differ): + strand hits → left terminus; − strand hits → right terminus</li>
+<li><strong>F,F or R,R</strong> (same-strand, no pairing map): the hit must be within <code>--max-offset</code> of <strong>both</strong> ends of the query model (i.e. the full model must be nearly covered)</li>
+</ol>
+<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span>--nhmmer-file<span class="w"> </span><span class="nv">$NHMMERFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">  </span>--hmm-file<span class="w"> </span><span class="nv">$HMMFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">  </span>--max-offset<span class="w"> </span><span class="m">5</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9" href="#__codelineno-13-9"></a><span class="w">  </span>--outdir<span class="w"> </span>MY_TIR_OUTPUT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10" href="#__codelineno-13-10"></a><span class="w">  </span>--gff-out
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code>--max-offset</code> is applied <strong>before</strong> the pairing step, so it reduces the pool of candidate hits available for pairing. It is complementary to <code>--mincov</code>, which filters on overall fractional coverage of the model rather than the proximity of the alignment to the outer edge.</p>
+</div>
+<h2 id="multiple-models-using-the-pairing-map">Multiple Models: Using the Pairing Map<a class="headerlink" href="#multiple-models-using-the-pairing-map" title="Permanent link">&para;</a></h2>
+<p>When your input file contains hits from <strong>multiple HMM models or BLAST queries</strong>, you must provide a <code>--pairing-map</code> file. Without it, TIRmite cannot know which models should be paired together and may produce incorrect results.</p>
+<h3 id="pairing-map-format">Pairing map format<a class="headerlink" href="#pairing-map-format" title="Permanent link">&para;</a></h3>
+<p>A tab-delimited file with two columns: <code>left_feature</code> and <code>right_feature</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a># pairing_map.txt
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a># left_feature    right_feature
+</code></pre></div>
+<p><strong>Symmetric pairing</strong> (same model on both ends):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>model1    model1
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>model2    model2
+</code></pre></div>
+<p><strong>Asymmetric pairing</strong> (different models):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>LEFT_TIR    RIGHT_TIR
+<a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>ITR_5prime  ITR_3prime
+</code></pre></div>
+<h3 id="how-pairing-map-logic-works">How pairing map logic works<a class="headerlink" href="#how-pairing-map-logic-works" title="Permanent link">&para;</a></h3>
+<p>When a pairing map is provided, TIRmite:</p>
+<ol>
+<li>Splits hits into groups corresponding to each left/right model pair defined in the map</li>
+<li>Runs the pairing algorithm <strong>independently</strong> for each pair combination</li>
+<li>Tracks unpaired hits across all procedures (a hit may be unpaired in one combination but paired in another)</li>
+</ol>
+<div class="admonition note">
+<p class="admonition-title">Hits in multiple combinations</p>
+<p>Features can appear in multiple pairing combinations if needed. For example, if <code>model1</code> is listed as left in one pair and right in another, TIRmite runs independent pairing procedures for each combination and correctly tracks unpaired hits across all.</p>
+</div>
+<h3 id="example-with-multiple-models">Example with multiple models<a class="headerlink" href="#example-with-multiple-models" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="w">  </span>--nhmmer-file<span class="w"> </span>multi_model_hits.tab<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">  </span>--lengths-file<span class="w"> </span>model_lengths.txt<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a><span class="w">  </span>--pairing-map<span class="w"> </span>pairing_map.txt<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a><span class="w">  </span>--outdir<span class="w"> </span>OUTPUT<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">  </span>--gff-out
+</code></pre></div>
+<h2 id="reporting-options">Reporting Options<a class="headerlink" href="#reporting-options" title="Permanent link">&para;</a></h2>
+<p>The <code>--report</code> flag controls which hit categories are written to output files:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>all</code></td>
+<td>Report all hits: paired elements, paired hits, and unpaired hits</td>
+</tr>
+<tr>
+<td><code>paired</code></td>
+<td>Report only paired elements and their constituent hits</td>
+</tr>
+<tr>
+<td><code>unpaired</code></td>
+<td>Report only unpaired hits</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gff3-output">GFF3 output<a class="headerlink" href="#gff3-output" title="Permanent link">&para;</a></h3>
+<p>Enable GFF3 output with <code>--gff-out</code>. The GFF3 file includes:</p>
+<ul>
+<li>Predicted element features (paired left+right termini)</li>
+<li>Individual terminus hit features (if <code>--report all</code>)</li>
+<li>Attributes including model name, e-value, coverage, and orientation</li>
+</ul>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>tirmite<span class="w"> </span>pair<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="w">  </span>--genome<span class="w"> </span><span class="nv">$GENOME</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a><span class="w">  </span>--nhmmer-file<span class="w"> </span><span class="nv">$NHMMERFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a><span class="w">  </span>--hmm-file<span class="w"> </span><span class="nv">$HMMFILE</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="w">  </span>--orientation<span class="w"> </span>F,R<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a><span class="w">  </span>--mincov<span class="w"> </span><span class="m">0</span>.4<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="w">  </span>--maxdist<span class="w"> </span><span class="m">20000</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="w">  </span>--report<span class="w"> </span>all<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a><span class="w">  </span>--gff-out<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="w">  </span>--outdir<span class="w"> </span>MY_TIR_OUTPUT
+</code></pre></div>
+<h2 id="key-options-reference">Key Options Reference<a class="headerlink" href="#key-options-reference" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--genome</code></td>
+<td>Path to target genome FASTA</td>
+</tr>
+<tr>
+<td><code>--blastdb</code></td>
+<td>Path to BLAST database (alternative to <code>--genome</code> for sequence extraction)</td>
+</tr>
+<tr>
+<td><code>--nhmmer-file</code></td>
+<td>nhmmer tabular output file</td>
+</tr>
+<tr>
+<td><code>--blast-file</code></td>
+<td>BLAST tabular output file (format 6)</td>
+</tr>
+<tr>
+<td><code>--hmm-file</code></td>
+<td>HMM file (used to determine model lengths for coverage calculation)</td>
+</tr>
+<tr>
+<td><code>--lengths-file</code></td>
+<td>Tab-delimited file of model lengths (alternative to <code>--hmm-file</code>)</td>
+</tr>
+<tr>
+<td><code>--query-len</code></td>
+<td>Query length for BLAST input (when single-model BLAST results)</td>
+</tr>
+<tr>
+<td><code>--pairing-map</code></td>
+<td>Tab-delimited file linking left and right model names</td>
+</tr>
+<tr>
+<td><code>--orientation</code></td>
+<td>Strand orientation for valid pairs (e.g. <code>F,R</code>, <code>F,F</code>)</td>
+</tr>
+<tr>
+<td><code>--mincov</code></td>
+<td>Minimum fraction of model covered by hit (0–1)</td>
+</tr>
+<tr>
+<td><code>--maxdist</code></td>
+<td>Maximum distance between paired terminus hits (bp)</td>
+</tr>
+<tr>
+<td><code>--maxeval</code></td>
+<td>Maximum e-value for hit filtering</td>
+</tr>
+<tr>
+<td><code>--max-offset</code></td>
+<td>Maximum unaligned model positions between hit edge and outer terminus edge (anchor filter)</td>
+</tr>
+<tr>
+<td><code>--stable-reps</code></td>
+<td>Iterations without new pairing before stopping (default: 2)</td>
+</tr>
+<tr>
+<td><code>--padlen</code></td>
+<td>Flanking bases to pad the extracted hit/element sequences</td>
+</tr>
+<tr>
+<td><code>--flank-len</code></td>
+<td>Length of external flanking region to extract per terminus (bp)</td>
+</tr>
+<tr>
+<td><code>--flank-max-offset</code></td>
+<td>Skip flank extraction for hits where offset from outer model edge exceeds this value</td>
+</tr>
+<tr>
+<td><code>--flank-paired-only</code></td>
+<td>Only extract flanks for hits that form a valid pair</td>
+</tr>
+<tr>
+<td><code>--insertion-site</code></td>
+<td>Enable insertion site reconstruction and reporting (requires <code>--flank-len</code>)</td>
+</tr>
+<tr>
+<td><code>--tsd-length</code></td>
+<td>TSD/DR length for target site reconstruction (requires <code>--insertion-site</code> and <code>--flank-len</code>)</td>
+</tr>
+<tr>
+<td><code>--tsd-length-map</code></td>
+<td>Per-model-pair TSD length map (TSV: left_model, right_model, tsd_length)</td>
+</tr>
+<tr>
+<td><code>--tsd-in-model</code></td>
+<td>The TSD is encoded at the inner end of the terminus HMM model</td>
+</tr>
+<tr>
+<td><code>--report</code></td>
+<td>Reporting mode: <code>all</code>, <code>paired</code>, or <code>unpaired</code></td>
+</tr>
+<tr>
+<td><code>--gff-out</code></td>
+<td>Write GFF3 annotation file</td>
+</tr>
+<tr>
+<td><code>--logfile</code></td>
+<td>Write log to file</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/Adamtaranto/TIRmite" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.expand", "search.highlight", "search.share", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@10/dist/mermaid.min.js"></script>
+      
+    
+  </body>
+</html>

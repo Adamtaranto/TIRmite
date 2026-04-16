@@ -869,6 +869,22 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
 
     # Target site reconstruction options
     parser.add_argument(
+        '--insertion-site',
+        action='store_true',
+        default=False,
+        dest='insertion_site',
+        help=(
+            'Enable insertion site reconstruction and reporting. '
+            'When set, flanking sequences are used to reconstruct the original '
+            'target site for each paired element. '
+            'Requires --flank-len to be set. '
+            'Use --tsd-length / --tsd-length-map / --tsd-in-model to configure '
+            'TSD handling. '
+            'Default: off.'
+        ),
+    )
+
+    parser.add_argument(
         '--tsd-length',
         type=int,
         default=0,
@@ -876,7 +892,7 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         help=(
             'Length of the Target Site Duplication (TSD) or Direct Repeat (DR) '
             'feature to account for when reconstructing target sites. '
-            'Requires --flank-len to be set. Default: 0 (no TSD).'
+            'Requires --insertion-site and --flank-len to be set. Default: 0 (no TSD).'
         ),
     )
 
@@ -985,10 +1001,15 @@ def validate_arguments(args: Any) -> None:
             )
 
     # Validate target site reconstruction options
-    if (args.tsd_length > 0 or args.tsd_length_map) and not args.flank_len:
-        raise ValueError(
-            '--tsd-length or --tsd-length-map requires --flank-len to be set'
+    tsd_options_set = args.tsd_length > 0 or args.tsd_length_map or args.tsd_in_model
+    if tsd_options_set and not args.insertion_site:
+        logging.warning(
+            'TSD options (--tsd-length, --tsd-length-map, --tsd-in-model) are set '
+            'but --insertion-site is not enabled. These options will be ignored. '
+            'Add --insertion-site to enable insertion site reconstruction.'
         )
+    if args.insertion_site and not args.flank_len:
+        raise ValueError('--insertion-site requires --flank-len to be set')
 
     # Check file existence
     required_files = []
@@ -1711,8 +1732,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 blastdb=args.blastdb if args.blastdb else None,
             )
 
-            # Reconstruct target sites if TSD length is provided
-            if args.tsd_length > 0 or args.tsd_length_map:
+            # Reconstruct target sites if explicitly requested
+            if args.insertion_site:
                 logging.info('Reconstructing target sites...')
 
                 # Load TSD length map if provided

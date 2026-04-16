@@ -936,12 +936,12 @@ class TestPairCliTsdArgs:
         )
         assert args.tsd_length_map == 'tsd_map.tsv'
 
-    def test_tsd_requires_flank_len(self):
+    def test_insertion_site_requires_flank_len(self):
         import argparse
 
         from tirmite.cli.hmm_pair import validate_arguments
 
-        # Create mock args with TSD but no flank_len
+        # --insertion-site without --flank-len must raise an error
         args = argparse.Namespace(
             genome='genome.fa',
             blastdb=None,
@@ -958,8 +958,119 @@ class TestPairCliTsdArgs:
             lengths_file=None,
             pairing_map=None,
             flank_len=None,
+            insertion_site=True,
             tsd_length=5,
             tsd_length_map=None,
+            tsd_in_model=False,
         )
-        with pytest.raises(ValueError, match='--flank-len'):
+        with pytest.raises(ValueError, match='--insertion-site requires --flank-len'):
             validate_arguments(args)
+
+    def test_tsd_options_without_insertion_site_warns(self, caplog):
+        import argparse
+        import logging
+        from unittest.mock import patch
+
+        from tirmite.cli.hmm_pair import validate_arguments
+
+        # TSD options set but --insertion-site not enabled → warning, no error
+        args = argparse.Namespace(
+            genome='genome.fa',
+            blastdb=None,
+            left_nhmmer=None,
+            right_nhmmer=None,
+            left_blast=None,
+            right_blast=None,
+            left_model=None,
+            right_model=None,
+            nhmmer_file='hits.out',
+            hmm_file='model.hmm',
+            blast_file=None,
+            query_len=None,
+            lengths_file=None,
+            pairing_map=None,
+            flank_len=20,
+            insertion_site=False,
+            tsd_length=5,
+            tsd_length_map=None,
+            tsd_in_model=False,
+        )
+        # validate_arguments should not raise, only emit a logging warning
+        with patch('pathlib.Path.exists', return_value=True):
+            with caplog.at_level(logging.WARNING):
+                validate_arguments(args)  # must not raise
+        assert '--insertion-site' in caplog.text
+
+    def test_tsd_in_model_without_insertion_site_warns(self, caplog):
+        import argparse
+        import logging
+        from unittest.mock import patch
+
+        from tirmite.cli.hmm_pair import validate_arguments
+
+        # --tsd-in-model set but --insertion-site not enabled → warning, no error
+        args = argparse.Namespace(
+            genome='genome.fa',
+            blastdb=None,
+            left_nhmmer=None,
+            right_nhmmer=None,
+            left_blast=None,
+            right_blast=None,
+            left_model=None,
+            right_model=None,
+            nhmmer_file='hits.out',
+            hmm_file='model.hmm',
+            blast_file=None,
+            query_len=None,
+            lengths_file=None,
+            pairing_map=None,
+            flank_len=20,
+            insertion_site=False,
+            tsd_length=0,
+            tsd_length_map=None,
+            tsd_in_model=True,
+        )
+        with patch('pathlib.Path.exists', return_value=True):
+            with caplog.at_level(logging.WARNING):
+                validate_arguments(args)  # must not raise
+        assert '--insertion-site' in caplog.text
+
+    def test_parser_has_insertion_site_arg(self):
+        from tirmite.cli.hmm_pair import create_pair_parser
+
+        parser = create_pair_parser()
+        args = parser.parse_args(
+            [
+                '--genome',
+                'genome.fa',
+                '--nhmmer-file',
+                'hits.out',
+                '--hmm-file',
+                'model.hmm',
+                '--flank-len',
+                '20',
+                '--insertion-site',
+                '--tsd-length',
+                '5',
+                '--tsd-in-model',
+            ]
+        )
+        assert args.insertion_site is True
+        assert args.tsd_length == 5
+        assert args.tsd_in_model is True
+
+    def test_insertion_site_default_is_false(self):
+        from tirmite.cli.hmm_pair import create_pair_parser
+
+        parser = create_pair_parser()
+        args = parser.parse_args(
+            [
+                '--genome',
+                'genome.fa',
+                '--nhmmer-file',
+                'hits.out',
+                '--hmm-file',
+                'model.hmm',
+            ]
+        )
+        assert args.insertion_site is False

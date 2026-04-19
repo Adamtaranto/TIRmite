@@ -2477,9 +2477,9 @@ def writeFlanks(
     if write_all and is_symmetric_same_strand:
         logging.warning(
             'Symmetric same-strand orientation detected (%s). '
-            'Cannot determine outer edge for unpaired hits from a single model. '
-            'Both left and right flanks will be written for all hits. '
-            'Consider using --flanks-paired instead of --flanks for more precise results.',
+            'Cannot determine the outer edge for unpaired hits from a single model. '
+            'Unpaired hits will be skipped in --flanks output. '
+            'Use --flanks-paired for external flanks of confirmed paired termini.',
             ','.join(config.orientation),
         )
 
@@ -2491,19 +2491,16 @@ def writeFlanks(
                 hit = hit_data['rec']
 
                 if is_symmetric_same_strand:
-                    # For F,F or R,R symmetric pairings, write both left and right
-                    # flanks since we cannot determine the outer edge
-                    for is_left in [True, False]:
-                        side_label = 'left' if is_left else 'right'
-                        record_id = f'{model}_{hit_id}_unpaired_{side_label}'
-                        rec = build_flank_record(
-                            hit, is_left=is_left, record_id=record_id
-                        )
-                        if rec:
-                            if is_left:
-                                left_flanks.setdefault(hit.model, []).append(rec)
-                            else:
-                                right_flanks.setdefault(hit.model, []).append(rec)
+                    # For F,F or R,R symmetric pairings, we cannot determine which
+                    # side of an unpaired hit is the external (outer) flank without
+                    # knowing whether it is the left or right terminus.  Writing both
+                    # flanks would include an internal flank, so we skip unpaired hits
+                    # entirely and advise the user to use --flanks-paired instead.
+                    logging.debug(
+                        f'Skipping unpaired hit {hit_id} (model={hit.model}): '
+                        'cannot determine external flank in symmetric same-strand mode'
+                    )
+                    continue
                 else:
                     terminus_type = _determine_terminus_type(hit, config)
                     if terminus_type is None:

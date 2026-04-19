@@ -941,7 +941,7 @@ class TestPairCliTsdArgs:
 
         from tirmite.cli.hmm_pair import validate_arguments
 
-        # --insertion-site without --flank-len must raise an error
+        # --insertion-site without --flanks or --flanks-paired must raise an error
         args = argparse.Namespace(
             genome='genome.fa',
             blastdb=None,
@@ -957,13 +957,17 @@ class TestPairCliTsdArgs:
             query_len=None,
             lengths_file=None,
             pairing_map=None,
-            flank_len=None,
+            flank_len=50,
+            flanks=False,
+            flanks_paired=False,
             insertion_site=True,
             tsd_length=5,
             tsd_length_map=None,
             tsd_in_model=False,
         )
-        with pytest.raises(ValueError, match='--insertion-site requires --flank-len'):
+        with pytest.raises(
+            ValueError, match='--insertion-site requires --flanks or --flanks-paired'
+        ):
             validate_arguments(args)
 
     def test_tsd_options_without_insertion_site_warns(self, caplog):
@@ -990,6 +994,8 @@ class TestPairCliTsdArgs:
             lengths_file=None,
             pairing_map=None,
             flank_len=20,
+            flanks=True,
+            flanks_paired=False,
             insertion_site=False,
             tsd_length=5,
             tsd_length_map=None,
@@ -1025,6 +1031,8 @@ class TestPairCliTsdArgs:
             lengths_file=None,
             pairing_map=None,
             flank_len=20,
+            flanks=True,
+            flanks_paired=False,
             insertion_site=False,
             tsd_length=0,
             tsd_length_map=None,

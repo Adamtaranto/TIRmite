@@ -329,10 +329,11 @@ tirmite validate \
 
 | Option | Description |
 |--------|-------------|
-| `--flank-len N` | Extract N bp of external flanking sequence per terminus (required for reconstruction) |
+| `--flanks` | Enable writing of external flanking sequences for all hits |
+| `--flanks-paired` | Write outer flanking sequences for paired termini only |
+| `--flank-len N` | Extract N bp of external flanking sequence per terminus (default: 50) |
 | `--flank-max-offset N` | Skip flanks for hits where alignment offset from model edge exceeds N bp |
-| `--flank-paired-only` | Only extract flanks for hits that form a valid pair |
-| `--insertion-site` | Enable insertion site reconstruction and reporting (requires `--flank-len`) |
+| `--insertion-site` | Enable insertion site reconstruction and reporting (requires `--flanks` or `--flanks-paired`) |
 | `--tsd-length N` | Length of TSD/DR feature (bp) for a single model pair (requires `--insertion-site`) |
 | `--tsd-length-map FILE` | Tab-delimited file mapping model pairs to TSD lengths (requires `--insertion-site`) |
 | `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |

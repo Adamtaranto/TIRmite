@@ -196,23 +196,30 @@ tirmite pair \
 
 ## Extracting Flanking Regions
 
-Use `--flank-len` to extract the genomic sequence immediately **outside** each terminus hit – upstream of the left terminus and downstream of the right terminus. These external flanks are useful for:
+Use `--flanks` to extract the genomic sequence immediately **outside** each terminus hit – upstream of the left terminus and downstream of the right terminus. These external flanks are useful for:
 
 - Examining Target Site Duplications (TSDs)
 - Checking whether element boundaries are correctly identified
 - Providing flanking context for downstream analysis
 
+The flank length defaults to 50 bp but can be adjusted with `--flank-len`.
+
 !!! note "Difference between `--padlen` and `--flank-len`"
-    `--padlen` pads the hit or element sequence itself (i.e. adds bases to both sides of the hit/element in the output FASTA). `--flank-len` extracts the sequence that lies *outside* the element boundary – the true external flank. Use `--flank-len` when you want to study TSDs or the sequence context beyond the termini.
+    `--padlen` pads the hit or element sequence itself (i.e. adds bases to both sides of the hit/element in the output FASTA). `--flank-len` extracts the sequence that lies *outside* the element boundary – the true external flank. Use `--flanks` when you want to study TSDs or the sequence context beyond the termini.
 
 ### Flank output files
 
-When `--flank-len` is set, TIRmite writes the following FASTA files to the output directory:
+When `--flanks` is set, TIRmite writes the following FASTA files to the output directory:
 
 | Filename pattern | Contents |
 |-----------------|----------|
 | `{prefix}{model}_left_flank_{count}.fasta` | External flanks for all left terminus hits |
 | `{prefix}{model}_right_flank_{count}.fasta` | External flanks for all right terminus hits |
+
+When `--flanks-paired` is set (with or without `--flanks`), TIRmite also writes:
+
+| Filename pattern | Contents |
+|-----------------|----------|
 | `{prefix}{model}_paired_left_flank_{count}.fasta` | External flanks for **paired** left terminus hits only (element ID in header) |
 | `{prefix}{model}_paired_right_flank_{count}.fasta` | External flanks for **paired** right terminus hits only (element ID in header) |
 
@@ -223,6 +230,9 @@ Example FASTA header for a paired flank:
 ```
 >Element_1_MY_TIR_1_L  chr1:1000-1019(+)
 ```
+
+!!! warning "Symmetric same-strand orientations (F,F or R,R)"
+    For symmetric same-strand orientations, a single model is present at both ends of an element in the same orientation, so individual unpaired hits cannot be classified as "left" or "right". When `--flanks` is used with these orientations, both left and right flanks are extracted for all hits and a warning is raised advising use of `--flanks-paired` instead.
 
 ### Offset correction
 
@@ -238,6 +248,7 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
+  --flanks \
   --flank-len 20 \
   --flank-max-offset 5 \
   --outdir MY_TIR_OUTPUT \
@@ -246,7 +257,7 @@ tirmite pair \
 
 ### Paired-only flank extraction
 
-By default, `--flank-len` extracts flanks for both paired and unpaired hits. To restrict output to hits that form a valid pair, add `--flank-paired-only`:
+Use `--flanks-paired` to write outer flanks only for termini that were assigned to pairs. If `--flanks` is also set, all-hit flanks are written first, then paired flanks are written to separate files (reusing already-extracted sequences to avoid redundant extraction):
 
 ```bash
 tirmite pair \
@@ -256,18 +267,21 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
+  --flanks \
+  --flanks-paired \
   --flank-len 20 \
-  --flank-paired-only \
   --outdir MY_TIR_OUTPUT \
   --gff-out
 ```
 
 !!! tip
-    Even without `--flank-paired-only`, the `_paired_left_flank_` and `_paired_right_flank_` files are **always** written for paired hits only when `--flank-len` is set. The `--flank-paired-only` flag additionally suppresses the `_left_flank_` and `_right_flank_` all-hits files.
+    When both `--flanks` and `--flanks-paired` are used together, the `_left_flank_` and `_right_flank_` files contain all hits (paired + unpaired) while the `_paired_left_flank_` and `_paired_right_flank_` files contain only paired hits with element IDs in the headers.
 
 ## Reconstructing Target Sites
 
-When `--flank-len` is set together with `--insertion-site`, TIRmite reconstructs the original **target site** for each paired element. The target site is the genomic sequence that was present at the insertion location before the transposon arrived — a TSD-flanked sequence that appears once in empty sites and duplicated around inserted elements. Use `--tsd-length` (or `--tsd-length-map`) and optionally `--tsd-in-model` to configure how the TSD is handled during reconstruction.
+When `--flanks` or `--flanks-paired` is set together with `--insertion-site`, TIRmite reconstructs the original **target site** for each paired element. The target site is the genomic sequence that was present at the insertion location before the transposon arrived — a TSD-flanked sequence that appears once in empty sites and duplicated around inserted elements. Use `--tsd-length` (or `--tsd-length-map`) and optionally `--tsd-in-model` to configure how the TSD is handled during reconstruction.
+
+When processing multiple terminus model pairs via `--pairing-map`, one output FASTA is written per pair of models. Target sites are written as single-line non-wrapped FASTA.
 
 ### How the reconstruction works
 

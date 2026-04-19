@@ -833,15 +833,41 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
+        '--flanks',
+        action='store_true',
+        default=False,
+        help=(
+            'Enable writing of external flanking sequences for all hits. '
+            'Flanks are extracted using the length set by --flank-len (default 50). '
+            'For symmetric same-strand orientations (F,F or R,R) both left and right '
+            'flanks are written to separate files and a warning is raised advising '
+            'use of --flanks-paired instead.'
+        ),
+    )
+
+    parser.add_argument(
+        '--flanks-paired',
+        action='store_true',
+        default=False,
+        dest='flanks_paired',
+        help=(
+            'Write outer flanking sequences for termini that were assigned to pairs. '
+            'If --flanks is also set, all-hit flanks are written first and paired '
+            'flanks are written to separate files (reusing already-extracted sequences). '
+            'If --flanks is not set, only paired flanks are written.'
+        ),
+    )
+
+    parser.add_argument(
         '--flank-len',
         type=int,
-        default=None,
+        default=50,
         dest='flank_len',
         help=(
             'Length of the external flanking region to extract (in bases). '
             'The flank is the genomic sequence immediately outside each terminus hit '
             '(upstream of the left terminus, downstream of the right terminus). '
-            'If not set, flanks are not extracted.'
+            'Default: 50.'
         ),
     )
 
@@ -859,14 +885,6 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
-    parser.add_argument(
-        '--flank-paired-only',
-        action='store_true',
-        default=False,
-        dest='flank_paired_only',
-        help='Only extract flanks from paired hits. Default: extract from all hits.',
-    )
-
     # Target site reconstruction options
     parser.add_argument(
         '--insertion-site',
@@ -877,7 +895,7 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
             'Enable insertion site reconstruction and reporting. '
             'When set, flanking sequences are used to reconstruct the original '
             'target site for each paired element. '
-            'Requires --flank-len to be set. '
+            'Requires --flanks or --flanks-paired to be set. '
             'Use --tsd-length / --tsd-length-map / --tsd-in-model to configure '
             'TSD handling. '
             'Default: off.'
@@ -1008,8 +1026,10 @@ def validate_arguments(args: Any) -> None:
             'but --insertion-site is not enabled. These options will be ignored. '
             'Add --insertion-site to enable insertion site reconstruction.'
         )
-    if args.insertion_site and not args.flank_len:
-        raise ValueError('--insertion-site requires --flank-len to be set')
+    if args.insertion_site and not (args.flanks or args.flanks_paired):
+        raise ValueError(
+            '--insertion-site requires --flanks or --flanks-paired to be set'
+        )
 
     # Check file existence
     required_files = []
@@ -1048,6 +1068,90 @@ def validate_arguments(args: Any) -> None:
             raise FileNotFoundError(
                 f'BLAST database files not found for: {args.blastdb}'
             )
+
+
+def _write_pair_summary(
+    outdir: str,
+    prefix: Optional[str],
+    left_feature: str,
+    right_feature: str,
+    hitTable: Any,
+    pair_paired: Dict[str, List[Any]],
+    pair_hitIndex: Dict[str, Dict[int, Dict[str, Any]]],
+    total_pairs: int,
+    total_elements: int,
+) -> None:
+    """
+    Write a summary report for a single model pairing.
+
+    Parameters
+    ----------
+    outdir : str
+        Output directory for the summary file.
+    prefix : str or None
+        Prefix for output filename.
+    left_feature : str
+        Name of the left model/feature.
+    right_feature : str
+        Name of the right model/feature.
+    hitTable : pandas.DataFrame
+        DataFrame of all hits.
+    pair_paired : dict
+        Paired hits for this model pair.
+    pair_hitIndex : dict
+        Hit index for this model pair.
+    total_pairs : int
+        Total number of pairs found.
+    total_elements : int
+        Total number of elements extracted.
+
+    Returns
+    -------
+    None
+        Writes summary text file to disk.
+    """
+    prefix_str = f'{prefix}_' if prefix else ''
+    pair_label = (
+        f'{left_feature}_{right_feature}'
+        if left_feature != right_feature
+        else left_feature
+    )
+    summary_path = os.path.join(outdir, f'{prefix_str}{pair_label}_summary.txt')
+
+    # Count hits per model in this pairing
+    models = set()
+    models.add(left_feature)
+    models.add(right_feature)
+
+    hits_per_model: Dict[str, int] = {}
+    for model in models:
+        if model in pair_hitIndex:
+            hits_per_model[model] = len(pair_hitIndex[model])
+        else:
+            hits_per_model[model] = 0
+
+    # Count paired hits
+    paired_hit_ids: set = set()
+    for _model, pairs in pair_paired.items():
+        for pair_set in pairs:
+            paired_hit_ids.update(pair_set)
+
+    total_hits = sum(hits_per_model.values())
+    total_unpaired = total_hits - len(paired_hit_ids)
+
+    with open(summary_path, 'w') as f:
+        f.write('TIRmite Pair Summary Report\n')
+        f.write('==========================\n\n')
+        f.write(f'Model pair: {left_feature} <-> {right_feature}\n\n')
+        f.write('Hits per model:\n')
+        for model, count in sorted(hits_per_model.items()):
+            f.write(f'  {model}: {count}\n')
+        f.write(f'\nTotal hits remaining after filtering: {total_hits}\n')
+        f.write(f'Total pairs after pairing: {total_pairs}\n')
+        f.write(f'Total paired elements extracted: {total_elements}\n')
+        f.write(f'Total unpaired hits: {total_unpaired}\n')
+
+    logging.info(f'Wrote summary report to {summary_path}')
 
 
 def main(args: Optional[argparse.Namespace] = None) -> int:
@@ -1619,6 +1723,109 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         )
                     )
 
+                # Create sub-directory for this pair
+                pair_label = (
+                    f'{left_feature}_{right_feature}'
+                    if left_feature != right_feature
+                    else left_feature
+                )
+                pair_outDir = os.path.join(outDir, pair_label)
+                os.makedirs(pair_outDir, exist_ok=True)
+
+                # Write per-pair output to sub-directory
+                # Write paired TIRs
+                if args.report in ['all', 'paired']:
+                    tirmite.writePairedTIRs(
+                        outDir=pair_outDir,
+                        paired=pair_paired,
+                        hitIndex=pair_hitIndex,
+                        genome=genome,
+                        prefix=args.prefix,
+                        padlen=args.padlen,
+                        genome_descriptions=genome_descriptions,
+                        blastdb=args.blastdb if args.blastdb else None,
+                    )
+
+                # Extract and write elements for this pair
+                pair_pairedEles = tirmite.fetchElements(
+                    paired=pair_paired,
+                    hitIndex=pair_hitIndex,
+                    genome=genome,
+                    genome_descriptions=genome_descriptions,
+                    blastdb=args.blastdb if args.blastdb else None,
+                )
+                tirmite.writeElements(
+                    pair_outDir, eleDict=pair_pairedEles, prefix=args.prefix
+                )
+
+                # Extract and write flanks for this pair
+                if args.flanks or args.flanks_paired:
+                    tirmite.writeFlanks(
+                        outDir=pair_outDir,
+                        hitTable=hitTable,
+                        model_lengths=model_lengths,
+                        paired=pair_paired,
+                        hitIndex=pair_hitIndex,
+                        config=pair_config,
+                        genome=genome,
+                        prefix=args.prefix,
+                        flank_len=args.flank_len,
+                        flank_max_offset=args.flank_max_offset,
+                        write_all=args.flanks,
+                        write_paired=args.flanks_paired,
+                        genome_descriptions=genome_descriptions,
+                        blastdb=args.blastdb if args.blastdb else None,
+                    )
+
+                    # Reconstruct target sites for this pair
+                    if args.insertion_site:
+                        tsd_length_map_data = None
+                        if args.tsd_length_map:
+                            tsd_length_map_data = tirmite.load_tsd_length_map(
+                                args.tsd_length_map
+                            )
+
+                        tirmite.writeTargetSites(
+                            outDir=pair_outDir,
+                            hitTable=hitTable,
+                            model_lengths=model_lengths,
+                            paired=pair_paired,
+                            hitIndex=pair_hitIndex,
+                            config=pair_config,
+                            genome=genome,
+                            prefix=args.prefix,
+                            flank_len=args.flank_len,
+                            flank_max_offset=args.flank_max_offset,
+                            tsd_length=args.tsd_length,
+                            tsd_in_model=args.tsd_in_model,
+                            tsd_length_map=tsd_length_map_data,
+                            genome_descriptions=genome_descriptions,
+                            blastdb=args.blastdb if args.blastdb else None,
+                        )
+
+                # Write summary report for this pair
+                total_pair_pairs = sum(
+                    len(pairs) for pairs in pair_paired.values()
+                )
+                total_pair_elements = sum(
+                    len(eles) for eles in pair_pairedEles.values()
+                )
+                _write_pair_summary(
+                    outdir=pair_outDir,
+                    prefix=args.prefix,
+                    left_feature=left_feature,
+                    right_feature=right_feature,
+                    hitTable=hitTable,
+                    pair_paired=pair_paired,
+                    pair_hitIndex=pair_hitIndex,
+                    total_pairs=total_pair_pairs,
+                    total_elements=total_pair_elements,
+                )
+
+                logging.info(
+                    f'Pair {pair_label}: wrote output to {pair_outDir}'
+                )
+
                 # Accumulate paired results
                 for model, pairs in pair_paired.items():
                     if model not in all_paired:
@@ -1713,8 +1920,25 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         logging.info('Writing paired elements to FASTA...')
         tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
 
+        # Write summary report for single-pairing mode
+        if not pairing_map and config is not None:
+            left_feature = config.left_model or ''
+            right_feature = config.right_model or ''
+            total_ele_count = sum(len(eles) for eles in pairedEles.values())
+            _write_pair_summary(
+                outdir=outDir,
+                prefix=args.prefix,
+                left_feature=left_feature,
+                right_feature=right_feature,
+                hitTable=hitTable,
+                pair_paired=paired,
+                pair_hitIndex=hitIndex,
+                total_pairs=sum(len(p) for p in paired.values()),
+                total_elements=total_ele_count,
+            )
+
         # Extract and write external flanks if requested
-        if args.flank_len:
+        if args.flanks or args.flanks_paired:
             logging.info('Extracting external flanking sequences...')
             tirmite.writeFlanks(
                 outDir=outDir,
@@ -1727,7 +1951,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
                 flank_len=args.flank_len,
                 flank_max_offset=args.flank_max_offset,
-                paired_only=args.flank_paired_only,
+                write_all=args.flanks,
+                write_paired=args.flanks_paired,
                 genome_descriptions=genome_descriptions,
                 blastdb=args.blastdb if args.blastdb else None,
             )

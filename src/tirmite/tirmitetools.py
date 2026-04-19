@@ -2161,9 +2161,10 @@ def writeFlanks(
     config: Any = None,
     genome: Any = None,
     prefix: Optional[str] = None,
-    flank_len: int = 0,
+    flank_len: int = 50,
     flank_max_offset: Optional[int] = None,
-    paired_only: bool = False,
+    write_all: bool = False,
+    write_paired: bool = False,
     genome_descriptions: Optional[Dict[str, str]] = None,
     blastdb: Optional[str] = None,
 ) -> None:
@@ -2194,14 +2195,17 @@ def writeFlanks(
         Indexed genome for sequence extraction. Required if blastdb is None.
     prefix : str, optional
         Prefix for output filenames and sequence IDs.
-    flank_len : int, default 0
+    flank_len : int, default 50
         Number of bases to extract in each flanking region.
     flank_max_offset : int, optional
         Maximum allowed offset (uncovered model positions) between hit alignment
         and model end. Hits with offset > this value are skipped.
-    paired_only : bool, default False
-        If True, only extract flanks for hits that are part of a pair.
-        If False, also extract flanks for unpaired hits.
+    write_all : bool, default False
+        If True, write flanks for all hits (paired and unpaired) to output files.
+        For symmetric same-strand orientations (F,F or R,R), both left and right
+        flanks are written to separate files with a warning.
+    write_paired : bool, default False
+        If True, write outer flanks for termini assigned to pairs to separate files.
     genome_descriptions : dict, optional
         Dictionary mapping sequence IDs to their descriptions.
     blastdb : str, optional
@@ -2217,10 +2221,16 @@ def writeFlanks(
     Output files are named:
       {prefix}{model}_left_flank_{count}.fasta  – flanks for left terminus hits
       {prefix}{model}_right_flank_{count}.fasta – flanks for right terminus hits
+      {prefix}{model}_paired_left_flank_{count}.fasta – paired left flanks
+      {prefix}{model}_paired_right_flank_{count}.fasta – paired right flanks
 
     For asymmetric pairings the left and right model names may differ, so each
     model gets its own pair of files. For symmetric pairings the same model name
     is used for both files (distinguished by the _left_/_right_ suffix).
+
+    For symmetric same-strand orientations (F,F or R,R) when write_all is True,
+    both left and right flanks are written for all hits to separate files and a
+    warning is raised advising the user to use --flanks-paired instead.
 
     Flanking sequences are always reported in the forward (+) genomic strand
     orientation. Coordinates are 1-based.
@@ -2236,12 +2246,13 @@ def writeFlanks(
 
     # When config is None (e.g. pairing-map mode with multiple configs) unpaired
     # hits cannot be attributed to a terminus; fall back to paired-only processing.
-    if config is None and not paired_only:
+    if config is None and write_all:
         logging.debug(
             'config is None: cannot determine terminus type for unpaired hits; '
             'processing paired hits only.'
         )
-        paired_only = True
+        write_all = False
+        write_paired = True
 
     if prefix:
         prefix = cleanID(prefix) + '_'
@@ -2454,78 +2465,125 @@ def writeFlanks(
             paired_hit_ids.add(rightHit.idx)
 
     # ------------------------------------------------------------------
-    # Process unpaired hits (only when paired_only=False)
+    # Process unpaired hits (only when write_all=True)
     # ------------------------------------------------------------------
-    if not paired_only:
+    # Determine if this is a symmetric same-strand pairing (F,F or R,R)
+    is_symmetric_same_strand = (
+        config is not None
+        and not config.is_asymmetric
+        and config.left_strand == config.right_strand
+    )
+
+    if write_all and is_symmetric_same_strand:
+        logging.warning(
+            'Symmetric same-strand orientation detected (%s). '
+            'Cannot determine outer edge for unpaired hits from a single model. '
+            'Both left and right flanks will be written for all hits. '
+            'Consider using --flanks-paired instead of --flanks for more precise results.',
+            ','.join(config.orientation),
+        )
+
+    if write_all:
         for model in hitIndex.keys():
             for hit_id, hit_data in hitIndex[model].items():
                 if hit_data['partner'] is not None:
                     continue  # already handled above
                 hit = hit_data['rec']
-                terminus_type = _determine_terminus_type(hit, config)
-                if terminus_type is None:
-                    logging.debug(
-                        f'Cannot determine terminus type for unpaired hit {hit.idx} '
-                        f'(model={hit.model}, strand={hit.strand}), skipping'
+
+                if is_symmetric_same_strand:
+                    # For F,F or R,R symmetric pairings, write both left and right
+                    # flanks since we cannot determine the outer edge
+                    for is_left in [True, False]:
+                        side_label = 'left' if is_left else 'right'
+                        record_id = f'{model}_{hit_id}_unpaired_{side_label}'
+                        rec = build_flank_record(
+                            hit, is_left=is_left, record_id=record_id
+                        )
+                        if rec:
+                            if is_left:
+                                left_flanks.setdefault(hit.model, []).append(rec)
+                            else:
+                                right_flanks.setdefault(hit.model, []).append(rec)
+                else:
+                    terminus_type = _determine_terminus_type(hit, config)
+                    if terminus_type is None:
+                        logging.debug(
+                            f'Cannot determine terminus type for unpaired hit {hit.idx} '
+                            f'(model={hit.model}, strand={hit.strand}), skipping'
+                        )
+                        continue
+
+                    is_left = terminus_type == 'left'
+                    record_id = f'{model}_{hit_id}_unpaired'
+                    rec = build_flank_record(
+                        hit, is_left=is_left, record_id=record_id
                     )
-                    continue
-
-                is_left = terminus_type == 'left'
-                record_id = f'{model}_{hit_id}_unpaired'
-                rec = build_flank_record(hit, is_left=is_left, record_id=record_id)
-                if rec:
-                    if is_left:
-                        left_flanks.setdefault(hit.model, []).append(rec)
-                    else:
-                        right_flanks.setdefault(hit.model, []).append(rec)
+                    if rec:
+                        if is_left:
+                            left_flanks.setdefault(hit.model, []).append(rec)
+                        else:
+                            right_flanks.setdefault(hit.model, []).append(rec)
 
     # ------------------------------------------------------------------
-    # Write output files (all flanks)
+    # Write output files (all flanks) - only when write_all=True
     # ------------------------------------------------------------------
-    for model, flanks in left_flanks.items():
-        if flanks:
-            outfile = os.path.join(
-                outDir, prefix + model + '_left_flank_' + str(len(flanks)) + '.fasta'
-            )
-            with open(outfile, 'w') as handle:
-                for seq in flanks:
-                    seq.id = prefix + str(seq.id)
-                    SeqIO.write(seq, handle, 'fasta')
+    if write_all:
+        for model, flanks in left_flanks.items():
+            if flanks:
+                outfile = os.path.join(
+                    outDir,
+                    prefix + model + '_left_flank_' + str(len(flanks)) + '.fasta',
+                )
+                with open(outfile, 'w') as handle:
+                    for seq in flanks:
+                        seq.id = prefix + str(seq.id)
+                        SeqIO.write(seq, handle, 'fasta')
 
-    for model, flanks in right_flanks.items():
-        if flanks:
-            outfile = os.path.join(
-                outDir, prefix + model + '_right_flank_' + str(len(flanks)) + '.fasta'
-            )
-            with open(outfile, 'w') as handle:
-                for seq in flanks:
-                    seq.id = prefix + str(seq.id)
-                    SeqIO.write(seq, handle, 'fasta')
+        for model, flanks in right_flanks.items():
+            if flanks:
+                outfile = os.path.join(
+                    outDir,
+                    prefix + model + '_right_flank_' + str(len(flanks)) + '.fasta',
+                )
+                with open(outfile, 'w') as handle:
+                    for seq in flanks:
+                        seq.id = prefix + str(seq.id)
+                        SeqIO.write(seq, handle, 'fasta')
 
     # ------------------------------------------------------------------
     # Write paired-only flank files (with element IDs in headers)
+    # Only when write_paired=True
     # ------------------------------------------------------------------
-    for model, flanks in paired_left_flanks.items():
-        if flanks:
-            outfile = os.path.join(
-                outDir,
-                prefix + model + '_paired_left_flank_' + str(len(flanks)) + '.fasta',
-            )
-            with open(outfile, 'w') as handle:
-                for seq in flanks:
-                    seq.id = prefix + str(seq.id)
-                    SeqIO.write(seq, handle, 'fasta')
+    if write_paired:
+        for model, flanks in paired_left_flanks.items():
+            if flanks:
+                outfile = os.path.join(
+                    outDir,
+                    prefix
+                    + model
+                    + '_paired_left_flank_'
+                    + str(len(flanks))
+                    + '.fasta',
+                )
+                with open(outfile, 'w') as handle:
+                    for seq in flanks:
+                        seq.id = prefix + str(seq.id)
+                        SeqIO.write(seq, handle, 'fasta')
 
-    for model, flanks in paired_right_flanks.items():
-        if flanks:
-            outfile = os.path.join(
-                outDir,
-                prefix + model + '_paired_right_flank_' + str(len(flanks)) + '.fasta',
-            )
-            with open(outfile, 'w') as handle:
-                for seq in flanks:
-                    seq.id = prefix + str(seq.id)
-                    SeqIO.write(seq, handle, 'fasta')
+        for model, flanks in paired_right_flanks.items():
+            if flanks:
+                outfile = os.path.join(
+                    outDir,
+                    prefix
+                    + model
+                    + '_paired_right_flank_'
+                    + str(len(flanks))
+                    + '.fasta',
+                )
+                with open(outfile, 'w') as handle:
+                    for seq in flanks:
+                        seq.id = prefix + str(seq.id)
+                        SeqIO.write(seq, handle, 'fasta')
 
 
 def hamming_distance(seq1: str, seq2: str) -> int:
@@ -3031,8 +3089,12 @@ def writeTargetSites(
             return str(chrom[tsd_start - 1 : tsd_end])
 
     # ------------------------------------------------------------------
-    # Process paired hits
+    # Process paired hits – group by model pair
     # ------------------------------------------------------------------
+    # Records grouped by model-pair key for per-pair output files
+    pair_key_records: Dict[str, List[Any]] = {}
+    pair_key_interleaved: Dict[str, List[Any]] = {}
+
     for model in paired.keys():
         model_counter = 0
         for pair in paired[model]:
@@ -3117,6 +3179,10 @@ def writeTargetSites(
             )
             target_site_records.append(ts_record)
 
+            # Group by model pair for per-pair output
+            pair_key = f'{leftHit.model}\t{rightHit.model}'
+            pair_key_records.setdefault(pair_key, []).append(ts_record)
+
             # Build interleaved flanks
             left_row, right_row = format_interleaved_flanks(
                 left_flank_seq=left_seq,
@@ -3139,26 +3205,57 @@ def writeTargetSites(
             interleaved_records.append(il_left)
             interleaved_records.append(il_right)
 
+            # Group by model pair for per-pair output
+            pair_key_interleaved.setdefault(pair_key, []).extend([il_left, il_right])
+
     # ------------------------------------------------------------------
-    # Write output files
+    # Helper: write single-line non-wrapped FASTA
+    # ------------------------------------------------------------------
+    def _write_single_line_fasta(
+        records: List[Any], filepath: str
+    ) -> None:
+        """Write SeqRecords as single-line non-wrapped FASTA."""
+        with open(filepath, 'w') as handle:
+            for rec in records:
+                handle.write(f'>{rec.id} {rec.description}\n')
+                handle.write(f'{str(rec.seq)}\n')
+
+    # ------------------------------------------------------------------
+    # Write output files – one per model pair
     # ------------------------------------------------------------------
     if target_site_records:
-        ts_outfile = os.path.join(outDir, f'{prefix_str}target_sites.fasta')
-        with open(ts_outfile, 'w') as handle:
-            for rec in target_site_records:
-                SeqIO.write(rec, handle, 'fasta')
-        logging.info(
-            f'Wrote {len(target_site_records)} reconstructed target sites to {ts_outfile}'
-        )
+        # Write per-pair target site files
+        for pair_key, records in pair_key_records.items():
+            left_model, right_model = pair_key.split('\t')
+            pair_label = (
+                f'{left_model}_{right_model}'
+                if left_model != right_model
+                else left_model
+            )
+            ts_outfile = os.path.join(
+                outDir, f'{prefix_str}{pair_label}_target_sites.fasta'
+            )
+            _write_single_line_fasta(records, ts_outfile)
+            logging.info(
+                f'Wrote {len(records)} reconstructed target sites to {ts_outfile}'
+            )
     else:
         logging.warning('No target sites could be reconstructed')
 
     if interleaved_records:
-        il_outfile = os.path.join(outDir, f'{prefix_str}interleaved_flanks.fasta')
-        with open(il_outfile, 'w') as handle:
-            for rec in interleaved_records:
-                SeqIO.write(rec, handle, 'fasta')
-        logging.info(f'Wrote interleaved flanks to {il_outfile}')
+        # Write per-pair interleaved flank files
+        for pair_key, records in pair_key_interleaved.items():
+            left_model, right_model = pair_key.split('\t')
+            pair_label = (
+                f'{left_model}_{right_model}'
+                if left_model != right_model
+                else left_model
+            )
+            il_outfile = os.path.join(
+                outDir, f'{prefix_str}{pair_label}_interleaved_flanks.fasta'
+            )
+            _write_single_line_fasta(records, il_outfile)
+            logging.info(f'Wrote interleaved flanks to {il_outfile}')
 
 
 def fetchUnpaired(

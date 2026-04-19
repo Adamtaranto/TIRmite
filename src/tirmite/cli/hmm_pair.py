@@ -1804,9 +1804,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         )
 
                 # Write summary report for this pair
-                total_pair_pairs = sum(
-                    len(pairs) for pairs in pair_paired.values()
-                )
+                total_pair_pairs = sum(len(pairs) for pairs in pair_paired.values())
                 total_pair_elements = sum(
                     len(eles) for eles in pair_pairedEles.values()
                 )
@@ -1822,9 +1820,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     total_elements=total_pair_elements,
                 )
 
-                logging.info(
-                    f'Pair {pair_label}: wrote output to {pair_outDir}'
-                )
+                logging.info(f'Pair {pair_label}: wrote output to {pair_outDir}')
 
                 # Accumulate paired results
                 for model, pairs in pair_paired.items():

@@ -2515,9 +2515,7 @@ def writeFlanks(
 
                     is_left = terminus_type == 'left'
                     record_id = f'{model}_{hit_id}_unpaired'
-                    rec = build_flank_record(
-                        hit, is_left=is_left, record_id=record_id
-                    )
+                    rec = build_flank_record(hit, is_left=is_left, record_id=record_id)
                     if rec:
                         if is_left:
                             left_flanks.setdefault(hit.model, []).append(rec)
@@ -3211,9 +3209,7 @@ def writeTargetSites(
     # ------------------------------------------------------------------
     # Helper: write single-line non-wrapped FASTA
     # ------------------------------------------------------------------
-    def _write_single_line_fasta(
-        records: List[Any], filepath: str
-    ) -> None:
+    def _write_single_line_fasta(records: List[Any], filepath: str) -> None:
         """Write SeqRecords as single-line non-wrapped FASTA."""
         with open(filepath, 'w') as handle:
             for rec in records:

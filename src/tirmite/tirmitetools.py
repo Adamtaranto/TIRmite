@@ -1655,9 +1655,9 @@ def writePairedTIRs(
 
     Notes
     -----
-    Right TIRs are reverse complemented. Outputs two sequences per pair:
-    {model}_{counter}_L (left TIR) and {model}_{counter}_R (right TIR).
-    Filename format: {prefix}{model}_paired_term_hits_{count}.fasta
+    Right TIRs are reverse complemented. Outputs are split into two files per model:
+    {model}_{counter}_L (left TIR) → {prefix}{model}_paired_left_term_hits_{count}.fasta
+    {model}_{counter}_R (right TIR) → {prefix}{model}_paired_right_term_hits_{count}.fasta
 
     Either genome or blastdb must be provided for sequence extraction.
     """
@@ -1714,7 +1714,8 @@ def writePairedTIRs(
     for model in paired.keys():
         if len(paired[model]) > 0:  # Only write files for models with actual pairs
             model_counter = 0
-            seqList = []  # Just collect sequences for FASTA output
+            left_seqList: List[Any] = []  # Left terminus hit sequences
+            right_seqList: List[Any] = []  # Right terminus hit sequences
             total_pairs = len(paired[model])
             logging.info(
                 f'Extracting TIR sequences for {total_pairs} pairs (model "{model}")...'
@@ -1902,22 +1903,36 @@ def writePairedTIRs(
                 else:
                     eleSeqRight.description = right_coord
 
-                # Add to sequence list for FASTA output
-                seqList.append(eleSeqLeft)
-                seqList.append(eleSeqRight)
+                # Add to left/right sequence lists for separate FASTA output
+                left_seqList.append(eleSeqLeft)
+                right_seqList.append(eleSeqRight)
 
-            # Write FASTA file for this model only if we have sequences
-            if seqList:
-                outfile = os.path.join(
+            # Write separate FASTA files for left and right terminus hits
+            if left_seqList:
+                left_outfile = os.path.join(
                     outDir,
                     prefix
                     + model
-                    + '_paired_term_hits_'
-                    + str(len(seqList))
+                    + '_paired_left_term_hits_'
+                    + str(len(left_seqList))
                     + '.fasta',
                 )
-                with open(outfile, 'w') as handle:
-                    for seq in seqList:
+                with open(left_outfile, 'w') as handle:
+                    for seq in left_seqList:
+                        seq.id = prefix + str(seq.id)
+                        SeqIO.write(seq, handle, 'fasta')
+
+            if right_seqList:
+                right_outfile = os.path.join(
+                    outDir,
+                    prefix
+                    + model
+                    + '_paired_right_term_hits_'
+                    + str(len(right_seqList))
+                    + '.fasta',
+                )
+                with open(right_outfile, 'w') as handle:
+                    for seq in right_seqList:
                         seq.id = prefix + str(seq.id)
                         SeqIO.write(seq, handle, 'fasta')
 

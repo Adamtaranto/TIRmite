@@ -3104,9 +3104,7 @@ def writeTargetSites(
     # Use config model assignments when available so that all pairs for the
     # same model combination are grouped into one output file regardless of
     # which model happens to be at lower genomic coordinates.
-    if config is not None and config.is_asymmetric:
-        _canonical_pair_key = f'{config.left_model}\t{config.right_model}'
-    elif config is not None and config.left_model is not None:
+    if config is not None and config.left_model is not None:
         _canonical_pair_key = f'{config.left_model}\t{config.right_model}'
     else:
         _canonical_pair_key = None  # will be derived per-pair below

@@ -1189,7 +1189,9 @@ def _write_pair_summary(
             max_offset = filter_stats.get('max_offset')
             anchor_excluded = filter_stats.get('anchor_excluded')
             if max_offset is not None:
-                excl_str = str(anchor_excluded) if anchor_excluded is not None else 'unknown'
+                excl_str = (
+                    str(anchor_excluded) if anchor_excluded is not None else 'unknown'
+                )
                 f.write(
                     f'  Anchor offset filter (max offset <= {max_offset}): '
                     f'{excl_str} hit(s) excluded\n'
@@ -1567,7 +1569,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     sys.exit(1)
                 # Update unique_models after filtering
                 unique_models = check_multiple_models(hitTable)
-                filter_stats['pairing_map_models_ignored'] = list(sorted(models_to_ignore))
+                filter_stats['pairing_map_models_ignored'] = sorted(models_to_ignore)
                 filter_stats['pairing_map_hits_ignored'] = ignored_hits
             else:
                 logging.info(
@@ -2108,7 +2110,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     # Load TSD length map if provided
                     tsd_length_map = None
                     if args.tsd_length_map:
-                        tsd_length_map = tirmite.load_tsd_length_map(args.tsd_length_map)
+                        tsd_length_map = tirmite.load_tsd_length_map(
+                            args.tsd_length_map
+                        )
 
                     tirmite.writeTargetSites(
                         outDir=outDir,

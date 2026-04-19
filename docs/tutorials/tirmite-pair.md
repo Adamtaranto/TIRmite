@@ -535,11 +535,12 @@ tirmite pair \
 | `--max-offset` | Maximum unaligned model positions between hit edge and outer terminus edge (anchor filter) |
 | `--stable-reps` | Iterations without new pairing before stopping (default: 2) |
 | `--padlen` | Flanking bases to pad the extracted hit/element sequences |
-| `--flank-len` | Length of external flanking region to extract per terminus (bp) |
+| `--flanks` | Enable writing of external flanking sequences for all hits |
+| `--flanks-paired` | Write outer flanking sequences for paired termini only |
+| `--flank-len` | Length of external flanking region to extract per terminus (default: 50 bp) |
 | `--flank-max-offset` | Skip flank extraction for hits where offset from outer model edge exceeds this value |
-| `--flank-paired-only` | Only extract flanks for hits that form a valid pair |
-| `--insertion-site` | Enable insertion site reconstruction and reporting (requires `--flank-len`) |
-| `--tsd-length` | TSD/DR length for target site reconstruction (requires `--insertion-site` and `--flank-len`) |
+| `--insertion-site` | Enable insertion site reconstruction and reporting (requires `--flanks` or `--flanks-paired`) |
+| `--tsd-length` | TSD/DR length for target site reconstruction (requires `--insertion-site`) |
 | `--tsd-length-map` | Per-model-pair TSD length map (TSV: left_model, right_model, tsd_length) |
 | `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |
 | `--report` | Reporting mode: `all`, `paired`, or `unpaired` |

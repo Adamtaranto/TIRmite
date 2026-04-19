@@ -1458,6 +1458,46 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             hit_count = len(hitTable[hitTable['model'] == model])
             logging.debug(f'Query/model "{model}": {hit_count} hits')
 
+        # Filter hitTable to only include models present in the pairing map (if provided)
+        # This must happen before any processing to avoid wasting work on unused models
+        if args.pairing_map:
+            _pre_filter_pairing_map = load_pairing_map(args.pairing_map)
+            # Collect all unique model names referenced in the pairing map
+            map_models: set = set()
+            for _lf, _rf in _pre_filter_pairing_map:
+                map_models.add(_lf)
+                map_models.add(_rf)
+
+            # Determine which loaded models are not in the pairing map
+            models_in_hits = set(unique_models)
+            models_to_ignore = models_in_hits - map_models
+            models_to_process = models_in_hits & map_models
+
+            if models_to_ignore:
+                ignored_hits = len(hitTable[hitTable['model'].isin(models_to_ignore)])
+                logging.warning(
+                    f'Pairing map references {len(map_models)} model(s). '
+                    f'Ignoring {len(models_to_ignore)} model(s) not in pairing map: '
+                    + ', '.join(sorted(models_to_ignore))
+                )
+                logging.info(
+                    f'Excluding {ignored_hits} hits for {len(models_to_ignore)} ignored model(s)'
+                )
+                hitTable = hitTable[hitTable['model'].isin(models_to_process)].copy()
+                logging.info(
+                    f'{len(hitTable)} hits remaining for {len(models_to_process)} model(s) in pairing map'
+                )
+                if len(hitTable) == 0:
+                    logging.error('No hits remaining after pairing map model filter')
+                    cleanup_temp_directory(tempDir, args.keep_temp)
+                    sys.exit(1)
+                # Update unique_models after filtering
+                unique_models = check_multiple_models(hitTable)
+            else:
+                logging.info(
+                    f'All {len(models_in_hits)} model(s) in hits are covered by pairing map'
+                )
+
         # If --query-len was provided for BLAST input, assign it to ALL queries
         if args.blast_file and args.query_len:
             for query_name in unique_models:

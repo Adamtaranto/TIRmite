@@ -2450,14 +2450,29 @@ def writeFlanks(
             left_rec = build_flank_record(leftHit, is_left=True, record_id=pair_id)
             right_rec = build_flank_record(rightHit, is_left=False, record_id=pair_id)
 
+            # Use canonical model names for grouping when config specifies an
+            # asymmetric pairing.  This prevents creating spurious extra flank
+            # files when the genomic position order differs from the config's
+            # left/right model assignment.
+            left_model_key = (
+                config.left_model
+                if config is not None and config.is_asymmetric
+                else leftHit.model
+            )
+            right_model_key = (
+                config.right_model
+                if config is not None and config.is_asymmetric
+                else rightHit.model
+            )
+
             if left_rec:
-                left_flanks.setdefault(leftHit.model, []).append(left_rec)
-                paired_left_flanks.setdefault(leftHit.model, []).append(
+                left_flanks.setdefault(left_model_key, []).append(left_rec)
+                paired_left_flanks.setdefault(left_model_key, []).append(
                     _make_paired_flank_record(left_rec, element_id, pair_id, 'L')
                 )
             if right_rec:
-                right_flanks.setdefault(rightHit.model, []).append(right_rec)
-                paired_right_flanks.setdefault(rightHit.model, []).append(
+                right_flanks.setdefault(right_model_key, []).append(right_rec)
+                paired_right_flanks.setdefault(right_model_key, []).append(
                     _make_paired_flank_record(right_rec, element_id, pair_id, 'R')
                 )
 
@@ -3084,6 +3099,19 @@ def writeTargetSites(
             return str(chrom[tsd_start - 1 : tsd_end])
 
     # ------------------------------------------------------------------
+    # Determine canonical pair key for file naming
+    # ------------------------------------------------------------------
+    # Use config model assignments when available so that all pairs for the
+    # same model combination are grouped into one output file regardless of
+    # which model happens to be at lower genomic coordinates.
+    if config is not None and config.is_asymmetric:
+        _canonical_pair_key = f'{config.left_model}\t{config.right_model}'
+    elif config is not None and config.left_model is not None:
+        _canonical_pair_key = f'{config.left_model}\t{config.right_model}'
+    else:
+        _canonical_pair_key = None  # will be derived per-pair below
+
+    # ------------------------------------------------------------------
     # Process paired hits – group by model pair
     # ------------------------------------------------------------------
     # Records grouped by model-pair key for per-pair output files
@@ -3174,8 +3202,12 @@ def writeTargetSites(
             )
             target_site_records.append(ts_record)
 
-            # Group by model pair for per-pair output
-            pair_key = f'{leftHit.model}\t{rightHit.model}'
+            # Group by model pair for per-pair output — use canonical key
+            pair_key = (
+                _canonical_pair_key
+                if _canonical_pair_key is not None
+                else f'{leftHit.model}\t{rightHit.model}'
+            )
             pair_key_records.setdefault(pair_key, []).append(ts_record)
 
             # Build interleaved flanks
@@ -3200,7 +3232,7 @@ def writeTargetSites(
             interleaved_records.append(il_left)
             interleaved_records.append(il_right)
 
-            # Group by model pair for per-pair output
+            # Group by model pair for per-pair output — use same canonical key
             pair_key_interleaved.setdefault(pair_key, []).extend([il_left, il_right])
 
     # ------------------------------------------------------------------

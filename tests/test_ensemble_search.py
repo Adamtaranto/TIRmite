@@ -1765,7 +1765,7 @@ class TestWriteSplitHits:
         assert left_file.exists()
         assert right_file.exists()
 
-    def test_split_unassigned_warning(self, tmp_path, caplog):
+    def test_split_warns_for_unassigned_models(self, tmp_path, caplog):
         """Hits from models not in pairing map trigger a warning."""
         import logging as stdlib_logging
 

@@ -1504,16 +1504,16 @@ def write_split_hits(
     right_hits = hit_table[hit_table['model'].isin(right_models)]
 
     # Hits from models not in the pairing map are written to neither file
-    unassigned = hit_table[~hit_table['model'].isin(left_models | right_models)]
+    unassigned_hits = hit_table[~hit_table['model'].isin(left_models | right_models)]
 
     write_hits_table(left_hits, left_file)
     write_hits_table(right_hits, right_file)
 
-    if not unassigned.empty:
+    if not unassigned_hits.empty:
         logging.warning(
-            f'{len(unassigned)} hit(s) from model(s) not in the pairing map were not '
+            f'{len(unassigned_hits)} hit(s) from model(s) not in the pairing map were not '
             'written to either the left or right output file: '
-            f'{", ".join(sorted(unassigned["model"].unique()))}'
+            f'{", ".join(sorted(unassigned_hits["model"].unique()))}'
         )
 
     logging.info(

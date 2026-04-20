@@ -918,9 +918,7 @@ class TestWriteFlanks:
 
             # Only current pair's models should produce flank files
             left_files = [f for f in files if 'left_flank' in f and 'paired' not in f]
-            right_files = [
-                f for f in files if 'right_flank' in f and 'paired' not in f
-            ]
+            right_files = [f for f in files if 'right_flank' in f and 'paired' not in f]
             assert len(left_files) == 1, (
                 f'Expected one LEFT_MODEL left flank file, got: {left_files}'
             )

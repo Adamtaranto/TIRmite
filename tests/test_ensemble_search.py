@@ -15,6 +15,7 @@ from tirmite.cli.ensemble_search import (
     EnsembleSearchError,
     build_component_to_cluster_map,
     check_cross_cluster_overlaps,
+    filter_best_model_per_locus,
     filter_hits_by_evalue,
     load_hits_from_files,
     merge_overlapping_cluster_hits,
@@ -511,8 +512,149 @@ class TestNestedHitRemoval:
 
 
 # -----------------------------------------------------------------------------
-# Cross-Cluster Overlap Warning Tests
+# Cross-Model Overlap Filter Tests
 # -----------------------------------------------------------------------------
+
+
+class TestFilterBestModelPerLocus:
+    """Tests for filter_best_model_per_locus."""
+
+    def _make_hit(self, model, target, start, end, score, strand='+'):
+        return {
+            'model': model,
+            'target': target,
+            'hitStart': str(start),
+            'hitEnd': str(end),
+            'strand': strand,
+            'evalue': '1e-10',
+            'score': str(score),
+            'bias': 'NA',
+            'hmmStart': '1',
+            'hmmEnd': '100',
+        }
+
+    def test_removes_weaker_overlapping_cross_model_hit(self):
+        """Weaker overlapping hit from a different model is removed."""
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200),
+                self._make_hit('Family2_LEFT', 'chr1', 1050, 1180, 100),  # weaker overlap
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'Family1_LEFT'
+
+    def test_keeps_both_when_score_ratio_below_threshold(self):
+        """Both hits are kept when neither dominates by the required ratio."""
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 100),
+                self._make_hit('Family2_LEFT', 'chr1', 1050, 1180, 90),  # ratio < 1.5
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        assert len(result) == 2
+
+    def test_no_removal_when_hits_do_not_overlap(self):
+        """Non-overlapping hits from different models are both retained."""
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1100, 200),
+                self._make_hit('Family2_LEFT', 'chr1', 5000, 5200, 50),  # far away
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        assert len(result) == 2
+
+    def test_same_model_hits_not_compared(self):
+        """Two hits from the same model are never removed against each other."""
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200),
+                self._make_hit('Family1_LEFT', 'chr1', 1050, 1180, 50),  # same model, weaker
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        assert len(result) == 2
+
+    def test_no_removal_different_strands(self):
+        """Overlapping hits on different strands are treated independently."""
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200, strand='+'),
+                self._make_hit('Family2_LEFT', 'chr1', 1050, 1180, 50, strand='-'),
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        assert len(result) == 2
+
+    def test_model_not_in_pairing_map_is_preserved(self):
+        """Hits from models not in the pairing map are never removed."""
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200),
+                self._make_hit('UnknownModel', 'chr1', 1050, 1180, 50),  # not in map
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        assert len(result) == 2
+
+    def test_empty_table_returned_unchanged(self):
+        """Empty hit table is returned unchanged."""
+        hit_table = pd.DataFrame(
+            columns=['model', 'target', 'hitStart', 'hitEnd', 'strand',
+                     'evalue', 'score', 'bias', 'hmmStart', 'hmmEnd']
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        assert result.empty
+
+    def test_empty_pairing_map_returned_unchanged(self):
+        """Hit table is returned unchanged when pairing map is empty."""
+        hit_table = pd.DataFrame(
+            [self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200)]
+        )
+        result = filter_best_model_per_locus(hit_table, {})
+        assert len(result) == 1
+
+    def test_multiple_families_same_locus_keeps_best(self):
+        """With three overlapping models at the same locus, only the best is kept."""
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 300),
+                self._make_hit('Family2_LEFT', 'chr1', 1020, 1180, 100),
+                self._make_hit('Family3_LEFT', 'chr1', 1010, 1190, 50),
+            ]
+        )
+        pairing_map = {
+            'Family1_LEFT': 'Family1_RIGHT',
+            'Family2_LEFT': 'Family2_RIGHT',
+            'Family3_LEFT': 'Family3_RIGHT',
+        }
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        # Family1_LEFT (score=300) beats Family2_LEFT by 3x and Family3_LEFT by 6x,
+        # both above the default min_score_ratio of 1.5.
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'Family1_LEFT'
+
+    def test_no_removal_on_different_targets(self):
+        """Overlapping coordinates on different target sequences are independent."""
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200),
+                self._make_hit('Family2_LEFT', 'chr2', 1000, 1200, 50),
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+        assert len(result) == 2
 
 
 class TestCrossClusterOverlaps:

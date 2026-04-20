@@ -1036,7 +1036,37 @@ def remove_nested_paired_hits(
     min_score_ratio: float = 1.5,
 ) -> pd.DataFrame:
     """
-    Remove weak hits nested within stronger paired terminal hits.
+    Remove weak hits nested within stronger hits from the same left/right pair.
+
+    In asymmetric terminus models (i.e. separate left and right models), the two
+    models sometimes share a small region of homology.  This means that the shorter
+    (or weaker) model may produce hits that are entirely contained within hits of its
+    paired model at the same genomic locus.  These nested "cross-hits" are artefacts
+    of the shared homology rather than genuine detections by the nested model, and
+    retaining them would generate spurious pair calls.
+
+    This function compares all hits on the same target sequence and strand.  For each
+    pair of hits where:
+
+    - Both models appear in the ``pairing_map`` (either as left or right features), AND
+    - The two models form a direct left/right pair in the ``pairing_map``, AND
+    - One hit's genomic coordinates are completely contained within the other's (nesting),
+
+    the nested hit is removed when its alignment score is less than
+    ``min_score_ratio`` × the enclosing hit's score.  If the nested hit scores
+    comparably (ratio ≥ ``min_score_ratio``), both hits are kept, because the nested
+    model may still represent a genuine detection.
+
+    **Handling models that appear in multiple pairs**
+
+    Because ``pairing_map`` is a plain Python dictionary it maps each left-feature name
+    to exactly one right-feature name.  If a single model name must be paired with
+    multiple partners, add separate left–right rows to the pairing map file; only the
+    last entry for a given left feature will be stored, so each left model effectively
+    has one canonical right partner for this filter.  To support many-to-many pairing
+    relationships, use :func:`filter_best_model_per_locus` after this step, which
+    removes lower-quality overlapping cross-model hits without requiring a direct
+    pairing relationship.
 
     Parameters
     ----------
@@ -1044,13 +1074,21 @@ def remove_nested_paired_hits(
         Hit table with 'model', 'target', 'hitStart', 'hitEnd', 'strand', 'score' columns.
     pairing_map : dict
         Dictionary mapping left feature names to right feature names.
+        Only hits from models listed in this map (as keys or values) are evaluated.
     min_score_ratio : float, default 1.5
-        Minimum score ratio for keeping nested hit (nested_score / enclosing_score).
+        A nested hit is removed when ``nested_score / enclosing_score < min_score_ratio``.
+        Increase this value to be more aggressive (remove more nested hits); decrease
+        it to be more conservative (keep more nested hits).
 
     Returns
     -------
     pandas.DataFrame
         Hit table with nested weak hits removed.
+
+    See Also
+    --------
+    filter_best_model_per_locus : Remove lower-quality overlapping hits across all
+        models in the pairing map, regardless of direct pairing relationship.
     """
     if hit_table.empty or not pairing_map:
         return hit_table
@@ -1131,6 +1169,165 @@ def remove_nested_paired_hits(
         hit_table = hit_table.drop(index=list(hits_to_remove))
 
     # Clean up temporary columns
+    hit_table = hit_table.drop(columns=['hitStart_int', 'hitEnd_int', 'score_float'])
+
+    return hit_table.reset_index(drop=True)
+
+
+def filter_best_model_per_locus(
+    hit_table: pd.DataFrame,
+    pairing_map: Dict[str, str],
+    min_overlap: int = 1,
+    min_score_ratio: float = 1.5,
+) -> pd.DataFrame:
+    """
+    Retain only the best-scoring model's hits at each overlapping genomic locus.
+
+    Closely related transposon families often produce HMM or BLAST models that match
+    their own target family well but also produce weaker hits against related families.
+    When many models from different element families are searched simultaneously and
+    their hits are assigned to pairs via ``pairing_map``, overlapping hits at the same
+    locus from competing (non-paired) models must be resolved so that only the
+    best-matching model is represented at each locus.
+
+    **Algorithm**
+
+    For each target sequence and strand, all pairwise combinations of hits from
+    *different* models are examined.  When two hits overlap by at least ``min_overlap``
+    bases and the better-scoring hit's score is at least ``min_score_ratio`` times the
+    weaker hit's score, the weaker hit is marked for removal.  Hits from the same
+    model are never compared against each other, so multiple non-overlapping hits from
+    the best model at distinct loci are always retained.
+
+    Only models listed in ``pairing_map`` (as either left or right features) are
+    subject to this filter; hits from models not in the pairing map pass through
+    unchanged.
+
+    This step is complementary to :func:`remove_nested_paired_hits`:
+
+    - :func:`remove_nested_paired_hits` handles hits where one is *completely contained*
+      within another from its direct paired partner (nesting within a left/right pair).
+    - :func:`filter_best_model_per_locus` handles hits that merely *overlap* (including
+      but not limited to nesting) between *any* two models in the pairing map,
+      regardless of whether those models form a direct left/right pair.
+
+    Parameters
+    ----------
+    hit_table : pandas.DataFrame
+        Hit table with 'model', 'target', 'hitStart', 'hitEnd', 'strand', 'score' columns.
+    pairing_map : dict
+        Dictionary mapping left feature names to right feature names.
+        All model names that appear as keys or values are eligible for filtering.
+    min_overlap : int, default 1
+        Minimum overlap in base pairs required to trigger cross-model comparison.
+        Hits that share fewer than this many bases are considered non-overlapping
+        and are always retained.
+    min_score_ratio : float, default 1.5
+        A weaker overlapping hit is removed when
+        ``better_score / weaker_score >= min_score_ratio``.
+        When the ratio is below this threshold, both hits are kept because neither
+        model dominates enough to confidently discard the other.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Hit table with lower-quality overlapping cross-model hits removed.
+
+    See Also
+    --------
+    remove_nested_paired_hits : Remove hits nested within stronger hits from the
+        same direct left/right pair.
+    """
+    if hit_table.empty or not pairing_map:
+        return hit_table
+
+    all_paired_features = set(pairing_map.keys()) | set(pairing_map.values())
+
+    hit_table = hit_table.copy()
+    hit_table['hitStart_int'] = hit_table['hitStart'].astype(int)
+    hit_table['hitEnd_int'] = hit_table['hitEnd'].astype(int)
+    hit_table['score_float'] = pd.to_numeric(
+        hit_table['score'], errors='coerce'
+    ).fillna(0)
+
+    hits_to_remove: Set[int] = set()
+    removed_per_model: Dict[str, int] = {}
+
+    # Check each target/strand combination
+    for (_target, _strand), group in hit_table.groupby(['target', 'strand']):
+        if len(group) < 2:
+            continue
+
+        group_indices = list(group.index)
+
+        for i, idx1 in enumerate(group_indices):
+            if idx1 in hits_to_remove:
+                continue
+
+            hit1 = hit_table.loc[idx1]
+            model1 = hit1['model']
+
+            if model1 not in all_paired_features:
+                continue
+
+            start1 = int(hit1['hitStart_int'])
+            end1 = int(hit1['hitEnd_int'])
+            score1 = float(hit1['score_float'])
+
+            for idx2 in group_indices[i + 1 :]:
+                if idx2 in hits_to_remove:
+                    continue
+
+                hit2 = hit_table.loc[idx2]
+                model2 = hit2['model']
+
+                if model2 not in all_paired_features:
+                    continue
+
+                # Only compare hits from different models
+                if model1 == model2:
+                    continue
+
+                start2 = int(hit2['hitStart_int'])
+                end2 = int(hit2['hitEnd_int'])
+                score2 = float(hit2['score_float'])
+
+                # Compute overlap
+                overlap = min(end1, end2) - max(start1, start2)
+                if overlap < min_overlap:
+                    continue
+
+                # Remove the weaker hit when the score ratio is decisive
+                if score1 > 0 and score2 > 0:
+                    if score1 / score2 >= min_score_ratio:
+                        hits_to_remove.add(idx2)
+                        removed_per_model[model2] = (
+                            removed_per_model.get(model2, 0) + 1
+                        )
+                        logging.debug(
+                            f'Removing overlapping cross-model hit {model2} '
+                            f'({start2}-{end2}, score={score2:.1f}) in favour of '
+                            f'{model1} ({start1}-{end1}, score={score1:.1f})'
+                        )
+                    elif score2 / score1 >= min_score_ratio:
+                        hits_to_remove.add(idx1)
+                        removed_per_model[model1] = (
+                            removed_per_model.get(model1, 0) + 1
+                        )
+                        logging.debug(
+                            f'Removing overlapping cross-model hit {model1} '
+                            f'({start1}-{end1}, score={score1:.1f}) in favour of '
+                            f'{model2} ({start2}-{end2}, score={score2:.1f})'
+                        )
+
+    if hits_to_remove:
+        logging.info(
+            f'Removed {len(hits_to_remove)} overlapping lower-quality cross-model hits'
+        )
+        for model_name, count in sorted(removed_per_model.items()):
+            logging.info(f'  {model_name}: {count} hit(s) removed by cross-model filter')
+        hit_table = hit_table.drop(index=list(hits_to_remove))
+
     hit_table = hit_table.drop(columns=['hitStart_int', 'hitEnd_int', 'score_float'])
 
     return hit_table.reset_index(drop=True)
@@ -1958,10 +2155,21 @@ def _process_hits(
         pairing_map = parse_pairing_map(args.pairing_map)
 
         if pairing_map:
+            # Step 1: remove hits from a paired model that are completely nested within
+            # hits of its direct left/right partner and score significantly worse.
             hit_table = remove_nested_paired_hits(hit_table, pairing_map)
 
-            # Report final statistics
+            # Report statistics after nested hit removal
             report_hit_statistics(hit_table, stage='(after nested hit removal)')
+
+            # Step 2: remove lower-quality overlapping hits from competing models across
+            # all pairs in the pairing map.  This handles the case where models from
+            # related element families hit the same locus: at each overlapping locus the
+            # best-scoring model is retained and weaker cross-model hits are discarded.
+            hit_table = filter_best_model_per_locus(hit_table, pairing_map)
+
+            # Report final statistics
+            report_hit_statistics(hit_table, stage='(after cross-model overlap filtering)')
 
     return hit_table
 

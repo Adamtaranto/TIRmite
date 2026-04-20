@@ -10,6 +10,7 @@ Validates:
 """
 
 from collections import namedtuple
+import logging.handlers
 import os
 import tempfile
 
@@ -816,6 +817,158 @@ class TestWriteFlanks:
                 f for f in all_files if 'paired' in f and 'flank' in f
             ]
             assert len(paired_flank_files) == 2
+
+    def test_asymmetric_config_skips_foreign_models_silently(self):
+        """For asymmetric configs, models not in the pair must be silently skipped.
+
+        This is the bug scenario: in a multi-pair pairing-map run, each pair's
+        writeFlanks call receives a hitIndex that contains hits for ALL models
+        (not just the current pair's models).  Previously, the function would log
+        a confusing "Cannot determine terminus type" debug message for hits belonging
+        to other pairs.  After the fix, those models are silently skipped and only
+        the current pair's models produce flank files.
+        """
+        # Current pair: LEFT_MODEL (left, +strand) + RIGHT_MODEL (right, -strand)
+        # Foreign pair: OTHER_LEFT (left, +strand) + OTHER_RIGHT (right, -strand)
+        rows = [
+            # Current pair - paired
+            {
+                'model': 'LEFT_MODEL',
+                'target': 'chr1',
+                'hit_start': 200,
+                'hit_end': 299,
+                'strand': '+',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+            {
+                'model': 'RIGHT_MODEL',
+                'target': 'chr1',
+                'hit_start': 700,
+                'hit_end': 799,
+                'strand': '-',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+            # Current pair - unpaired LEFT_MODEL hit
+            {
+                'model': 'LEFT_MODEL',
+                'target': 'chr1',
+                'hit_start': 50,
+                'hit_end': 149,
+                'strand': '+',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+            # Foreign pair models - should be silently skipped (not in current config)
+            {
+                'model': 'OTHER_LEFT',
+                'target': 'chr1',
+                'hit_start': 400,
+                'hit_end': 499,
+                'strand': '+',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+            {
+                'model': 'OTHER_RIGHT',
+                'target': 'chr1',
+                'hit_start': 850,
+                'hit_end': 949,
+                'strand': '-',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+        ]
+        hitTable = _make_hitTable(rows)
+        hitsDict, hitIndex = tirmite.table2dict(hitTable)
+        # Mark the first LEFT_MODEL and RIGHT_MODEL hits as paired
+        hitIndex['LEFT_MODEL'][0]['partner'] = 1
+        hitIndex['RIGHT_MODEL'][1]['partner'] = 0
+        paired = {'LEFT_MODEL': [{0, 1}]}
+        # Hits at indices 2 (LEFT_MODEL), 3 (OTHER_LEFT), 4 (OTHER_RIGHT) are unpaired
+
+        # Asymmetric config for current pair only
+        config = PairingConfig(
+            orientation='F,R', left_model='LEFT_MODEL', right_model='RIGHT_MODEL'
+        )
+        model_lengths = {
+            'LEFT_MODEL': 100,
+            'RIGHT_MODEL': 100,
+            'OTHER_LEFT': 100,
+            'OTHER_RIGHT': 100,
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Capture debug log messages to verify no spurious messages
+            with self._capture_debug_logs() as log_records:
+                writeFlanks(
+                    outDir=tmpdir,
+                    hitTable=hitTable,
+                    model_lengths=model_lengths,
+                    paired=paired,
+                    hitIndex=hitIndex,
+                    config=config,
+                    genome=self._genome(),
+                    flank_len=10,
+                    write_all=True,
+                    write_paired=True,
+                )
+
+            files = os.listdir(tmpdir)
+
+            # Only current pair's models should produce flank files
+            left_files = [f for f in files if 'left_flank' in f and 'paired' not in f]
+            right_files = [
+                f for f in files if 'right_flank' in f and 'paired' not in f
+            ]
+            assert len(left_files) == 1, (
+                f'Expected one LEFT_MODEL left flank file, got: {left_files}'
+            )
+            assert len(right_files) == 1, (
+                f'Expected one RIGHT_MODEL right flank file, got: {right_files}'
+            )
+
+            # No flank files should exist for the foreign models
+            other_left_files = [f for f in files if 'OTHER_LEFT' in f]
+            other_right_files = [f for f in files if 'OTHER_RIGHT' in f]
+            assert len(other_left_files) == 0, (
+                f'Foreign model OTHER_LEFT should produce no flank files, got: {other_left_files}'
+            )
+            assert len(other_right_files) == 0, (
+                f'Foreign model OTHER_RIGHT should produce no flank files, got: {other_right_files}'
+            )
+
+            # No "Cannot determine terminus type" messages for foreign models
+            bad_msgs = [
+                r.getMessage()
+                for r in log_records
+                if 'Cannot determine terminus type' in r.getMessage()
+            ]
+            assert len(bad_msgs) == 0, (
+                f'Spurious debug messages raised for foreign models: {bad_msgs}'
+            )
+
+    @staticmethod
+    def _capture_debug_logs():
+        """Context manager to capture debug-level log records from tirmitetools."""
+        import contextlib
+        import logging
+
+        @contextlib.contextmanager
+        def _cm():
+            handler = logging.handlers.MemoryHandler(capacity=1000, flushLevel=100)
+            handler.setLevel(logging.DEBUG)
+            logger = logging.getLogger('tirmite.tirmitetools')
+            root_logger = logging.getLogger()
+            root_logger.addHandler(handler)
+            root_logger.setLevel(logging.DEBUG)
+            try:
+                yield handler.buffer
+            finally:
+                root_logger.removeHandler(handler)
+
+        return _cm()
 
     def test_no_flanks_when_flank_len_zero(self):
         """flank_len=0 should produce no output files."""

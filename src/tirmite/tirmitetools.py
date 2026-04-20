@@ -2513,8 +2513,20 @@ def writeFlanks(
             ','.join(config.orientation),
         )
 
+    # For asymmetric pairings the hitIndex may contain hits for models that
+    # belong to *other* pairs in a multi-pair pairing-map run.  These foreign
+    # models should be silently skipped here because their terminus type is
+    # determined correctly in their own pair's writeFlanks call.
+    config_models: Optional[Set[str]] = None
+    if config is not None and config.is_asymmetric:
+        config_models = {m for m in (config.left_model, config.right_model) if m is not None}
+
     if write_all:
         for model in hitIndex.keys():
+            # Skip models that do not belong to the current asymmetric pair.
+            if config_models is not None and model not in config_models:
+                continue
+
             for hit_id, hit_data in hitIndex[model].items():
                 if hit_data['partner'] is not None:
                     continue  # already handled above

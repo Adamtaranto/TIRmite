@@ -1319,7 +1319,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             if blastdbcmd_path:
                 logging.info(f'blastdbcmd found: {blastdbcmd_path}')
             else:
-                logging.warning('blastdbcmd not found in PATH; sequence extraction will fail')
+                logging.warning(
+                    'blastdbcmd not found in PATH; sequence extraction will fail'
+                )
 
         # Load model/query lengths
         logging.info('Loading model/query lengths...')
@@ -2010,7 +2012,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 if args.gff_out:
                     pair_unpairedTIRs = None
                     if args.gff_report in ['all', 'unpaired']:
-                        pair_unpairedTIRs = tirmite.fetchUnpaired(hitIndex=pair_hitIndex)
+                        pair_unpairedTIRs = tirmite.fetchUnpaired(
+                            hitIndex=pair_hitIndex
+                        )
                         logging.info(
                             f'Pair {pair_label}: {len(pair_unpairedTIRs)} unpaired termini'
                         )

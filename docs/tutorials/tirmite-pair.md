@@ -210,7 +210,7 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
-  --report all \
+  --gff-report all \
   --gff-out \
   --flanks-paired \
   --flank-len 30 \
@@ -244,7 +244,7 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
-  --report all \
+  --gff-report all \
   --gff-out \
   --flanks \
   --flanks-paired \
@@ -276,7 +276,7 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
-  --report all \
+  --gff-report all \
   --gff-out \
   --flanks-paired \
   --flank-len 30 \
@@ -316,7 +316,7 @@ When `--flanks-paired` is set (with or without `--flanks`), TIRmite also writes:
 | `{prefix}{model}_paired_left_flank_{count}.fasta` | External flanks for **paired** left terminus hits only (element ID in header) |
 | `{prefix}{model}_paired_right_flank_{count}.fasta` | External flanks for **paired** right terminus hits only (element ID in header) |
 
-When `--report all` or `--report paired` is set, TIRmite also writes the terminus hit sequences themselves to two separate files per model:
+When `--gff-report all` or `--gff-report paired` is set, TIRmite also writes the terminus hit sequences themselves to two separate files per model:
 
 | Filename pattern | Contents |
 |-----------------|----------|
@@ -589,7 +589,7 @@ tirmite pair \
 
 ## Reporting Options
 
-The `--report` flag controls which hit categories are written to output files:
+The `--gff-report` flag controls which hit categories are written to output files:
 
 | Value | Description |
 |-------|-------------|
@@ -602,7 +602,7 @@ The `--report` flag controls which hit categories are written to output files:
 Enable GFF3 output with `--gff-out`. The GFF3 file includes:
 
 - Predicted element features (paired left+right termini)
-- Individual terminus hit features (if `--report all`)
+- Individual terminus hit features (if `--gff-report all`)
 - Attributes including model name, e-value, coverage, and orientation
 
 ```bash
@@ -613,7 +613,7 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
-  --report all \
+  --gff-report all \
   --gff-out \
   --outdir MY_TIR_OUTPUT
 ```
@@ -645,6 +645,6 @@ tirmite pair \
 | `--tsd-length` | TSD/DR length for target site reconstruction (requires `--insertion-site`) |
 | `--tsd-length-map` | Per-model-pair TSD length map (TSV: left_model, right_model, tsd_length) |
 | `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |
-| `--report` | Reporting mode: `all`, `paired`, or `unpaired` |
+| `--gff-report` | Reporting mode: `all`, `paired`, or `unpaired` |
 | `--gff-out` | Write GFF3 annotation file |
 | `--logfile` | Write log to file |

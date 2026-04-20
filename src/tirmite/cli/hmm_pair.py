@@ -819,8 +819,9 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
-        '--report',
+        '--gff-report',
         default='all',
+        dest='gff_report',
         choices=['all', 'paired', 'unpaired'],
         help='Types of hits to include in GFF output.',
     )
@@ -1878,7 +1879,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
                 # Write paired TIRs
-                if args.report in ['all', 'paired']:
+                if args.gff_report in ['all', 'paired']:
                     tirmite.writePairedTIRs(
                         outDir=pair_outDir,
                         paired=pair_paired,
@@ -2039,7 +2040,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # single-pairing (no pairing map) case only.
         if not pairing_map:
             # Write paired TIRs
-            if args.report in ['all', 'paired']:
+            if args.gff_report in ['all', 'paired']:
                 logging.info('Writing paired termini to FASTA...')
                 tirmite.writePairedTIRs(
                     outDir=outDir,
@@ -2136,7 +2137,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             if args.gff_out:
                 # Get unpaired TIRs if needed
                 unpairedTIRs = None
-                if args.report in ['all', 'unpaired']:
+                if args.gff_report in ['all', 'unpaired']:
                     unpairedTIRs = tirmite.fetchUnpaired(hitIndex=hitIndex)
                     logging.info(f'Found {len(unpairedTIRs)} unpaired termini')
 
@@ -2150,7 +2151,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 tirmite.gffWrite(
                     outpath=gffOutPath,
                     featureList=pairedEles,
-                    writeTIRs=args.report,
+                    writeTIRs=args.gff_report,
                     unpaired=unpairedTIRs,
                     prefix=args.prefix,
                 )

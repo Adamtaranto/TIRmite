@@ -199,8 +199,9 @@ def _configure_legacy_parser(parser: argparse.ArgumentParser) -> None:
         help='If set report features as prefix.gff3. File saved to outdir. Default: False',
     )
     parser.add_argument(
-        '--report',
+        '--gff-report',
         default='all',
+        dest='gff_report',
         choices=[None, 'all', 'paired', 'unpaired'],
         help='Options for reporting model hits in GFF annotation file.',
     )
@@ -965,7 +966,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             raise
 
         # Write paired TIR hits to fasta
-        if args.report in ['all', 'paired']:
+        if args.gff_report in ['all', 'paired']:
             logging.info('Writing successfully paired termini to fasta.')
             try:
                 tirmite.writePairedTIRs(
@@ -1008,7 +1009,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Write paired features to gff3, optionally also report paired/unpaired TIRs
         if args.gff_out:
             # Get unpaired TIRs
-            if args.report in ['all', 'unpaired']:
+            if args.gff_report in ['all', 'unpaired']:
                 unpairedTIRs = tirmite.fetchUnpaired(hitIndex=hitIndex)
                 logging.info(f'Found {len(unpairedTIRs)} unpaired termini')
             else:
@@ -1025,7 +1026,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             tirmite.gffWrite(
                 outpath=gffOutPath,
                 featureList=pairedEles,
-                writeTIRs=args.report,
+                writeTIRs=args.gff_report,
                 unpaired=unpairedTIRs,
                 prefix=args.prefix,
             )

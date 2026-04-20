@@ -1301,9 +1301,7 @@ def filter_best_model_per_locus(
                 if score1 > 0 and score2 > 0:
                     if score1 / score2 >= min_score_ratio:
                         hits_to_remove.add(idx2)
-                        removed_per_model[model2] = (
-                            removed_per_model.get(model2, 0) + 1
-                        )
+                        removed_per_model[model2] = removed_per_model.get(model2, 0) + 1
                         logging.debug(
                             f'Removing overlapping cross-model hit {model2} '
                             f'({start2}-{end2}, score={score2:.1f}) in favour of '
@@ -1311,9 +1309,7 @@ def filter_best_model_per_locus(
                         )
                     elif score2 / score1 >= min_score_ratio:
                         hits_to_remove.add(idx1)
-                        removed_per_model[model1] = (
-                            removed_per_model.get(model1, 0) + 1
-                        )
+                        removed_per_model[model1] = removed_per_model.get(model1, 0) + 1
                         logging.debug(
                             f'Removing overlapping cross-model hit {model1} '
                             f'({start1}-{end1}, score={score1:.1f}) in favour of '
@@ -1325,7 +1321,9 @@ def filter_best_model_per_locus(
             f'Removed {len(hits_to_remove)} overlapping lower-quality cross-model hits'
         )
         for model_name, count in sorted(removed_per_model.items()):
-            logging.info(f'  {model_name}: {count} hit(s) removed by cross-model filter')
+            logging.info(
+                f'  {model_name}: {count} hit(s) removed by cross-model filter'
+            )
         hit_table = hit_table.drop(index=list(hits_to_remove))
 
     hit_table = hit_table.drop(columns=['hitStart_int', 'hitEnd_int', 'score_float'])
@@ -2169,7 +2167,9 @@ def _process_hits(
             hit_table = filter_best_model_per_locus(hit_table, pairing_map)
 
             # Report final statistics
-            report_hit_statistics(hit_table, stage='(after cross-model overlap filtering)')
+            report_hit_statistics(
+                hit_table, stage='(after cross-model overlap filtering)'
+            )
 
     return hit_table
 

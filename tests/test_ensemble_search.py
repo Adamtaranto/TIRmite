@@ -538,7 +538,9 @@ class TestFilterBestModelPerLocus:
         hit_table = pd.DataFrame(
             [
                 self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200),
-                self._make_hit('Family2_LEFT', 'chr1', 1050, 1180, 100),  # weaker overlap
+                self._make_hit(
+                    'Family2_LEFT', 'chr1', 1050, 1180, 100
+                ),  # weaker overlap
             ]
         )
         pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
@@ -575,7 +577,9 @@ class TestFilterBestModelPerLocus:
         hit_table = pd.DataFrame(
             [
                 self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200),
-                self._make_hit('Family1_LEFT', 'chr1', 1050, 1180, 50),  # same model, weaker
+                self._make_hit(
+                    'Family1_LEFT', 'chr1', 1050, 1180, 50
+                ),  # same model, weaker
             ]
         )
         pairing_map = {'Family1_LEFT': 'Family1_RIGHT'}
@@ -609,8 +613,18 @@ class TestFilterBestModelPerLocus:
     def test_empty_table_returned_unchanged(self):
         """Empty hit table is returned unchanged."""
         hit_table = pd.DataFrame(
-            columns=['model', 'target', 'hitStart', 'hitEnd', 'strand',
-                     'evalue', 'score', 'bias', 'hmmStart', 'hmmEnd']
+            columns=[
+                'model',
+                'target',
+                'hitStart',
+                'hitEnd',
+                'strand',
+                'evalue',
+                'score',
+                'bias',
+                'hmmStart',
+                'hmmEnd',
+            ]
         )
         pairing_map = {'Family1_LEFT': 'Family1_RIGHT'}
         result = filter_best_model_per_locus(hit_table, pairing_map)

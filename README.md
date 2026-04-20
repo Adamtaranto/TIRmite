@@ -186,6 +186,20 @@ options:
   7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
   8. Iterate steps 6-7 until all termini hits are paired OR number of iterations without new pairing exceeds *--stable-reps*.
 
+### Ensemble search with `tirmite search` (optional pre-processing step)
+
+For complex scenarios with multiple sub-type HMMs or asymmetric element families, use `tirmite search` to merge and filter hits before pairing:
+
+  1. Run BLAST and/or nhmmer with multiple query models simultaneously.
+  2. Optionally merge overlapping hits from clustered component features (cluster map).
+  3. When a pairing map is provided:
+     - **Step 0**: Exclude hits from models not listed in the pairing map.
+     - **Step 1**: Remove nested weak hits within each direct left/right pair.
+     - **Step 2**: Remove lower-quality cross-model hits at shared genomic loci.
+     - Emit a structured **filter summary report** covering all three steps (per-model exclusion counts, nesting relationships, and per-pair cross-model removal counts).
+  4. Output a filtered, merged hit table ready for `tirmite pair`.
+  5. Optionally write separate left/right hit files (`--split-paired-output`) for asymmetric elements.
+
 ## Contributing
 
 If you would like to add a new feature or fix a bug, please see our [contribution guidelines](https://github.com/Adamtaranto/TIRmite?tab=contributing-ov-file#readme).

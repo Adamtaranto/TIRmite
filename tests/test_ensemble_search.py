@@ -1873,6 +1873,212 @@ class TestFilterHitsToPairingMapModels:
 
         assert 'UnknownModel' in caplog.text
 
+    def test_summary_populated_with_excluded_model_counts(self):
+        """Summary.excluded_not_in_map is populated when a summary is passed."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            filter_hits_to_pairing_map_models,
+        )
+
+        df = self._make_hit_table(
+            [
+                self._make_row('LeftA'),
+                self._make_row('UnknownModel'),
+                self._make_row('UnknownModel'),
+            ]
+        )
+        summary = SearchFilterSummary()
+        filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'}, summary=summary)
+        assert summary.excluded_not_in_map == {'UnknownModel': 2}
+
+    def test_summary_empty_when_no_exclusions(self):
+        """Summary.excluded_not_in_map is empty when all models are in the map."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            filter_hits_to_pairing_map_models,
+        )
+
+        df = self._make_hit_table([self._make_row('LeftA'), self._make_row('RightA')])
+        summary = SearchFilterSummary()
+        filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'}, summary=summary)
+        assert summary.excluded_not_in_map == {}
+
+
+# -----------------------------------------------------------------------------
+# SearchFilterSummary and log_filter_summary Tests
+# -----------------------------------------------------------------------------
+
+
+class TestLogFilterSummary:
+    """Tests for log_filter_summary."""
+
+    def test_logs_step0_excluded_models(self, caplog):
+        """Step 0 exclusions are reported."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import SearchFilterSummary, log_filter_summary
+
+        summary = SearchFilterSummary(excluded_not_in_map={'ModelX': 3, 'ModelY': 1})
+        with caplog.at_level(stdlib_logging.INFO):
+            log_filter_summary(summary)
+
+        assert 'ModelX' in caplog.text
+        assert 'ModelY' in caplog.text
+        assert '4' in caplog.text or 'Step 0' in caplog.text
+
+    def test_logs_step1_nested_removal(self, caplog):
+        """Step 1 nested removals are reported with container model names."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import SearchFilterSummary, log_filter_summary
+
+        summary = SearchFilterSummary(nested_removed={'LeftA': {'RightA': 2}})
+        with caplog.at_level(stdlib_logging.INFO):
+            log_filter_summary(summary)
+
+        assert 'LeftA' in caplog.text
+        assert 'RightA' in caplog.text
+
+    def test_logs_step2_cross_model_removal(self, caplog):
+        """Step 2 cross-model removals are reported per pair."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import SearchFilterSummary, log_filter_summary
+
+        summary = SearchFilterSummary(
+            cross_model_removed={('WeakModel', 'StrongModel'): 5}
+        )
+        with caplog.at_level(stdlib_logging.INFO):
+            log_filter_summary(summary)
+
+        assert 'WeakModel' in caplog.text
+        assert 'StrongModel' in caplog.text
+        assert '5' in caplog.text
+
+    def test_logs_no_removal_messages_when_empty(self, caplog):
+        """Empty summary produces 'No hits excluded' / 'No ... removed' messages."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import SearchFilterSummary, log_filter_summary
+
+        summary = SearchFilterSummary()
+        with caplog.at_level(stdlib_logging.INFO):
+            log_filter_summary(summary)
+
+        assert 'No hits excluded' in caplog.text
+        assert 'No nested hits removed' in caplog.text
+        assert 'No cross-model' in caplog.text
+
+
+class TestRemoveNestedPairedHitsSummary:
+    """Tests that remove_nested_paired_hits populates SearchFilterSummary."""
+
+    def _make_hit(self, model, start, end, score):
+        return {
+            'model': model,
+            'target': 'chr1',
+            'hitStart': str(start),
+            'hitEnd': str(end),
+            'strand': '+',
+            'evalue': '1e-10',
+            'score': str(score),
+            'bias': 'NA',
+            'hmmStart': '1',
+            'hmmEnd': str(end - start + 1),
+        }
+
+    def test_summary_records_nested_removal(self):
+        """nested_removed is populated when a weak nested hit is removed."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            remove_nested_paired_hits,
+        )
+
+        df = pd.DataFrame(
+            [
+                self._make_hit('LeftA', 100, 500, 200.0),  # enclosing
+                self._make_hit('RightA', 150, 400, 50.0),  # nested, weak
+            ]
+        )
+        summary = SearchFilterSummary()
+        remove_nested_paired_hits(df, {'LeftA': 'RightA'}, summary=summary)
+        assert 'RightA' in summary.nested_removed
+        assert summary.nested_removed['RightA']['LeftA'] == 1
+
+    def test_summary_empty_when_no_nested_hit_removed(self):
+        """nested_removed is empty when no hit qualifies for removal."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            remove_nested_paired_hits,
+        )
+
+        df = pd.DataFrame(
+            [
+                self._make_hit('LeftA', 100, 500, 200.0),
+                self._make_hit('RightA', 600, 800, 180.0),  # non-overlapping
+            ]
+        )
+        summary = SearchFilterSummary()
+        remove_nested_paired_hits(df, {'LeftA': 'RightA'}, summary=summary)
+        assert summary.nested_removed == {}
+
+
+class TestFilterBestModelPerLocusSummary:
+    """Tests that filter_best_model_per_locus populates SearchFilterSummary."""
+
+    def _make_hit(self, model, start, end, score):
+        return {
+            'model': model,
+            'target': 'chr1',
+            'hitStart': str(start),
+            'hitEnd': str(end),
+            'strand': '+',
+            'evalue': '1e-10',
+            'score': str(score),
+            'bias': 'NA',
+            'hmmStart': '1',
+            'hmmEnd': str(end - start + 1),
+        }
+
+    def test_summary_records_cross_model_removal(self):
+        """cross_model_removed is populated when a weaker overlapping hit is removed."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            filter_best_model_per_locus,
+        )
+
+        df = pd.DataFrame(
+            [
+                self._make_hit('LeftA', 100, 300, 200.0),
+                self._make_hit('LeftB', 150, 280, 50.0),  # weaker, overlapping
+            ]
+        )
+        summary = SearchFilterSummary()
+        filter_best_model_per_locus(
+            df, {'LeftA': 'RightA', 'LeftB': 'RightB'}, summary=summary
+        )
+        assert ('LeftB', 'LeftA') in summary.cross_model_removed
+        assert summary.cross_model_removed[('LeftB', 'LeftA')] == 1
+
+    def test_summary_empty_when_no_cross_model_removal(self):
+        """cross_model_removed is empty when no hits are removed."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            filter_best_model_per_locus,
+        )
+
+        df = pd.DataFrame(
+            [
+                self._make_hit('LeftA', 100, 300, 200.0),
+                self._make_hit('LeftB', 500, 700, 50.0),  # no overlap
+            ]
+        )
+        summary = SearchFilterSummary()
+        filter_best_model_per_locus(
+            df, {'LeftA': 'RightA', 'LeftB': 'RightB'}, summary=summary
+        )
+        assert summary.cross_model_removed == {}
+
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

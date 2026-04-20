@@ -14,10 +14,12 @@ flowchart TD
     E -->|No| G[Use raw hit labels]
     F --> H{Pairing map\nprovided?}
     G --> H
-    H -->|Yes| I[Remove nested weak hits\nwithin each left/right pair]
+    H -->|Yes| I0[Step 0: Exclude hits from\nmodels not in pairing map]
     H -->|No| K[Output all filtered hits]
-    I --> J[Remove lower-quality\noverlapping cross-model hits]
-    J --> K
+    I0 --> I[Step 1: Remove nested weak hits\nwithin each left/right pair]
+    I --> J[Step 2: Remove lower-quality\noverlapping cross-model hits]
+    J --> SR[Emit filter summary report]
+    SR --> K
     K --> L[Merged hit table\n.tab — ready for tirmite pair]
 ```
 
@@ -84,7 +86,13 @@ FAMILY3_LEFT    FAMILY3_RIGHT
 
 ## Hit Filtering with a Pairing Map
 
-When a pairing map is provided, `tirmite search` applies two complementary hit-filtering steps after clustering.  Both steps work on the merged hit table and restrict their comparisons to models that appear in the pairing map.
+When a pairing map is provided, `tirmite search` applies three complementary filtering steps after clustering, then emits a consolidated summary report.  All steps restrict their comparisons to models that appear in the pairing map.
+
+### Step 0 — Exclude models not in the pairing map
+
+Before any hit-removal logic runs, every hit whose query model is absent from both columns of the pairing map is excluded.  This ensures that unrelated models loaded from the same HMM or BLAST file cannot interfere with downstream pairing.
+
+The excluded models and their hit counts are listed in the log.
 
 ### Step 1 — Nested hit removal within direct pairs
 
@@ -115,7 +123,32 @@ This step is broader than Step 1 because:
 - It considers *any* pair of models in the pairing map — not only directly paired left/right partners.
 - It acts on *any* overlap — not only complete nesting.
 
-Together, the two steps ensure that each genomic locus is represented by hits from only the best-matching model(s), reducing spurious downstream pair calls.
+Together, the three steps ensure that each genomic locus is represented by hits from only the best-matching model(s), reducing spurious downstream pair calls.
+
+### Filter summary report
+
+At the end of the pairing map filtering pipeline, `tirmite search` logs a structured summary report:
+
+```
+============================================================
+Pairing Map Filter Summary
+============================================================
+Step 0 — Excluded 12 hit(s) from models not in the pairing map:
+  UnrelatedModel: 12 hit(s) excluded
+Step 1 — Removed 4 nested hit(s) within direct left/right pairs:
+  RightA: 4 hit(s) nested within [LeftA (4)]
+Step 2 — Removed 7 cross-model hit(s) at shared loci:
+  FAMILY2_LEFT → FAMILY1_LEFT: 7 hit(s) removed
+============================================================
+```
+
+The report includes:
+
+| Section | Description |
+|---------|-------------|
+| Step 0  | Models excluded for not being in the pairing map, with per-model hit counts |
+| Step 1  | Total nested hits removed per model, listing the container model(s) and counts |
+| Step 2  | Cross-model overlap hits removed per model pair `(removed → winner)` |
 
 ## Example: Running with HMM queries
 

@@ -987,7 +987,35 @@ class TestFilterHitsByAnchor:
                 }
             ]
         )
-        # F,F: same strand, no pairing map → terminus type = None → kept
+        # F,F: same strand, no pairing map → both-ends check:
+        # offset_start = 50 - 1 = 49 > 5, so hit is removed
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation='F,F'
+        )
+        assert len(result) == 0
+
+    def test_ff_symmetric_no_pairing_map_keeps_hit_within_both_offsets(self):
+        """F,F: same strand, no pairing map, hit covers full model → kept."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        # F,F: same strand, no pairing map → both-ends check:
+        # offset_start = 0, offset_end = 0, both ≤ 5 → kept
         result = filter_hits_by_anchor(
             df, {'TIR': 100}, max_offset=5, orientation='F,F'
         )
@@ -1408,11 +1436,22 @@ class TestAnchorFilterFF:
         assert len(result) == 1
 
     def test_ff_no_pairing_map_keeps_hits(self):
-        """F,F without pairing map: terminus type unknown → hits kept unchanged."""
+        """F,F without pairing map: both-ends check, large offset → removed."""
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
-        # Large offset that would be removed if terminus type were known
+        # Large offset that is removed: offset_start = 50-1 = 49 > 5
         df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation=self.ORIENTATION
+        )
+        assert len(result) == 0
+
+    def test_ff_no_pairing_map_full_coverage_kept(self):
+        """F,F without pairing map: both-ends check, full coverage → kept."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        # Full model coverage: offset_start = 0, offset_end = 0
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=1, hmm_end=100)])
         result = filter_hits_by_anchor(
             df, {'TIR': 100}, max_offset=5, orientation=self.ORIENTATION
         )
@@ -1569,13 +1608,16 @@ class TestAnchorFilterMissingLength:
             filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
 
     def test_ff_same_strand_no_pairing_map_no_error(self):
-        """F,F without pairing map: terminus type unknown → no error even if length missing."""
-        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+        """F,F without pairing map: both-ends check needs length → error if missing."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            filter_hits_by_anchor,
+        )
 
-        # Terminus type cannot be determined → hit is kept without length check
+        # Now that F,F checks both ends, missing length raises an error
         df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
-        result = filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,F')
-        assert len(result) == 1
+        with pytest.raises(EnsembleSearchError, match='model lengths'):
+            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,F')
 
 
 class TestAnchorFilterLogging:
@@ -1620,6 +1662,422 @@ class TestAnchorFilterLogging:
 
         assert 'LeftTIR' in caplog.text
         assert 'RightTIR' in caplog.text
+
+
+# -----------------------------------------------------------------------------
+# Split Paired Output Tests
+# -----------------------------------------------------------------------------
+
+
+class TestValidateSplitPairedOutput:
+    """Tests for validate_split_paired_output."""
+
+    def test_valid_disjoint_models(self):
+        """No overlap between left and right columns → no error."""
+        from tirmite.cli.ensemble_search import validate_split_paired_output
+
+        pairing_map = {'LeftA': 'RightA', 'LeftB': 'RightB'}
+        validate_split_paired_output(pairing_map)  # should not raise
+
+    def test_overlap_raises_error(self):
+        """Model appearing in both left and right columns → raises error."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            validate_split_paired_output,
+        )
+
+        pairing_map = {'ModelA': 'ModelB', 'ModelB': 'ModelC'}
+        with pytest.raises(EnsembleSearchError, match='ModelB'):
+            validate_split_paired_output(pairing_map)
+
+    def test_symmetric_pairing_raises_error(self):
+        """Symmetric pairing (same model in both columns) → raises error."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            validate_split_paired_output,
+        )
+
+        pairing_map = {'TIR': 'TIR'}
+        with pytest.raises(EnsembleSearchError, match='TIR'):
+            validate_split_paired_output(pairing_map)
+
+
+class TestWriteSplitHits:
+    """Tests for write_split_hits."""
+
+    def _make_hit_table(self, rows):
+        return pd.DataFrame(rows)
+
+    def test_split_basic(self, tmp_path):
+        """Hits are correctly split into left and right files."""
+        from tirmite.cli.ensemble_search import write_split_hits
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'LeftA',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                },
+                {
+                    'model': 'RightA',
+                    'target': 'chr1',
+                    'hitStart': '500',
+                    'hitEnd': '600',
+                    'strand': '-',
+                    'evalue': '1e-10',
+                    'score': '90',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                },
+            ]
+        )
+        pairing_map = {'LeftA': 'RightA'}
+        left_file, right_file = write_split_hits(df, pairing_map, tmp_path, 'test')
+
+        assert left_file.exists()
+        assert right_file.exists()
+
+        left_content = left_file.read_text()
+        right_content = right_file.read_text()
+
+        assert 'LeftA' in left_content
+        assert 'RightA' not in left_content
+        assert 'RightA' in right_content
+        assert 'LeftA' not in right_content
+
+    def test_split_empty_table(self, tmp_path):
+        """Empty table produces empty output files."""
+        from tirmite.cli.ensemble_search import write_split_hits
+
+        df = self._make_hit_table([])
+        pairing_map = {'LeftA': 'RightA'}
+        left_file, right_file = write_split_hits(df, pairing_map, tmp_path, 'test')
+
+        assert left_file.exists()
+        assert right_file.exists()
+
+    def test_split_warns_for_unassigned_models(self, tmp_path, caplog):
+        """Hits from models not in pairing map trigger a warning."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import write_split_hits
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'UnknownModel',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                },
+            ]
+        )
+        pairing_map = {'LeftA': 'RightA'}
+        with caplog.at_level(stdlib_logging.WARNING):
+            write_split_hits(df, pairing_map, tmp_path, 'test')
+
+        assert 'UnknownModel' in caplog.text
+
+
+# -----------------------------------------------------------------------------
+# Pairing Map Model Filter Tests
+# -----------------------------------------------------------------------------
+
+
+class TestFilterHitsToPairingMapModels:
+    """Tests for filter_hits_to_pairing_map_models."""
+
+    def _make_hit_table(self, rows):
+        return pd.DataFrame(rows)
+
+    def _make_row(self, model):
+        return {
+            'model': model,
+            'target': 'chr1',
+            'hitStart': '100',
+            'hitEnd': '200',
+            'strand': '+',
+            'evalue': '1e-10',
+            'score': '100',
+            'bias': 'NA',
+            'hmmStart': '1',
+            'hmmEnd': '100',
+        }
+
+    def test_retains_paired_models(self):
+        """Hits from models in the pairing map are retained."""
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table([self._make_row('LeftA'), self._make_row('RightA')])
+        result = filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'})
+        assert len(result) == 2
+        assert set(result['model'].unique()) == {'LeftA', 'RightA'}
+
+    def test_removes_unpaired_models(self):
+        """Hits from models not in the pairing map are removed."""
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table(
+            [
+                self._make_row('LeftA'),
+                self._make_row('RightA'),
+                self._make_row('UnknownModel'),
+            ]
+        )
+        result = filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'})
+        assert len(result) == 2
+        assert 'UnknownModel' not in result['model'].values
+
+    def test_empty_table_returns_empty(self):
+        """Empty input returns empty output."""
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table([])
+        result = filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'})
+        assert result.empty
+
+    def test_empty_pairing_map_returns_unchanged(self):
+        """Empty pairing map returns the table unchanged."""
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table([self._make_row('ModelX')])
+        result = filter_hits_to_pairing_map_models(df, {})
+        assert len(result) == 1
+
+    def test_logs_removed_models(self, caplog):
+        """Removed models are reported in the log."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table(
+            [self._make_row('LeftA'), self._make_row('UnknownModel')]
+        )
+        with caplog.at_level(stdlib_logging.INFO):
+            filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'})
+
+        assert 'UnknownModel' in caplog.text
+
+    def test_summary_populated_with_excluded_model_counts(self):
+        """Summary.excluded_not_in_map is populated when a summary is passed."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            filter_hits_to_pairing_map_models,
+        )
+
+        df = self._make_hit_table(
+            [
+                self._make_row('LeftA'),
+                self._make_row('UnknownModel'),
+                self._make_row('UnknownModel'),
+            ]
+        )
+        summary = SearchFilterSummary()
+        filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'}, summary=summary)
+        assert summary.excluded_not_in_map == {'UnknownModel': 2}
+
+    def test_summary_empty_when_no_exclusions(self):
+        """Summary.excluded_not_in_map is empty when all models are in the map."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            filter_hits_to_pairing_map_models,
+        )
+
+        df = self._make_hit_table([self._make_row('LeftA'), self._make_row('RightA')])
+        summary = SearchFilterSummary()
+        filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'}, summary=summary)
+        assert summary.excluded_not_in_map == {}
+
+
+# -----------------------------------------------------------------------------
+# SearchFilterSummary and log_filter_summary Tests
+# -----------------------------------------------------------------------------
+
+
+class TestLogFilterSummary:
+    """Tests for log_filter_summary."""
+
+    def test_logs_step0_excluded_models(self, caplog):
+        """Step 0 exclusions are reported."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import SearchFilterSummary, log_filter_summary
+
+        summary = SearchFilterSummary(excluded_not_in_map={'ModelX': 3, 'ModelY': 1})
+        with caplog.at_level(stdlib_logging.INFO):
+            log_filter_summary(summary)
+
+        assert 'ModelX' in caplog.text
+        assert 'ModelY' in caplog.text
+        assert '4' in caplog.text or 'Step 0' in caplog.text
+
+    def test_logs_step1_nested_removal(self, caplog):
+        """Step 1 nested removals are reported with container model names."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import SearchFilterSummary, log_filter_summary
+
+        summary = SearchFilterSummary(nested_removed={'LeftA': {'RightA': 2}})
+        with caplog.at_level(stdlib_logging.INFO):
+            log_filter_summary(summary)
+
+        assert 'LeftA' in caplog.text
+        assert 'RightA' in caplog.text
+
+    def test_logs_step2_cross_model_removal(self, caplog):
+        """Step 2 cross-model removals are reported per pair."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import SearchFilterSummary, log_filter_summary
+
+        summary = SearchFilterSummary(
+            cross_model_removed={('WeakModel', 'StrongModel'): 5}
+        )
+        with caplog.at_level(stdlib_logging.INFO):
+            log_filter_summary(summary)
+
+        assert 'WeakModel' in caplog.text
+        assert 'StrongModel' in caplog.text
+        assert '5' in caplog.text
+
+    def test_logs_no_removal_messages_when_empty(self, caplog):
+        """Empty summary produces 'No hits excluded' / 'No ... removed' messages."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import SearchFilterSummary, log_filter_summary
+
+        summary = SearchFilterSummary()
+        with caplog.at_level(stdlib_logging.INFO):
+            log_filter_summary(summary)
+
+        assert 'No hits excluded' in caplog.text
+        assert 'No nested hits removed' in caplog.text
+        assert 'No cross-model' in caplog.text
+
+
+class TestRemoveNestedPairedHitsSummary:
+    """Tests that remove_nested_paired_hits populates SearchFilterSummary."""
+
+    def _make_hit(self, model, start, end, score):
+        return {
+            'model': model,
+            'target': 'chr1',
+            'hitStart': str(start),
+            'hitEnd': str(end),
+            'strand': '+',
+            'evalue': '1e-10',
+            'score': str(score),
+            'bias': 'NA',
+            'hmmStart': '1',
+            'hmmEnd': str(end - start + 1),
+        }
+
+    def test_summary_records_nested_removal(self):
+        """nested_removed is populated when a weak nested hit is removed."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            remove_nested_paired_hits,
+        )
+
+        df = pd.DataFrame(
+            [
+                self._make_hit('LeftA', 100, 500, 200.0),  # enclosing
+                self._make_hit('RightA', 150, 400, 50.0),  # nested, weak
+            ]
+        )
+        summary = SearchFilterSummary()
+        remove_nested_paired_hits(df, {'LeftA': 'RightA'}, summary=summary)
+        assert 'RightA' in summary.nested_removed
+        assert summary.nested_removed['RightA']['LeftA'] == 1
+
+    def test_summary_empty_when_no_nested_hit_removed(self):
+        """nested_removed is empty when no hit qualifies for removal."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            remove_nested_paired_hits,
+        )
+
+        df = pd.DataFrame(
+            [
+                self._make_hit('LeftA', 100, 500, 200.0),
+                self._make_hit('RightA', 600, 800, 180.0),  # non-overlapping
+            ]
+        )
+        summary = SearchFilterSummary()
+        remove_nested_paired_hits(df, {'LeftA': 'RightA'}, summary=summary)
+        assert summary.nested_removed == {}
+
+
+class TestFilterBestModelPerLocusSummary:
+    """Tests that filter_best_model_per_locus populates SearchFilterSummary."""
+
+    def _make_hit(self, model, start, end, score):
+        return {
+            'model': model,
+            'target': 'chr1',
+            'hitStart': str(start),
+            'hitEnd': str(end),
+            'strand': '+',
+            'evalue': '1e-10',
+            'score': str(score),
+            'bias': 'NA',
+            'hmmStart': '1',
+            'hmmEnd': str(end - start + 1),
+        }
+
+    def test_summary_records_cross_model_removal(self):
+        """cross_model_removed is populated when a weaker overlapping hit is removed."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            filter_best_model_per_locus,
+        )
+
+        df = pd.DataFrame(
+            [
+                self._make_hit('LeftA', 100, 300, 200.0),
+                self._make_hit('LeftB', 150, 280, 50.0),  # weaker, overlapping
+            ]
+        )
+        summary = SearchFilterSummary()
+        filter_best_model_per_locus(
+            df, {'LeftA': 'RightA', 'LeftB': 'RightB'}, summary=summary
+        )
+        assert ('LeftB', 'LeftA') in summary.cross_model_removed
+        assert summary.cross_model_removed[('LeftB', 'LeftA')] == 1
+
+    def test_summary_empty_when_no_cross_model_removal(self):
+        """cross_model_removed is empty when no hits are removed."""
+        from tirmite.cli.ensemble_search import (
+            SearchFilterSummary,
+            filter_best_model_per_locus,
+        )
+
+        df = pd.DataFrame(
+            [
+                self._make_hit('LeftA', 100, 300, 200.0),
+                self._make_hit('LeftB', 500, 700, 50.0),  # no overlap
+            ]
+        )
+        summary = SearchFilterSummary()
+        filter_best_model_per_locus(
+            df, {'LeftA': 'RightA', 'LeftB': 'RightB'}, summary=summary
+        )
+        assert summary.cross_model_removed == {}
 
 
 if __name__ == '__main__':

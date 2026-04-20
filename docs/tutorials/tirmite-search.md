@@ -14,10 +14,12 @@ flowchart TD
     E -->|No| G[Use raw hit labels]
     F --> H{Pairing map\nprovided?}
     G --> H
-    H -->|Yes| I[Remove nested weak hits\nwithin each left/right pair]
+    H -->|Yes| I0[Step 0: Exclude hits from\nmodels not in pairing map]
     H -->|No| K[Output all filtered hits]
-    I --> J[Remove lower-quality\noverlapping cross-model hits]
-    J --> K
+    I0 --> I[Step 1: Remove nested weak hits\nwithin each left/right pair]
+    I --> J[Step 2: Remove lower-quality\noverlapping cross-model hits]
+    J --> SR[Emit filter summary report]
+    SR --> K
     K --> L[Merged hit table\n.tab — ready for tirmite pair]
 ```
 
@@ -84,7 +86,13 @@ FAMILY3_LEFT    FAMILY3_RIGHT
 
 ## Hit Filtering with a Pairing Map
 
-When a pairing map is provided, `tirmite search` applies two complementary hit-filtering steps after clustering.  Both steps work on the merged hit table and restrict their comparisons to models that appear in the pairing map.
+When a pairing map is provided, `tirmite search` applies three complementary filtering steps after clustering, then emits a consolidated summary report.  All steps restrict their comparisons to models that appear in the pairing map.
+
+### Step 0 — Exclude models not in the pairing map
+
+Before any hit-removal logic runs, every hit whose query model is absent from both columns of the pairing map is excluded.  This ensures that unrelated models loaded from the same HMM or BLAST file cannot interfere with downstream pairing.
+
+The excluded models and their hit counts are listed in the log.
 
 ### Step 1 — Nested hit removal within direct pairs
 
@@ -115,7 +123,32 @@ This step is broader than Step 1 because:
 - It considers *any* pair of models in the pairing map — not only directly paired left/right partners.
 - It acts on *any* overlap — not only complete nesting.
 
-Together, the two steps ensure that each genomic locus is represented by hits from only the best-matching model(s), reducing spurious downstream pair calls.
+Together, the three steps ensure that each genomic locus is represented by hits from only the best-matching model(s), reducing spurious downstream pair calls.
+
+### Filter summary report
+
+At the end of the pairing map filtering pipeline, `tirmite search` logs a structured summary report:
+
+```
+============================================================
+Pairing Map Filter Summary
+============================================================
+Step 0 — Excluded 12 hit(s) from models not in the pairing map:
+  UnrelatedModel: 12 hit(s) excluded
+Step 1 — Removed 4 nested hit(s) within direct left/right pairs:
+  RightA: 4 hit(s) nested within [LeftA (4)]
+Step 2 — Removed 7 cross-model hit(s) at shared loci:
+  FAMILY2_LEFT → FAMILY1_LEFT: 7 hit(s) removed
+============================================================
+```
+
+The report includes:
+
+| Section | Description |
+|---------|-------------|
+| Step 0  | Models excluded for not being in the pairing map, with per-model hit counts |
+| Step 1  | Total nested hits removed per model, listing the container model(s) and counts |
+| Step 2  | Cross-model overlap hits removed per model pair `(removed → winner)` |
 
 ## Example: Running with HMM queries
 
@@ -214,7 +247,16 @@ The `--max-offset` option anchors hits within a maximum distance from the **oute
 - Filtering out internal hits that overlap with the terminus region
 - Ensuring that hits used for pairing genuinely represent the element boundary
 
-When `--max-offset N` is set, only hits whose start position (on the positive strand) is within N bp of the outermost edge of the top-scoring hit for that terminus are retained.
+When `--max-offset N` is set, the outer edge of each hit is determined based on its
+terminus type (left/right) and strand orientation, using the same logic as `tirmite pair`:
+
+- **Left terminus, + strand**: outer edge = model position 1 → offset = `hmmStart - 1`
+- **Left terminus, - strand**: outer edge = model position `model_len` → offset = `model_len - hmmEnd`
+- **Right terminus, + strand**: outer edge = model position `model_len` → offset = `model_len - hmmEnd`
+- **Right terminus, - strand**: outer edge = model position 1 → offset = `hmmStart - 1`
+
+For same-strand orientations (F,F or R,R) without a pairing map, the hit must be
+within `--max-offset` bases of **both** ends of the query model.
 
 ```
 Terminus hit:   |=====HIT=====|
@@ -224,12 +266,40 @@ Retained:       |---------20bp---------|
 Discarded:      any hit starting beyond this window
 ```
 
+## Split Output for Asymmetrical Models
+
+When using `--split-paired-output` with a `--pairing-map`, left and right model hits
+are written to separate output files. This is useful for asymmetrical model pairs
+(e.g. Helitrons, Starships) where `tirmite pair` expects separate input files for
+each terminus.
+
+```bash
+tirmite search \
+  --hmm left_model.hmm right_model.hmm \
+  --genome $GENOME \
+  --pairing-map pairing_map.txt \
+  --split-paired-output \
+  --outdir SEARCH_OUTPUT
+```
+
+This produces:
+
+- `<prefix>_left_hits.tab` — hits from left-column models in the pairing map
+- `<prefix>_right_hits.tab` — hits from right-column models in the pairing map
+- `<prefix>_hits.tab` — all hits (always written)
+
+!!! warning "Model name uniqueness"
+    When `--split-paired-output` is enabled, each model name must appear exclusively
+    in either the left or right column of the pairing map. Models appearing in both
+    columns will cause an error.
+
 ## Output Files
 
 | File | Description |
 |------|-------------|
-| `<outname>_merged_hits.tab` | Merged, filtered hit table (BLAST tabular format) ready for `tirmite pair` |
-| `<outname>_raw_hits.tab` | Raw hits before merging (if saved) |
+| `<prefix>_hits.tab` | Merged, filtered hit table (BLAST tabular format) ready for `tirmite pair` |
+| `<prefix>_left_hits.tab` | Left model hits only (when `--split-paired-output` is used) |
+| `<prefix>_right_hits.tab` | Right model hits only (when `--split-paired-output` is used) |
 
 ## Next Steps
 
@@ -237,13 +307,29 @@ Pass the merged hit table to `tirmite pair`:
 
 → **[Using tirmite pair](tirmite-pair.md)**
 
+For **symmetrical** models (single model for both termini):
+
 ```bash
 tirmite pair \
   --genome $GENOME \
-  --blast-file ENSEMBLE_OUTPUT/<outname>_merged_hits.tab \
+  --blast-file ENSEMBLE_OUTPUT/<prefix>_hits.tab \
   --pairing-map pairing_map.txt \
   --orientation F,R \
   --mincov 0.4 \
+  --maxdist 20000 \
+  --outdir PAIR_OUTPUT \
+  --gff
+```
+
+For **asymmetrical** models (separate left and right models), use the split output files:
+
+```bash
+tirmite pair \
+  --genome $GENOME \
+  --left-hits SEARCH_OUTPUT/<prefix>_left_hits.tab \
+  --right-hits SEARCH_OUTPUT/<prefix>_right_hits.tab \
+  --pairing-map pairing_map.txt \
+  --orientation F,R \
   --maxdist 20000 \
   --outdir PAIR_OUTPUT \
   --gff

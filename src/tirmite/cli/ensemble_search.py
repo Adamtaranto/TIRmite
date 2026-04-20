@@ -13,6 +13,7 @@ Supports both direct search execution and loading of precomputed search results.
 """
 
 import argparse
+from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 import shutil
@@ -33,6 +34,33 @@ class EnsembleSearchError(Exception):
     """Custom exception for ensemble search errors."""
 
     pass
+
+
+# -----------------------------------------------------------------------------
+# Filter Summary Dataclass
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class SearchFilterSummary:
+    """Accumulates hit-filtering statistics across all pairing map pipeline steps.
+
+    Attributes
+    ----------
+    excluded_not_in_map : dict
+        Hits excluded at Step 0 (model not in pairing map).
+        Mapping of ``{model_name: hit_count}``.
+    nested_removed : dict
+        Hits removed at Step 1 (nested within a stronger partner hit).
+        Mapping of ``{removed_model: {container_model: count}}``.
+    cross_model_removed : dict
+        Hits removed at Step 2 (weaker overlapping cross-model hit).
+        Mapping of ``{(removed_model, better_model): count}``.
+    """
+
+    excluded_not_in_map: Dict[str, int] = field(default_factory=dict)
+    nested_removed: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    cross_model_removed: Dict[Tuple[str, str], int] = field(default_factory=dict)
 
 
 # -----------------------------------------------------------------------------
@@ -690,13 +718,33 @@ def filter_hits_by_anchor(
                 terminus_type = None
         else:
             # Same-strand orientation (F,F or R,R) without a pairing map –
-            # cannot determine which end is "outer"
+            # cannot determine which end is "outer", check both ends
             terminus_type = None
 
         if terminus_type is None:
-            # Cannot determine terminus type – keep the hit and note once
-            skipped_no_terminus += 1
-            kept.append(True)
+            # Same-strand symmetric (F,F or R,R) without a pairing map:
+            # check both ends of the query model
+            model_len = query_lengths.get(model)
+            if model_len is None:
+                missing_lengths.add(model)
+                kept.append(True)
+                continue
+
+            try:
+                hmm_start = int(row['hmmStart'])
+                hmm_end = int(row['hmmEnd'])
+            except (ValueError, TypeError):
+                kept.append(True)
+                continue
+
+            offset_start = hmm_start - 1
+            offset_end = model_len - hmm_end
+            if offset_start <= max_offset and offset_end <= max_offset:
+                kept.append(True)
+            else:
+                kept.append(False)
+                removed += 1
+                removed_per_model[model] = removed_per_model.get(model, 0) + 1
             continue
 
         model_len = query_lengths.get(model)
@@ -781,6 +829,57 @@ def report_hit_statistics(hit_table: pd.DataFrame, stage: str = '') -> None:
     logging.info('  Hits per feature:')
     for model, count in hits_per_model.items():
         logging.info(f'    {model}: {count}')
+
+
+def filter_hits_to_pairing_map_models(
+    hit_table: pd.DataFrame,
+    pairing_map: Dict[str, str],
+    summary: Optional['SearchFilterSummary'] = None,
+) -> pd.DataFrame:
+    """
+    Retain only hits from models listed in the pairing map.
+
+    When a pairing map is provided, hits from models that are not part of any
+    left/right pair are irrelevant for downstream pairing and are excluded from
+    the output.
+
+    Parameters
+    ----------
+    hit_table : pandas.DataFrame
+        Hit table with a 'model' column.
+    pairing_map : dict
+        Dictionary mapping left feature names to right feature names.
+    summary : SearchFilterSummary, optional
+        If provided, per-model exclusion counts are stored in
+        ``summary.excluded_not_in_map``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Hit table restricted to models in the pairing map.
+    """
+    if hit_table.empty or not pairing_map:
+        return hit_table
+
+    paired_models = set(pairing_map.keys()) | set(pairing_map.values())
+    mask = hit_table['model'].isin(paired_models)
+    n_before = len(hit_table)
+    result = hit_table[mask].copy().reset_index(drop=True)
+    n_removed = n_before - len(result)
+
+    if n_removed:
+        removed_models = sorted(set(hit_table.loc[~mask, 'model'].unique()))
+        logging.info(
+            f'Pairing map filter: removed {n_removed} hit(s) from '
+            f'{len(removed_models)} model(s) not in the pairing map: '
+            f'{", ".join(removed_models)}'
+        )
+        if summary is not None:
+            for model in removed_models:
+                count = int((~mask & (hit_table['model'] == model)).sum())
+                summary.excluded_not_in_map[model] = count
+
+    return result
 
 
 # -----------------------------------------------------------------------------
@@ -1034,6 +1133,7 @@ def remove_nested_paired_hits(
     hit_table: pd.DataFrame,
     pairing_map: Dict[str, str],
     min_score_ratio: float = 1.5,
+    summary: Optional['SearchFilterSummary'] = None,
 ) -> pd.DataFrame:
     """
     Remove weak hits nested within stronger hits from the same left/right pair.
@@ -1079,6 +1179,9 @@ def remove_nested_paired_hits(
         A nested hit is removed when ``nested_score / enclosing_score < min_score_ratio``.
         Increase this value to be more aggressive (remove more nested hits); decrease
         it to be more conservative (keep more nested hits).
+    summary : SearchFilterSummary, optional
+        If provided, per-model nesting details are stored in
+        ``summary.nested_removed`` as ``{removed_model: {container_model: count}}``.
 
     Returns
     -------
@@ -1103,6 +1206,8 @@ def remove_nested_paired_hits(
     ).fillna(0)
 
     hits_to_remove: Set[int] = set()
+    # Map removed hit index → (removed_model, container_model) for summary reporting
+    removed_hit_containers: Dict[int, Tuple[str, str]] = {}
 
     # Check each target/strand combination
     for (_target, _strand), group in hit_table.groupby(['target', 'strand']):
@@ -1146,6 +1251,7 @@ def remove_nested_paired_hits(
                     # hit2 is nested in hit1
                     if score1 > 0 and (score2 / score1) < min_score_ratio:
                         hits_to_remove.add(idx2)
+                        removed_hit_containers[idx2] = (model2, model1)
                         logging.debug(
                             f'Removing nested hit {model2} ({start2}-{end2}, score={score2:.1f}) '
                             f'within {model1} ({start1}-{end1}, score={score1:.1f})'
@@ -1156,6 +1262,7 @@ def remove_nested_paired_hits(
                     # hit1 is nested in hit2
                     if score2 > 0 and (score1 / score2) < min_score_ratio:
                         hits_to_remove.add(idx1)
+                        removed_hit_containers[idx1] = (model1, model2)
                         logging.debug(
                             f'Removing nested hit {model1} ({start1}-{end1}, score={score1:.1f}) '
                             f'within {model2} ({start2}-{end2}, score={score2:.1f})'
@@ -1168,6 +1275,16 @@ def remove_nested_paired_hits(
         )
         hit_table = hit_table.drop(index=list(hits_to_remove))
 
+        if summary is not None:
+            for _idx, (
+                removed_model,
+                container_model,
+            ) in removed_hit_containers.items():
+                per_container = summary.nested_removed.setdefault(removed_model, {})
+                per_container[container_model] = (
+                    per_container.get(container_model, 0) + 1
+                )
+
     # Clean up temporary columns
     hit_table = hit_table.drop(columns=['hitStart_int', 'hitEnd_int', 'score_float'])
 
@@ -1179,6 +1296,7 @@ def filter_best_model_per_locus(
     pairing_map: Dict[str, str],
     min_overlap: int = 1,
     min_score_ratio: float = 1.5,
+    summary: Optional['SearchFilterSummary'] = None,
 ) -> pd.DataFrame:
     """
     Retain only the best-scoring model's hits at each overlapping genomic locus.
@@ -1227,6 +1345,9 @@ def filter_best_model_per_locus(
         ``better_score / weaker_score >= min_score_ratio``.
         When the ratio is below this threshold, both hits are kept because neither
         model dominates enough to confidently discard the other.
+    summary : SearchFilterSummary, optional
+        If provided, per-model-pair removal counts are stored in
+        ``summary.cross_model_removed`` as ``{(removed_model, better_model): count}``.
 
     Returns
     -------
@@ -1252,6 +1373,8 @@ def filter_best_model_per_locus(
 
     hits_to_remove: Set[int] = set()
     removed_per_model: Dict[str, int] = {}
+    # Track (removed_model, better_model) → count for summary reporting
+    cross_model_removal_counts: Dict[Tuple[str, str], int] = {}
 
     # Check each target/strand combination
     for (_target, _strand), group in hit_table.groupby(['target', 'strand']):
@@ -1302,6 +1425,10 @@ def filter_best_model_per_locus(
                     if score1 / score2 >= min_score_ratio:
                         hits_to_remove.add(idx2)
                         removed_per_model[model2] = removed_per_model.get(model2, 0) + 1
+                        pair_key = (model2, model1)
+                        cross_model_removal_counts[pair_key] = (
+                            cross_model_removal_counts.get(pair_key, 0) + 1
+                        )
                         logging.debug(
                             f'Removing overlapping cross-model hit {model2} '
                             f'({start2}-{end2}, score={score2:.1f}) in favour of '
@@ -1310,6 +1437,10 @@ def filter_best_model_per_locus(
                     elif score2 / score1 >= min_score_ratio:
                         hits_to_remove.add(idx1)
                         removed_per_model[model1] = removed_per_model.get(model1, 0) + 1
+                        pair_key = (model1, model2)
+                        cross_model_removal_counts[pair_key] = (
+                            cross_model_removal_counts.get(pair_key, 0) + 1
+                        )
                         logging.debug(
                             f'Removing overlapping cross-model hit {model1} '
                             f'({start1}-{end1}, score={score1:.1f}) in favour of '
@@ -1326,9 +1457,87 @@ def filter_best_model_per_locus(
             )
         hit_table = hit_table.drop(index=list(hits_to_remove))
 
+        if summary is not None:
+            for pair_key, count in cross_model_removal_counts.items():
+                summary.cross_model_removed[pair_key] = (
+                    summary.cross_model_removed.get(pair_key, 0) + count
+                )
+
     hit_table = hit_table.drop(columns=['hitStart_int', 'hitEnd_int', 'score_float'])
 
     return hit_table.reset_index(drop=True)
+
+
+def log_filter_summary(summary: 'SearchFilterSummary') -> None:
+    """
+    Emit a structured INFO-level summary of all pairing map filtering steps.
+
+    The report covers three filtering stages applied when a ``--pairing-map``
+    is provided:
+
+    * **Step 0** – Models excluded because they are not listed in the pairing map.
+    * **Step 1** – Nested hit removal within direct left/right pairs.
+    * **Step 2** – Cross-model overlap filtering (weaker hit at shared locus).
+
+    Parameters
+    ----------
+    summary : SearchFilterSummary
+        Accumulated statistics from the pairing map filtering pipeline.
+    """
+    lines = [
+        '',
+        '=' * 60,
+        'Pairing Map Filter Summary',
+        '=' * 60,
+    ]
+
+    # Step 0: Models not in pairing map
+    if summary.excluded_not_in_map:
+        total_excluded = sum(summary.excluded_not_in_map.values())
+        lines.append(
+            f'Step 0 — Excluded {total_excluded} hit(s) from models not in the pairing map:'
+        )
+        for model in sorted(summary.excluded_not_in_map):
+            lines.append(
+                f'  {model}: {summary.excluded_not_in_map[model]} hit(s) excluded'
+            )
+    else:
+        lines.append('Step 0 — No hits excluded (all models present in pairing map)')
+
+    # Step 1: Nested hit removal
+    if summary.nested_removed:
+        total_nested = sum(sum(c.values()) for c in summary.nested_removed.values())
+        lines.append(
+            f'Step 1 — Removed {total_nested} nested hit(s) within direct left/right pairs:'
+        )
+        for removed_model in sorted(summary.nested_removed):
+            per_container = summary.nested_removed[removed_model]
+            total_for_model = sum(per_container.values())
+            container_str = ', '.join(
+                f'{c} ({n})' for c, n in sorted(per_container.items())
+            )
+            lines.append(
+                f'  {removed_model}: {total_for_model} hit(s) nested within [{container_str}]'
+            )
+    else:
+        lines.append('Step 1 — No nested hits removed')
+
+    # Step 2: Cross-model overlap filtering
+    if summary.cross_model_removed:
+        total_cross = sum(summary.cross_model_removed.values())
+        lines.append(
+            f'Step 2 — Removed {total_cross} cross-model hit(s) at shared loci:'
+        )
+        for removed_model, better_model in sorted(summary.cross_model_removed):
+            count = summary.cross_model_removed[(removed_model, better_model)]
+            lines.append(f'  {removed_model} → {better_model}: {count} hit(s) removed')
+    else:
+        lines.append('Step 2 — No cross-model overlapping hits removed')
+
+    lines.append('=' * 60)
+
+    for line in lines:
+        logging.info(line)
 
 
 # -----------------------------------------------------------------------------
@@ -1412,6 +1621,96 @@ def write_hits_table(hit_table: pd.DataFrame, output_file: Path) -> None:
         blast_df.to_csv(output_file, sep='\t', index=False, header=False, mode='a')
 
     logging.info(f'Wrote {len(hit_table)} hits to {output_file}')
+
+
+def validate_split_paired_output(pairing_map: Dict[str, str]) -> None:
+    """
+    Validate that no model name appears in both the left and right columns of the pairing map.
+
+    Parameters
+    ----------
+    pairing_map : dict
+        Dictionary mapping left feature names to right feature names.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If any model name appears in both the left and right columns.
+    """
+    left_models = set(pairing_map.keys())
+    right_models = set(pairing_map.values())
+    overlap = left_models & right_models
+
+    if overlap:
+        overlap_list = ', '.join(sorted(overlap))
+        raise EnsembleSearchError(
+            f'Cannot use --split-paired-output: model(s) {overlap_list} appear in both '
+            'the left and right columns of the pairing map. Each model must be '
+            'exclusively left or right when splitting output.'
+        )
+
+
+def write_split_hits(
+    hit_table: pd.DataFrame,
+    pairing_map: Dict[str, str],
+    outdir: Path,
+    prefix: str,
+) -> Tuple[Path, Path]:
+    """
+    Write left and right model hits to separate output files based on the pairing map.
+
+    Parameters
+    ----------
+    hit_table : pandas.DataFrame
+        Hit table to split and write.
+    pairing_map : dict
+        Dictionary mapping left feature names to right feature names.
+    outdir : Path
+        Output directory.
+    prefix : str
+        Prefix for output file names.
+
+    Returns
+    -------
+    tuple of (Path, Path)
+        Paths to the left and right output files.
+    """
+    left_models = set(pairing_map.keys())
+    right_models = set(pairing_map.values())
+
+    left_file = outdir / f'{prefix}_left_hits.tab'
+    right_file = outdir / f'{prefix}_right_hits.tab'
+
+    if hit_table.empty:
+        write_hits_table(hit_table, left_file)
+        write_hits_table(hit_table, right_file)
+        logging.info(
+            f'Split output: 0 left hits -> {left_file}, 0 right hits -> {right_file}'
+        )
+        return left_file, right_file
+
+    left_hits = hit_table[hit_table['model'].isin(left_models)]
+    right_hits = hit_table[hit_table['model'].isin(right_models)]
+
+    # Hits from models not in the pairing map are written to neither file
+    unassigned_hits = hit_table[~hit_table['model'].isin(left_models | right_models)]
+
+    write_hits_table(left_hits, left_file)
+    write_hits_table(right_hits, right_file)
+
+    if not unassigned_hits.empty:
+        logging.warning(
+            f'{len(unassigned_hits)} hit(s) from model(s) not in the pairing map were not '
+            'written to either the left or right output file: '
+            f'{", ".join(sorted(unassigned_hits["model"].unique()))}'
+        )
+
+    logging.info(
+        f'Split output: {len(left_hits)} left hits -> {left_file}, '
+        f'{len(right_hits)} right hits -> {right_file}'
+    )
+
+    return left_file, right_file
 
 
 # -----------------------------------------------------------------------------
@@ -1775,6 +2074,19 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         default='ensemble_search',
         help='Prefix for output files (default: ensemble_search)',
     )
+    output_group.add_argument(
+        '--split-paired-output',
+        action='store_true',
+        default=False,
+        dest='split_paired_output',
+        help=(
+            'Write left and right model hits to separate output files based on '
+            'the pairing map. Requires --pairing-map. Output files will be named '
+            '<prefix>_left_hits.tab and <prefix>_right_hits.tab. '
+            'Models appearing in both left and right columns of the pairing map '
+            'are not allowed when this option is enabled.'
+        ),
+    )
 
     # Processing options
     proc_group = parser.add_argument_group('Processing Options')
@@ -1889,6 +2201,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             raise EnsembleSearchError(
                 '--genome is required when running nhmmer searches with --hmm'
             )
+
+        # Validate --split-paired-output requirements
+        if args.split_paired_output:
+            if not args.pairing_map:
+                raise EnsembleSearchError(
+                    '--split-paired-output requires --pairing-map to identify '
+                    'left and right models.'
+                )
 
         # Validate lengths file requirement when using precomputed results without query files
         if has_precomputed and not has_search_inputs:
@@ -2027,6 +2347,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         output_file = args.outdir / f'{args.prefix}_hits.tab'
         write_hits_table(hit_table, output_file)
 
+        # Write split output if requested
+        if args.split_paired_output:
+            pairing_map = parse_pairing_map(args.pairing_map)
+            validate_split_paired_output(pairing_map)
+            write_split_hits(hit_table, pairing_map, args.outdir, args.prefix)
+
         # Log completion message with logfile location if enabled
         if logfile_path and args.logfile:
             logging.info(f'Log file saved to: {logfile_path}')
@@ -2153,9 +2479,21 @@ def _process_hits(
         pairing_map = parse_pairing_map(args.pairing_map)
 
         if pairing_map:
+            filter_summary = SearchFilterSummary()
+
+            # Step 0: restrict output to models listed in the pairing map only.
+            hit_table = filter_hits_to_pairing_map_models(
+                hit_table, pairing_map, summary=filter_summary
+            )
+
+            # Report statistics after pairing map model filter
+            report_hit_statistics(hit_table, stage='(after pairing map model filter)')
+
             # Step 1: remove hits from a paired model that are completely nested within
             # hits of its direct left/right partner and score significantly worse.
-            hit_table = remove_nested_paired_hits(hit_table, pairing_map)
+            hit_table = remove_nested_paired_hits(
+                hit_table, pairing_map, summary=filter_summary
+            )
 
             # Report statistics after nested hit removal
             report_hit_statistics(hit_table, stage='(after nested hit removal)')
@@ -2164,12 +2502,17 @@ def _process_hits(
             # all pairs in the pairing map.  This handles the case where models from
             # related element families hit the same locus: at each overlapping locus the
             # best-scoring model is retained and weaker cross-model hits are discarded.
-            hit_table = filter_best_model_per_locus(hit_table, pairing_map)
+            hit_table = filter_best_model_per_locus(
+                hit_table, pairing_map, summary=filter_summary
+            )
 
             # Report final statistics
             report_hit_statistics(
                 hit_table, stage='(after cross-model overlap filtering)'
             )
+
+            # Emit consolidated summary report for all pairing map filtering steps
+            log_filter_summary(filter_summary)
 
     return hit_table
 

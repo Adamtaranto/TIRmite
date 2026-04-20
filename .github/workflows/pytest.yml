@@ -25,8 +25,8 @@ jobs:
       - name: Install additional dependencies
         run: |
           conda install -y -c conda-forge -c bioconda mummer blast hmmer
-          python -m pip install --upgrade pip
-          pip install '.[dev]'  # Install all dependencies, including test-specific ones
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --retries 10 --timeout 180 --prefer-binary --progress-bar off --no-cache-dir '.[test]'
         shell: bash -l {0}
       # Run pytest on the specified directory
       - name: Test with pytest

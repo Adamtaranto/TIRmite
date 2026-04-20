@@ -40,6 +40,10 @@ dev = [
     "pytest-cov",
     "ruff",
 ]
+test = [
+    "pytest",
+    "pytest-cov",
+]
 docs = [
     "mkdocs-material>=9.0",
     "pymdown-extensions>=10.0",

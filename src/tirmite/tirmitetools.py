@@ -3271,7 +3271,7 @@ def writeTargetSites(
                 else left_model
             )
             ts_outfile = os.path.join(
-                outDir, f'{prefix_str}{pair_label}_target_sites.fasta'
+                outDir, f'{prefix_str}{pair_label}_target_sites_{len(records)}.fasta'
             )
             _write_single_line_fasta(records, ts_outfile)
             logging.info(
@@ -3290,7 +3290,7 @@ def writeTargetSites(
                 else left_model
             )
             il_outfile = os.path.join(
-                outDir, f'{prefix_str}{pair_label}_interleaved_flanks.fasta'
+                outDir, f'{prefix_str}{pair_label}_interleaved_flanks_{len(records)}.fasta'
             )
             _write_single_line_fasta(records, il_outfile)
             logging.info(f'Wrote interleaved flanks to {il_outfile}')

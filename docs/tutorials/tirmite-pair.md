@@ -230,8 +230,8 @@ Key output files in `MY_TIR_OUTPUT/`:
 | `MY_TIR_elements_N.fasta` | Full element sequences (left terminus to right terminus) |
 | `MY_TIR_paired_left_flank_N.fasta` | External flanks upstream of paired left terminus hits |
 | `MY_TIR_paired_right_flank_N.fasta` | External flanks downstream of paired right terminus hits |
-| `MY_TIR_target_sites.fasta` | Reconstructed pre-insertion target sites with TSD metadata |
-| `MY_TIR_interleaved_flanks.fasta` | Left/right flank pairs shown interleaved with TSD highlighted |
+| `MY_TIR_target_sites_N.fasta` | Reconstructed pre-insertion target sites with TSD metadata |
+| `MY_TIR_interleaved_flanks_N.fasta` | Left/right flank pairs shown interleaved with TSD highlighted |
 | `tirmite_pair_report.gff3` | GFF3 annotation of elements and termini |
 
 To additionally write flanks for **all** hits (including unpaired), add `--flanks`:
@@ -461,8 +461,8 @@ tirmite pair \
 
 | File | Contents |
 |------|----------|
-| `{prefix}{pair_label}_target_sites.fasta` | One reconstructed target site per paired element |
-| `{prefix}{pair_label}_interleaved_flanks.fasta` | Gap-padded left/right flank pairs showing TSD position |
+| `{prefix}{pair_label}_target_sites_{N}.fasta` | One reconstructed target site per paired element |
+| `{prefix}{pair_label}_interleaved_flanks_{N}.fasta` | Gap-padded left/right flank pairs showing TSD position |
 
 For single-model runs `pair_label` is the model name. For asymmetric pairs it is `{left_model}_{right_model}`.
 

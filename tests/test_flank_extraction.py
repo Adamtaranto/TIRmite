@@ -10,7 +10,6 @@ Validates:
 """
 
 from collections import namedtuple
-import logging.handlers
 import os
 import tempfile
 
@@ -954,12 +953,15 @@ class TestWriteFlanks:
         """Context manager to capture debug-level log records from tirmitetools."""
         import contextlib
         import logging
+        import logging.handlers
 
         @contextlib.contextmanager
         def _cm():
-            handler = logging.handlers.MemoryHandler(capacity=1000, flushLevel=100)
+            # capacity=1000: large enough to hold all messages in any single test run.
+            # flushLevel=101: above CRITICAL (50), so the buffer is never auto-flushed
+            # and we can inspect it manually after the test.
+            handler = logging.handlers.MemoryHandler(capacity=1000, flushLevel=101)
             handler.setLevel(logging.DEBUG)
-            logger = logging.getLogger('tirmite.tirmitetools')
             root_logger = logging.getLogger()
             root_logger.addHandler(handler)
             root_logger.setLevel(logging.DEBUG)

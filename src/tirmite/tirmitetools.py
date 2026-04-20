@@ -2519,6 +2519,8 @@ def writeFlanks(
     # determined correctly in their own pair's writeFlanks call.
     config_models: Optional[Set[str]] = None
     if config is not None and config.is_asymmetric:
+        # is_asymmetric guarantees both left_model and right_model are non-None,
+        # but we filter defensively in case of any future config construction path.
         config_models = {m for m in (config.left_model, config.right_model) if m is not None}
 
     if write_all:

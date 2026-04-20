@@ -1266,11 +1266,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         Exit code (0 for success, 1 for error).
     """
     # Parse arguments if not provided
+    parser = create_pair_parser()
     if args is None:
-        parser = create_pair_parser()
         args = parser.parse_args()
-    else:
-        parser = create_pair_parser()
 
     # Mypy assertion: args is guaranteed non-None after parsing
     assert args is not None

@@ -8,6 +8,10 @@ The format is based on [Common Changelog](https://common-changelog.org/).
 
 ### Added
 
+- `tirmite pair` fully implemented outer edge flank extraction and target site reconstruction accounting for hit offset from query end and accounting for TSD or DR.
+- `tirmite pair` now writes output to sub-dirs per query pair, and writes summary reports.
+- Experimental module `tirmite validate` to compare reconstructed insertion sites to a blast db of genomes to find natural empty sites and check if DR length prediction was correct.
+- `tirmite search` uses pairing map when identifying cross-matches between paired models, and also filters nested matches to other models, also filters on hit proximity to outer edge of query.
 - `--split-paired-output` option for `tirmite-search`: write left and right model hits to separate output files (`<prefix>_left_hits.tab` and `<prefix>_right_hits.tab`) based on the pairing map. Requires `--pairing-map`.
 - `filter_hits_to_pairing_map_models` function: retain only hits from models listed in the pairing map, discarding hits from unrecognised models before downstream filtering steps.
 - `SearchFilterSummary` dataclass and `log_filter_summary` function: accumulate and report structured hit-filtering statistics across all pairing map pipeline steps (model exclusion, nested hit removal, cross-model overlap removal).
@@ -16,6 +20,11 @@ The format is based on [Common Changelog](https://common-changelog.org/).
 
 - Fixed max-offset anchor filter for same-strand symmetric (F,F or R,R) model pairs when no pairing map is provided.
 - Fixed max-offset anchor filter for asymmetrical model pairs in `tirmite-search`.
+- Fixed writing flanks for external element edges only.
+
+### Changes
+
+- Breaking changes in several cmd line args. Standardised to kebab-case format.
 
 ---
 

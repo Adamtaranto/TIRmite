@@ -94,7 +94,7 @@ Test installation.
 ```bash
 # Print version number and exit.
 % tirmite --version
-tirmite 1.3.0
+tirmite 1.4.0
 
 # Get usage information
 % tirmite --help

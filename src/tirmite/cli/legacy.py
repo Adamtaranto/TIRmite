@@ -193,9 +193,10 @@ def _configure_legacy_parser(parser: argparse.ArgumentParser) -> None:
         help='If set, only report HMM hits. Do not attempt pairing.',
     )
     parser.add_argument(
-        '--gff-out',
+        '--gff',
         action='store_true',
         default=False,
+        dest='gff_out',
         help='If set report features as prefix.gff3. File saved to outdir. Default: False',
     )
     parser.add_argument(

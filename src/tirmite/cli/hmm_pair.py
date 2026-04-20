@@ -16,6 +16,7 @@ import argparse
 import logging
 import os
 from pathlib import Path
+import shutil
 import sys
 from typing import Any, Dict, List, Optional, cast
 
@@ -29,6 +30,39 @@ from tirmite.utils.utils import (
     indexGenome,
     setup_directories,
 )
+
+
+def log_startup_info(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
+    """
+    Log startup information: version, package location, full command, and non-default args.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+    parser : argparse.ArgumentParser
+        The argument parser (used to retrieve defaults for comparison).
+    """
+    import tirmite as _tirmite_pkg
+
+    pkg_path = Path(_tirmite_pkg.__file__).parent
+    logging.info(f'TIRmite package location: {pkg_path}')
+    logging.info(f'TIRmite-pair version: {__version__}')
+    logging.info(f'Command: {" ".join(sys.argv)}')
+
+    # Collect args that differ from their defaults
+    defaults = {action.dest: action.default for action in parser._actions}
+    non_defaults = []
+    for dest, default_val in defaults.items():
+        current_val = getattr(args, dest, default_val)
+        if current_val != default_val:
+            flag = dest.replace('_', '-')
+            non_defaults.append(f'  --{flag} {current_val}')
+
+    if non_defaults:
+        logging.info('Non-default arguments:\n' + '\n'.join(non_defaults))
+    else:
+        logging.info('All arguments are at their default values.')
 
 
 def get_hmm_model_length(hmm_file_path: str) -> Dict[str, int]:
@@ -812,9 +846,10 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
-        '--gff-out',
+        '--gff',
         action='store_true',
         default=False,
+        dest='gff_out',
         help='Generate GFF3 output file.',
     )
 
@@ -1234,6 +1269,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     if args is None:
         parser = create_pair_parser()
         args = parser.parse_args()
+    else:
+        parser = create_pair_parser()
 
     # Mypy assertion: args is guaranteed non-None after parsing
     assert args is not None
@@ -1267,7 +1304,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Set up logging with or without file output
         init_logging(loglevel=args.loglevel, logfile=logfile_path)
 
-        logging.info(f'TIRmite-pair version {__version__}')
+        # Log startup information: version, package path, command, non-default args
+        log_startup_info(args, parser)
         logging.info(f'Output directory: {outDir}')
         logging.debug(f'Temporary directory: {tempDir}')
 
@@ -1279,7 +1317,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             genome, genome_descriptions = indexGenome(args.genome)
         elif args.blastdb:
             logging.info(f'Using BLAST database: {args.blastdb}')
-            # Note: genome will remain None, sequence extraction will use blastdbcmd
+            blastdbcmd_path = shutil.which('blastdbcmd')
+            if blastdbcmd_path:
+                logging.info(f'blastdbcmd found: {blastdbcmd_path}')
+            else:
+                logging.warning('blastdbcmd not found in PATH; sequence extraction will fail')
 
         # Load model/query lengths
         logging.info('Loading model/query lengths...')

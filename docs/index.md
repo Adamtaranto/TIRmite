@@ -135,7 +135,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ## Subcommands

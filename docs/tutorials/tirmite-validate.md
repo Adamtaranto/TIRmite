@@ -54,7 +54,7 @@ tirmite pair \
   --insertion-site \
   --tsd-length 8 \
   --outdir TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 #### Case B: TSD is part of the termini model (TSD is inside the hit)
@@ -78,7 +78,7 @@ tirmite pair \
   --tsd-length 8 \
   --tsd-in-model \
   --outdir TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 #### Using a TSD length map for multiple model pairs
@@ -105,7 +105,7 @@ tirmite pair \
   --insertion-site \
   --tsd-length-map tsd_lengths.tsv \
   --outdir TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### Target site reconstruction output files
@@ -308,7 +308,7 @@ tirmite pair \
   --insertion-site \
   --tsd-length 8 \
   --outdir PAIR_OUTPUT \
-  --gff-out
+  --gff
 
 # 4. Build validation BLAST database from a large reference
 makeblastdb -in reference.fa -dbtype nucl -out ref_db -parse_seqids

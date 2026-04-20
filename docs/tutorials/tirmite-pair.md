@@ -144,7 +144,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### With BLAST input
@@ -158,7 +158,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir MY_TIR_BLAST_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### With pre-filtered results from `tirmite search`
@@ -173,7 +173,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir PAIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### Using a BLAST database for sequence extraction
@@ -211,7 +211,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --gff-report all \
-  --gff-out \
+  --gff \
   --flanks-paired \
   --flank-len 30 \
   --insertion-site \
@@ -245,7 +245,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --gff-report all \
-  --gff-out \
+  --gff \
   --flanks \
   --flanks-paired \
   --flank-len 30 \
@@ -277,7 +277,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --gff-report all \
-  --gff-out \
+  --gff \
   --flanks-paired \
   --flank-len 30 \
   --insertion-site \
@@ -352,7 +352,7 @@ tirmite pair \
   --flank-len 20 \
   --flank-max-offset 5 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### Paired-only flank extraction
@@ -371,7 +371,7 @@ tirmite pair \
   --flanks-paired \
   --flank-len 20 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 !!! tip
@@ -454,7 +454,7 @@ tirmite pair \
   --insertion-site \
   --tsd-length-map tsd_lengths.tsv \
   --outdir OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### Target site output files
@@ -528,7 +528,7 @@ tirmite pair \
   --maxdist 20000 \
   --max-offset 5 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 !!! note
@@ -584,7 +584,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ## Reporting Options
@@ -599,7 +599,7 @@ The `--gff-report` flag controls which hit categories are written to output file
 
 ### GFF3 output
 
-Enable GFF3 output with `--gff-out`. The GFF3 file includes:
+Enable GFF3 output with `--gff`. The GFF3 file includes:
 
 - Predicted element features (paired left+right termini)
 - Individual terminus hit features (if `--gff-report all`)
@@ -614,7 +614,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --gff-report all \
-  --gff-out \
+  --gff \
   --outdir MY_TIR_OUTPUT
 ```
 
@@ -646,5 +646,5 @@ tirmite pair \
 | `--tsd-length-map` | Per-model-pair TSD length map (TSV: left_model, right_model, tsd_length) |
 | `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |
 | `--gff-report` | Reporting mode: `all`, `paired`, or `unpaired` |
-| `--gff-out` | Write GFF3 annotation file |
+| `--gff` | Write GFF3 annotation file |
 | `--logfile` | Write log to file |

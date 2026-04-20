@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+         <loc>https://adamtaranto.github.io/TIRmite/</loc>
+         <lastmod>2026-04-20</lastmod>
+    </url>
+    <url>
+         <loc>https://adamtaranto.github.io/TIRmite/tutorials/building-hmms/</loc>
+         <lastmod>2026-04-20</lastmod>
+    </url>
+    <url>
+         <loc>https://adamtaranto.github.io/TIRmite/tutorials/tirmite-pair/</loc>
+         <lastmod>2026-04-20</lastmod>
+    </url>
+    <url>
+         <loc>https://adamtaranto.github.io/TIRmite/tutorials/tirmite-search/</loc>
+         <lastmod>2026-04-20</lastmod>
+    </url>
+    <url>
+         <loc>https://adamtaranto.github.io/TIRmite/tutorials/tirmite-validate/</loc>
+         <lastmod>2026-04-20</lastmod>
+    </url>
+</urlset>

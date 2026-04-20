@@ -2006,6 +2006,33 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     filter_stats=filter_stats,
                 )
 
+                # Write GFF for this pair if requested
+                if args.gff_out:
+                    pair_unpairedTIRs = None
+                    if args.gff_report in ['all', 'unpaired']:
+                        pair_unpairedTIRs = tirmite.fetchUnpaired(hitIndex=pair_hitIndex)
+                        logging.info(
+                            f'Pair {pair_label}: {len(pair_unpairedTIRs)} unpaired termini'
+                        )
+
+                    if args.prefix:
+                        pair_gffOutPath = os.path.join(
+                            pair_outDir, f'{args.prefix}_{pair_label}.gff3'
+                        )
+                    else:
+                        pair_gffOutPath = os.path.join(
+                            pair_outDir, f'{pair_label}.gff3'
+                        )
+
+                    logging.info(f'Writing GFF3 output: {pair_gffOutPath}')
+                    tirmite.gffWrite(
+                        outpath=pair_gffOutPath,
+                        featureList=pair_pairedEles,
+                        writeTIRs=args.gff_report,
+                        unpaired=pair_unpairedTIRs,
+                        prefix=args.prefix,
+                    )
+
                 logging.info(f'Pair {pair_label}: wrote output to {pair_outDir}')
 
                 # Accumulate paired results

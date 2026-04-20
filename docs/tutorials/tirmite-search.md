@@ -14,10 +14,11 @@ flowchart TD
     E -->|No| G[Use raw hit labels]
     F --> H{Pairing map\nprovided?}
     G --> H
-    H -->|Yes| I[Remove nested weak hits\nbetween paired terminal models]
-    H -->|No| J[Output all filtered hits]
-    I --> J
-    J --> K[Merged hit table\n.tab — ready for tirmite pair]
+    H -->|Yes| I[Remove nested weak hits\nwithin each left/right pair]
+    H -->|No| K[Output all filtered hits]
+    I --> J[Remove lower-quality\noverlapping cross-model hits]
+    J --> K
+    K --> L[Merged hit table\n.tab — ready for tirmite pair]
 ```
 
 ### Key concepts
@@ -30,7 +31,7 @@ flowchart TD
 
 **Cluster map** — a tab-delimited file that groups individual model/query names into logical clusters (e.g. all HMM sub-types for the left terminus of an element). Hits from models within the same cluster are merged if they overlap.
 
-**Pairing map** — a tab-delimited file linking left-terminus clusters to right-terminus clusters. This is used to remove weak nested hits: if a hit from the "left" model overlaps with a hit from the "right" model, the weaker one is removed.
+**Pairing map** — a tab-delimited file linking left-terminus clusters to right-terminus clusters. This is used to remove weak nested hits and to resolve competing cross-model hits at the same locus (see [Hit Filtering with a Pairing Map](#hit-filtering-with-a-pairing-map) below).
 
 ## Symmetrical vs Asymmetrical Termini
 
@@ -71,6 +72,50 @@ For asymmetric elements:
 # pairing_map.txt
 LEFT_TERMINUS    RIGHT_TERMINUS
 ```
+
+Multiple pairs can be listed to represent several element families in one run:
+
+```
+# pairing_map.txt
+FAMILY1_LEFT    FAMILY1_RIGHT
+FAMILY2_LEFT    FAMILY2_RIGHT
+FAMILY3_LEFT    FAMILY3_RIGHT
+```
+
+## Hit Filtering with a Pairing Map
+
+When a pairing map is provided, `tirmite search` applies two complementary hit-filtering steps after clustering.  Both steps work on the merged hit table and restrict their comparisons to models that appear in the pairing map.
+
+### Step 1 — Nested hit removal within direct pairs
+
+In asymmetric element models, the left and right terminus HMMs sometimes share a small region of homology.  This means the shorter model can produce hits that are *entirely contained* within a hit of its paired model at the same genomic locus — these are called **nested cross-hits**.
+
+For each pair of hits on the same target sequence and strand, if:
+
+1. Both hits come from models that form a **direct left/right pair** in the pairing map, AND
+2. One hit's coordinates are completely contained within the other's (nesting),
+
+then the nested hit is removed provided its alignment score is less than 1.5× the enclosing hit's score (configurable via `min_score_ratio`).  If the nested hit scores comparably or better, both are kept — the model may represent a genuine detection even though its hit is contained within the partner model's hit.
+
+> **Note on models in multiple pairs.**  The pairing map is stored as a dictionary (left → right), so each left-feature name maps to exactly one right-feature partner for this filter.  If a single model must pair with multiple partners, list separate rows in the pairing map file; only the last row for a given left feature will be active for this step.  Use a cluster map to merge sub-type models before pairing rather than listing the same feature on multiple rows.
+
+### Step 2 — Cross-model overlap filtering
+
+Closely related transposon families often share enough sequence similarity that their respective HMM models produce hits against *both* families.  When many models from different families are searched simultaneously and their hits are assigned to pairs, lower-quality **cross-model hits** (hits from the "wrong" family's model at a given locus) must be resolved.
+
+For every pair of hits on the same target sequence and strand that:
+
+- Come from **different models** (both of which appear anywhere in the pairing map), AND
+- Overlap by at least 1 bp,
+
+the weaker hit is removed when the better hit's score is at least 1.5× the weaker hit's score.  When neither hit dominates by this margin, both are retained because the evidence is ambiguous.
+
+This step is broader than Step 1 because:
+
+- It considers *any* pair of models in the pairing map — not only directly paired left/right partners.
+- It acts on *any* overlap — not only complete nesting.
+
+Together, the two steps ensure that each genomic locus is represented by hits from only the best-matching model(s), reducing spurious downstream pair calls.
 
 ## Example: Running with HMM queries
 

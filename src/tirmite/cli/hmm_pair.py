@@ -846,6 +846,30 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
+        '--no-hits',
+        action='store_true',
+        default=False,
+        dest='no_hits',
+        help=(
+            'Skip writing individual hit sequences to FASTA. '
+            'Useful when extracting sequences from a large genome or BLAST database '
+            'would be time-consuming and hit sequences are not required.'
+        ),
+    )
+
+    parser.add_argument(
+        '--no-elements',
+        action='store_true',
+        default=False,
+        dest='no_elements',
+        help=(
+            'Skip extraction and writing of paired element sequences to FASTA. '
+            'Useful when extracting full-length elements from a large genome or '
+            'BLAST database would be time-consuming and element sequences are not required.'
+        ),
+    )
+
+    parser.add_argument(
         '--gff',
         action='store_true',
         default=False,
@@ -1803,7 +1827,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Write individual hits
         # In pairing_map mode individual hits are written per pair (below),
         # so only write to the base outDir when no pairing map is used.
-        if not pairing_map:
+        if not pairing_map and not args.no_hits:
             logging.info('Writing individual hits to FASTA...')
             tirmite.writeTIRs(
                 outDir=outDir,
@@ -1908,17 +1932,18 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 # Write individual hits for the models in this pair
                 pair_hit_models = {left_feature, right_feature}
                 pair_hitTable_tirs = hitTable[hitTable['model'].isin(pair_hit_models)]
-                logging.info(f'Writing individual hits for pair {pair_label}...')
-                tirmite.writeTIRs(
-                    outDir=pair_outDir,
-                    hitTable=pair_hitTable_tirs,
-                    maxeval=args.maxeval,
-                    genome=genome,
-                    prefix=args.prefix,
-                    padlen=args.padlen,
-                    genome_descriptions=genome_descriptions,
-                    blastdb=args.blastdb if args.blastdb else None,
-                )
+                if not args.no_hits:
+                    logging.info(f'Writing individual hits for pair {pair_label}...')
+                    tirmite.writeTIRs(
+                        outDir=pair_outDir,
+                        hitTable=pair_hitTable_tirs,
+                        maxeval=args.maxeval,
+                        genome=genome,
+                        prefix=args.prefix,
+                        padlen=args.padlen,
+                        genome_descriptions=genome_descriptions,
+                        blastdb=args.blastdb if args.blastdb else None,
+                    )
 
                 # Write paired TIRs
                 if args.gff_report in ['all', 'paired']:
@@ -1934,16 +1959,19 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
 
                 # Extract and write elements for this pair
-                pair_pairedEles = tirmite.fetchElements(
-                    paired=pair_paired,
-                    hitIndex=pair_hitIndex,
-                    genome=genome,
-                    genome_descriptions=genome_descriptions,
-                    blastdb=args.blastdb if args.blastdb else None,
-                )
-                tirmite.writeElements(
-                    pair_outDir, eleDict=pair_pairedEles, prefix=args.prefix
-                )
+                if not args.no_elements:
+                    pair_pairedEles = tirmite.fetchElements(
+                        paired=pair_paired,
+                        hitIndex=pair_hitIndex,
+                        genome=genome,
+                        genome_descriptions=genome_descriptions,
+                        blastdb=args.blastdb if args.blastdb else None,
+                    )
+                    tirmite.writeElements(
+                        pair_outDir, eleDict=pair_pairedEles, prefix=args.prefix
+                    )
+                else:
+                    pair_pairedEles = {}
 
                 # Extract and write flanks for this pair
                 if args.flanks or args.flanks_paired:
@@ -2125,17 +2153,20 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
             # Extract and write elements
-            logging.info('Extracting paired elements...')
-            pairedEles = tirmite.fetchElements(
-                paired=paired,
-                hitIndex=hitIndex,
-                genome=genome,
-                genome_descriptions=genome_descriptions,
-                blastdb=args.blastdb if args.blastdb else None,
-            )
+            if not args.no_elements:
+                logging.info('Extracting paired elements...')
+                pairedEles = tirmite.fetchElements(
+                    paired=paired,
+                    hitIndex=hitIndex,
+                    genome=genome,
+                    genome_descriptions=genome_descriptions,
+                    blastdb=args.blastdb if args.blastdb else None,
+                )
 
-            logging.info('Writing paired elements to FASTA...')
-            tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
+                logging.info('Writing paired elements to FASTA...')
+                tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
+            else:
+                pairedEles = {}
 
             # Write summary report for single-pairing mode
             if config is not None:

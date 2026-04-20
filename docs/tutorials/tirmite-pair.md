@@ -618,6 +618,31 @@ tirmite pair \
   --outdir MY_TIR_OUTPUT
 ```
 
+### Disabling sequence extraction
+
+Extracting sequences from a large genome FASTA or BLAST database can be time-consuming. Use `--no-hits` and/or `--no-elements` to skip FASTA output when the sequences are not required.
+
+| Flag | Effect |
+|------|--------|
+| `--no-hits` | Skip writing individual terminus hit sequences to FASTA |
+| `--no-elements` | Skip extraction and writing of full-length paired element sequences to FASTA |
+
+These flags are independent and can be combined. GFF3 output, summary reports, and flank/insertion-site extraction are unaffected.
+
+```bash
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file $NHMMERFILE \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --no-hits \
+  --no-elements \
+  --gff \
+  --outdir MY_TIR_OUTPUT
+```
+
 ## Key Options Reference
 
 | Option | Description |
@@ -647,4 +672,6 @@ tirmite pair \
 | `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |
 | `--gff-report` | Reporting mode: `all`, `paired`, or `unpaired` |
 | `--gff` | Write GFF3 annotation file |
+| `--no-hits` | Skip writing individual hit sequences to FASTA |
+| `--no-elements` | Skip extraction and writing of paired element sequences to FASTA |
 | `--logfile` | Write log to file |

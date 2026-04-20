@@ -1794,5 +1794,85 @@ class TestWriteSplitHits:
         assert 'UnknownModel' in caplog.text
 
 
+# -----------------------------------------------------------------------------
+# Pairing Map Model Filter Tests
+# -----------------------------------------------------------------------------
+
+
+class TestFilterHitsToPairingMapModels:
+    """Tests for filter_hits_to_pairing_map_models."""
+
+    def _make_hit_table(self, rows):
+        return pd.DataFrame(rows)
+
+    def _make_row(self, model):
+        return {
+            'model': model,
+            'target': 'chr1',
+            'hitStart': '100',
+            'hitEnd': '200',
+            'strand': '+',
+            'evalue': '1e-10',
+            'score': '100',
+            'bias': 'NA',
+            'hmmStart': '1',
+            'hmmEnd': '100',
+        }
+
+    def test_retains_paired_models(self):
+        """Hits from models in the pairing map are retained."""
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table([self._make_row('LeftA'), self._make_row('RightA')])
+        result = filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'})
+        assert len(result) == 2
+        assert set(result['model'].unique()) == {'LeftA', 'RightA'}
+
+    def test_removes_unpaired_models(self):
+        """Hits from models not in the pairing map are removed."""
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table(
+            [
+                self._make_row('LeftA'),
+                self._make_row('RightA'),
+                self._make_row('UnknownModel'),
+            ]
+        )
+        result = filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'})
+        assert len(result) == 2
+        assert 'UnknownModel' not in result['model'].values
+
+    def test_empty_table_returns_empty(self):
+        """Empty input returns empty output."""
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table([])
+        result = filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'})
+        assert result.empty
+
+    def test_empty_pairing_map_returns_unchanged(self):
+        """Empty pairing map returns the table unchanged."""
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table([self._make_row('ModelX')])
+        result = filter_hits_to_pairing_map_models(df, {})
+        assert len(result) == 1
+
+    def test_logs_removed_models(self, caplog):
+        """Removed models are reported in the log."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import filter_hits_to_pairing_map_models
+
+        df = self._make_hit_table(
+            [self._make_row('LeftA'), self._make_row('UnknownModel')]
+        )
+        with caplog.at_level(stdlib_logging.INFO):
+            filter_hits_to_pairing_map_models(df, {'LeftA': 'RightA'})
+
+        assert 'UnknownModel' in caplog.text
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

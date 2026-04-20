@@ -803,6 +803,49 @@ def report_hit_statistics(hit_table: pd.DataFrame, stage: str = '') -> None:
         logging.info(f'    {model}: {count}')
 
 
+def filter_hits_to_pairing_map_models(
+    hit_table: pd.DataFrame,
+    pairing_map: Dict[str, str],
+) -> pd.DataFrame:
+    """
+    Retain only hits from models listed in the pairing map.
+
+    When a pairing map is provided, hits from models that are not part of any
+    left/right pair are irrelevant for downstream pairing and are excluded from
+    the output.
+
+    Parameters
+    ----------
+    hit_table : pandas.DataFrame
+        Hit table with a 'model' column.
+    pairing_map : dict
+        Dictionary mapping left feature names to right feature names.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Hit table restricted to models in the pairing map.
+    """
+    if hit_table.empty or not pairing_map:
+        return hit_table
+
+    paired_models = set(pairing_map.keys()) | set(pairing_map.values())
+    mask = hit_table['model'].isin(paired_models)
+    n_before = len(hit_table)
+    result = hit_table[mask].copy().reset_index(drop=True)
+    n_removed = n_before - len(result)
+
+    if n_removed:
+        removed_models = sorted(set(hit_table.loc[~mask, 'model'].unique()))
+        logging.info(
+            f'Pairing map filter: removed {n_removed} hit(s) from '
+            f'{len(removed_models)} model(s) not in the pairing map: '
+            f'{", ".join(removed_models)}'
+        )
+
+    return result
+
+
 # -----------------------------------------------------------------------------
 # Hit Merging Functions
 # -----------------------------------------------------------------------------
@@ -2290,6 +2333,12 @@ def _process_hits(
         pairing_map = parse_pairing_map(args.pairing_map)
 
         if pairing_map:
+            # Step 0: restrict output to models listed in the pairing map only.
+            hit_table = filter_hits_to_pairing_map_models(hit_table, pairing_map)
+
+            # Report statistics after pairing map model filter
+            report_hit_statistics(hit_table, stage='(after pairing map model filter)')
+
             # Step 1: remove hits from a paired model that are completely nested within
             # hits of its direct left/right partner and score significantly worse.
             hit_table = remove_nested_paired_hits(hit_table, pairing_map)

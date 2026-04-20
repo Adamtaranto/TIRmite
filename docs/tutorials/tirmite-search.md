@@ -246,5 +246,5 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir PAIR_OUTPUT \
-  --gff-out
+  --gff
 ```

@@ -127,8 +127,8 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
-  --report all \
-  --gff-out \
+  --gff-report all \
+  --gff \
   --outdir MY_TIR_OUTPUT
 ```
 
@@ -145,7 +145,7 @@ tirmite pair \
   --flank-len 30 \
   --tsd-length 2 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### Standard options

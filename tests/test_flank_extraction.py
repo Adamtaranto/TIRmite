@@ -378,6 +378,8 @@ class TestWriteFlanks:
                 config=config,
                 genome=self._genome(),
                 flank_len=10,
+                write_all=True,
+                write_paired=True,
             )
 
             left_files = [
@@ -463,6 +465,8 @@ class TestWriteFlanks:
                 config=config,
                 genome=self._genome(),
                 flank_len=10,
+                write_all=True,
+                write_paired=True,
             )
 
             left_files = [
@@ -521,6 +525,7 @@ class TestWriteFlanks:
                 config=config,
                 genome=self._genome(),
                 flank_len=5,
+                write_all=True,
             )
 
             left_files = [
@@ -577,6 +582,8 @@ class TestWriteFlanks:
                 genome=self._genome(),
                 flank_len=10,
                 flank_max_offset=3,
+                write_all=True,
+                write_paired=True,
             )
 
             files = os.listdir(tmpdir)
@@ -588,7 +595,7 @@ class TestWriteFlanks:
             assert len(paired_left) == 0
 
     def test_paired_only_flag_skips_unpaired(self):
-        """When paired_only=True, unpaired hits must not produce flank files."""
+        """When write_paired=True (without write_all), unpaired hits must not produce flank files."""
         rows = [
             # Paired hits
             {
@@ -640,28 +647,34 @@ class TestWriteFlanks:
                 config=config,
                 genome=self._genome(),
                 flank_len=10,
-                paired_only=True,
+                write_paired=True,
             )
 
-            left_files = [
+            # Only paired flank files should be present, no all-hits files
+            all_left = [
                 f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
             ]
-            right_files = [
+            all_right = [
                 f
                 for f in os.listdir(tmpdir)
                 if 'right_flank' in f and 'paired' not in f
             ]
-            # Only the paired hits produce flanks → 1 left + 1 right
-            assert len(left_files) == 1
-            assert len(right_files) == 1
+            assert len(all_left) == 0
+            assert len(all_right) == 0
 
-            with open(os.path.join(tmpdir, left_files[0])) as fh:
+            # Paired flank files should exist with only the paired hit
+            paired_left = [f for f in os.listdir(tmpdir) if 'paired_left_flank' in f]
+            paired_right = [f for f in os.listdir(tmpdir) if 'paired_right_flank' in f]
+            assert len(paired_left) == 1
+            assert len(paired_right) == 1
+
+            with open(os.path.join(tmpdir, paired_left[0])) as fh:
                 seqs = [line for line in fh.read().splitlines() if line.startswith('>')]
-            # Only 1 sequence (from the single pair), not 2
+            # Only 1 sequence (from the single pair)
             assert len(seqs) == 1
 
     def test_all_hits_includes_unpaired(self):
-        """When paired_only=False, unpaired hits also produce flanks."""
+        """When write_all=True, unpaired hits also produce flanks."""
         rows = [
             # Paired
             {
@@ -714,7 +727,8 @@ class TestWriteFlanks:
                 config=config,
                 genome=self._genome(),
                 flank_len=10,
-                paired_only=False,
+                write_all=True,
+                write_paired=True,
             )
 
             left_files = [
@@ -737,7 +751,7 @@ class TestWriteFlanks:
             assert len(pseqs) == 1
 
     def test_rr_orientation_unpaired_returns_none(self):
-        """R,R same-strand: unpaired hits can't be classified, no extra flanks."""
+        """R,R same-strand: unpaired hits get both flanks, paired hits get correct flanks."""
         rows = [
             {
                 'model': 'TIR',
@@ -787,13 +801,16 @@ class TestWriteFlanks:
                 config=config,
                 genome=self._genome(),
                 flank_len=10,
-                paired_only=False,  # allow unpaired, but can't classify them
+                write_all=True,
+                write_paired=True,
             )
 
             all_files = os.listdir(tmpdir)
+            # For R,R with write_all=True: both left and right flanks for
+            # unpaired hits + paired flanks from pairs
             flank_files = [f for f in all_files if 'flank' in f and 'paired' not in f]
-            # Only the paired hits produce flanks (in all-flanks files)
-            assert len(flank_files) == 2  # one left, one right for the pair
+            assert len(flank_files) == 2  # one left, one right for all hits
+
             # Also paired-only files: one left, one right
             paired_flank_files = [
                 f for f in all_files if 'paired' in f and 'flank' in f
@@ -837,6 +854,8 @@ class TestWriteFlanks:
                 config=config,
                 genome=self._genome(),
                 flank_len=0,
+                write_all=True,
+                write_paired=True,
             )
             flank_files = [f for f in os.listdir(tmpdir) if 'flank' in f]
             assert len(flank_files) == 0
@@ -879,6 +898,7 @@ class TestWriteFlanks:
                 config=config,
                 genome=self._genome(),
                 flank_len=10,
+                write_paired=True,
             )
 
             # Check paired left flank file headers contain element ID

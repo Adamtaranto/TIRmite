@@ -144,7 +144,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### With BLAST input
@@ -158,7 +158,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir MY_TIR_BLAST_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### With pre-filtered results from `tirmite search`
@@ -173,7 +173,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir PAIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### Using a BLAST database for sequence extraction
@@ -194,27 +194,134 @@ tirmite pair \
   --outdir MY_TIR_OUTPUT
 ```
 
+### End-to-end: flank extraction and insertion site reconstruction
+
+This example demonstrates a full run that extracts external flanking sequences for confirmed paired termini and reconstructs the original insertion site (target site) for each element:
+
+```bash
+GENOME="genome.fa"
+NHMMERFILE="MY_TIR_nhmmer_hits.tab"
+HMMFILE="MY_TIR.hmm"
+
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file $NHMMERFILE \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --gff-report all \
+  --gff \
+  --flanks-paired \
+  --flank-len 30 \
+  --insertion-site \
+  --tsd-length 8 \
+  --outdir MY_TIR_OUTPUT
+```
+
+The `--flanks-paired` flag writes **external** flanks only for confirmed paired termini (upstream of left terminus hit, downstream of right terminus hit). Adding `--insertion-site` then uses those flanks to reconstruct the pre-insertion target site for each element.
+
+Key output files in `MY_TIR_OUTPUT/`:
+
+| File | Description |
+|------|-------------|
+| `MY_TIR_paired_left_term_hits_N.fasta` | Left terminus hit sequences for all pairs |
+| `MY_TIR_paired_right_term_hits_N.fasta` | Right terminus hit sequences for all pairs (reverse complemented) |
+| `MY_TIR_elements_N.fasta` | Full element sequences (left terminus to right terminus) |
+| `MY_TIR_paired_left_flank_N.fasta` | External flanks upstream of paired left terminus hits |
+| `MY_TIR_paired_right_flank_N.fasta` | External flanks downstream of paired right terminus hits |
+| `MY_TIR_target_sites_N.fasta` | Reconstructed pre-insertion target sites with TSD metadata |
+| `MY_TIR_interleaved_flanks_N.fasta` | Left/right flank pairs shown interleaved with TSD highlighted |
+| `tirmite_pair_report.gff3` | GFF3 annotation of elements and termini |
+
+To additionally write flanks for **all** hits (including unpaired), add `--flanks`:
+
+```bash
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file $NHMMERFILE \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --gff-report all \
+  --gff \
+  --flanks \
+  --flanks-paired \
+  --flank-len 30 \
+  --insertion-site \
+  --tsd-length 8 \
+  --outdir MY_TIR_OUTPUT
+```
+
+This produces `MY_TIR_left_flank_N.fasta` and `MY_TIR_right_flank_N.fasta` for all hits (paired and unpaired) in addition to the paired-only flank files.
+
+### End-to-end: asymmetric pairing with multiple models
+
+For elements with distinct left and right terminus models, use `--pairing-map` with an asymmetric map and `--tsd-length-map` if TSD lengths differ by model pair:
+
+```bash
+# pairing_map.txt
+# HEAD_TIR  TAIL_TIR
+# (asymmetric: different models for left and right termini)
+
+# tsd_lengths.tsv
+# HEAD_TIR  TAIL_TIR  8
+
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file multi_model_hits.tab \
+  --lengths-file model_lengths.txt \
+  --pairing-map pairing_map.txt \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --gff-report all \
+  --gff \
+  --flanks-paired \
+  --flank-len 30 \
+  --insertion-site \
+  --tsd-length-map tsd_lengths.tsv \
+  --outdir MULTI_MODEL_OUTPUT
+```
+
+For each model pair defined in the pairing map, TIRmite creates a sub-directory (e.g., `MULTI_MODEL_OUTPUT/HEAD_TIR_TAIL_TIR/`) containing all output files for that pair.
+
 ## Extracting Flanking Regions
 
-Use `--flank-len` to extract the genomic sequence immediately **outside** each terminus hit – upstream of the left terminus and downstream of the right terminus. These external flanks are useful for:
+Use `--flanks` to extract the genomic sequence immediately **outside** each terminus hit – upstream of the left terminus and downstream of the right terminus. These external flanks are useful for:
 
 - Examining Target Site Duplications (TSDs)
 - Checking whether element boundaries are correctly identified
 - Providing flanking context for downstream analysis
 
+The flank length defaults to 50 bp but can be adjusted with `--flank-len`.
+
 !!! note "Difference between `--padlen` and `--flank-len`"
-    `--padlen` pads the hit or element sequence itself (i.e. adds bases to both sides of the hit/element in the output FASTA). `--flank-len` extracts the sequence that lies *outside* the element boundary – the true external flank. Use `--flank-len` when you want to study TSDs or the sequence context beyond the termini.
+    `--padlen` pads the hit or element sequence itself (i.e. adds bases to both sides of the hit/element in the output FASTA). `--flank-len` extracts the sequence that lies *outside* the element boundary – the true external flank. Use `--flanks` when you want to study TSDs or the sequence context beyond the termini.
 
 ### Flank output files
 
-When `--flank-len` is set, TIRmite writes the following FASTA files to the output directory:
+When `--flanks` is set, TIRmite writes the following FASTA files to the output directory:
 
 | Filename pattern | Contents |
 |-----------------|----------|
 | `{prefix}{model}_left_flank_{count}.fasta` | External flanks for all left terminus hits |
 | `{prefix}{model}_right_flank_{count}.fasta` | External flanks for all right terminus hits |
+
+When `--flanks-paired` is set (with or without `--flanks`), TIRmite also writes:
+
+| Filename pattern | Contents |
+|-----------------|----------|
 | `{prefix}{model}_paired_left_flank_{count}.fasta` | External flanks for **paired** left terminus hits only (element ID in header) |
 | `{prefix}{model}_paired_right_flank_{count}.fasta` | External flanks for **paired** right terminus hits only (element ID in header) |
+
+When `--gff-report all` or `--gff-report paired` is set, TIRmite also writes the terminus hit sequences themselves to two separate files per model:
+
+| Filename pattern | Contents |
+|-----------------|----------|
+| `{prefix}{model}_paired_left_term_hits_{count}.fasta` | Left terminus hit sequences for all confirmed pairs |
+| `{prefix}{model}_paired_right_term_hits_{count}.fasta` | Right terminus hit sequences (reverse complemented) for all confirmed pairs |
 
 The **paired-only** flank files include the element identifier (`Element_N`) in each sequence header, making it easy to link flanks back to specific annotated elements.
 
@@ -223,6 +330,9 @@ Example FASTA header for a paired flank:
 ```
 >Element_1_MY_TIR_1_L  chr1:1000-1019(+)
 ```
+
+!!! warning "Symmetric same-strand orientations (F,F or R,R)"
+    For symmetric same-strand orientations, a single model is present at both ends of an element in the same orientation, so individual unpaired hits cannot be classified as "left" or "right". When `--flanks` is used with these orientations, both left and right flanks are extracted for all hits and a warning is raised advising use of `--flanks-paired` instead.
 
 ### Offset correction
 
@@ -238,15 +348,16 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
+  --flanks \
   --flank-len 20 \
   --flank-max-offset 5 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### Paired-only flank extraction
 
-By default, `--flank-len` extracts flanks for both paired and unpaired hits. To restrict output to hits that form a valid pair, add `--flank-paired-only`:
+Use `--flanks-paired` to write outer flanks only for termini that were assigned to pairs. If `--flanks` is also set, all-hit flanks are written first, then paired flanks are written to separate files (reusing already-extracted sequences to avoid redundant extraction):
 
 ```bash
 tirmite pair \
@@ -256,18 +367,21 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
+  --flanks \
+  --flanks-paired \
   --flank-len 20 \
-  --flank-paired-only \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 !!! tip
-    Even without `--flank-paired-only`, the `_paired_left_flank_` and `_paired_right_flank_` files are **always** written for paired hits only when `--flank-len` is set. The `--flank-paired-only` flag additionally suppresses the `_left_flank_` and `_right_flank_` all-hits files.
+    When both `--flanks` and `--flanks-paired` are used together, the `_left_flank_` and `_right_flank_` files contain all hits (paired + unpaired) while the `_paired_left_flank_` and `_paired_right_flank_` files contain only paired hits with element IDs in the headers.
 
 ## Reconstructing Target Sites
 
-When `--flank-len` is set together with `--insertion-site`, TIRmite reconstructs the original **target site** for each paired element. The target site is the genomic sequence that was present at the insertion location before the transposon arrived — a TSD-flanked sequence that appears once in empty sites and duplicated around inserted elements. Use `--tsd-length` (or `--tsd-length-map`) and optionally `--tsd-in-model` to configure how the TSD is handled during reconstruction.
+When `--flanks` or `--flanks-paired` is set together with `--insertion-site`, TIRmite reconstructs the original **target site** for each paired element. The target site is the genomic sequence that was present at the insertion location before the transposon arrived — a TSD-flanked sequence that appears once in empty sites and duplicated around inserted elements. Use `--tsd-length` (or `--tsd-length-map`) and optionally `--tsd-in-model` to configure how the TSD is handled during reconstruction.
+
+When processing multiple terminus model pairs via `--pairing-map`, one output FASTA is written per pair of models. Target sites are written as single-line non-wrapped FASTA.
 
 ### How the reconstruction works
 
@@ -340,15 +454,17 @@ tirmite pair \
   --insertion-site \
   --tsd-length-map tsd_lengths.tsv \
   --outdir OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ### Target site output files
 
 | File | Contents |
 |------|----------|
-| `{prefix}target_sites.fasta` | One reconstructed target site per paired element |
-| `{prefix}interleaved_flanks.fasta` | Gap-padded left/right flank pairs showing TSD position |
+| `{prefix}{pair_label}_target_sites_{N}.fasta` | One reconstructed target site per paired element |
+| `{prefix}{pair_label}_interleaved_flanks_{N}.fasta` | Gap-padded left/right flank pairs showing TSD position |
+
+For single-model runs `pair_label` is the model name. For asymmetric pairs it is `{left_model}_{right_model}`.
 
 FASTA headers in `target_sites.fasta` include metadata tags:
 
@@ -412,7 +528,7 @@ tirmite pair \
   --maxdist 20000 \
   --max-offset 5 \
   --outdir MY_TIR_OUTPUT \
-  --gff-out
+  --gff
 ```
 
 !!! note
@@ -468,12 +584,12 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --outdir OUTPUT \
-  --gff-out
+  --gff
 ```
 
 ## Reporting Options
 
-The `--report` flag controls which hit categories are written to output files:
+The `--gff-report` flag controls which hit categories are written to output files:
 
 | Value | Description |
 |-------|-------------|
@@ -483,10 +599,10 @@ The `--report` flag controls which hit categories are written to output files:
 
 ### GFF3 output
 
-Enable GFF3 output with `--gff-out`. The GFF3 file includes:
+Enable GFF3 output with `--gff`. The GFF3 file includes:
 
 - Predicted element features (paired left+right termini)
-- Individual terminus hit features (if `--report all`)
+- Individual terminus hit features (if `--gff-report all`)
 - Attributes including model name, e-value, coverage, and orientation
 
 ```bash
@@ -497,8 +613,8 @@ tirmite pair \
   --orientation F,R \
   --mincov 0.4 \
   --maxdist 20000 \
-  --report all \
-  --gff-out \
+  --gff-report all \
+  --gff \
   --outdir MY_TIR_OUTPUT
 ```
 
@@ -521,13 +637,14 @@ tirmite pair \
 | `--max-offset` | Maximum unaligned model positions between hit edge and outer terminus edge (anchor filter) |
 | `--stable-reps` | Iterations without new pairing before stopping (default: 2) |
 | `--padlen` | Flanking bases to pad the extracted hit/element sequences |
-| `--flank-len` | Length of external flanking region to extract per terminus (bp) |
+| `--flanks` | Enable writing of external flanking sequences for all hits |
+| `--flanks-paired` | Write outer flanking sequences for paired termini only |
+| `--flank-len` | Length of external flanking region to extract per terminus (default: 50 bp) |
 | `--flank-max-offset` | Skip flank extraction for hits where offset from outer model edge exceeds this value |
-| `--flank-paired-only` | Only extract flanks for hits that form a valid pair |
-| `--insertion-site` | Enable insertion site reconstruction and reporting (requires `--flank-len`) |
-| `--tsd-length` | TSD/DR length for target site reconstruction (requires `--insertion-site` and `--flank-len`) |
+| `--insertion-site` | Enable insertion site reconstruction and reporting (requires `--flanks` or `--flanks-paired`) |
+| `--tsd-length` | TSD/DR length for target site reconstruction (requires `--insertion-site`) |
 | `--tsd-length-map` | Per-model-pair TSD length map (TSV: left_model, right_model, tsd_length) |
 | `--tsd-in-model` | The TSD is encoded at the inner end of the terminus HMM model |
-| `--report` | Reporting mode: `all`, `paired`, or `unpaired` |
-| `--gff-out` | Write GFF3 annotation file |
+| `--gff-report` | Reporting mode: `all`, `paired`, or `unpaired` |
+| `--gff` | Write GFF3 annotation file |
 | `--logfile` | Write log to file |

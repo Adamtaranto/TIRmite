@@ -987,7 +987,35 @@ class TestFilterHitsByAnchor:
                 }
             ]
         )
-        # F,F: same strand, no pairing map → terminus type = None → kept
+        # F,F: same strand, no pairing map → both-ends check:
+        # offset_start = 50 - 1 = 49 > 5, so hit is removed
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation='F,F'
+        )
+        assert len(result) == 0
+
+    def test_ff_symmetric_no_pairing_map_keeps_hit_within_both_offsets(self):
+        """F,F: same strand, no pairing map, hit covers full model → kept."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                }
+            ]
+        )
+        # F,F: same strand, no pairing map → both-ends check:
+        # offset_start = 0, offset_end = 0, both ≤ 5 → kept
         result = filter_hits_by_anchor(
             df, {'TIR': 100}, max_offset=5, orientation='F,F'
         )
@@ -1408,11 +1436,22 @@ class TestAnchorFilterFF:
         assert len(result) == 1
 
     def test_ff_no_pairing_map_keeps_hits(self):
-        """F,F without pairing map: terminus type unknown → hits kept unchanged."""
+        """F,F without pairing map: both-ends check, large offset → removed."""
         from tirmite.cli.ensemble_search import filter_hits_by_anchor
 
-        # Large offset that would be removed if terminus type were known
+        # Large offset that is removed: offset_start = 50-1 = 49 > 5
         df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
+        result = filter_hits_by_anchor(
+            df, {'TIR': 100}, max_offset=5, orientation=self.ORIENTATION
+        )
+        assert len(result) == 0
+
+    def test_ff_no_pairing_map_full_coverage_kept(self):
+        """F,F without pairing map: both-ends check, full coverage → kept."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        # Full model coverage: offset_start = 0, offset_end = 0
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=1, hmm_end=100)])
         result = filter_hits_by_anchor(
             df, {'TIR': 100}, max_offset=5, orientation=self.ORIENTATION
         )
@@ -1569,13 +1608,16 @@ class TestAnchorFilterMissingLength:
             filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
 
     def test_ff_same_strand_no_pairing_map_no_error(self):
-        """F,F without pairing map: terminus type unknown → no error even if length missing."""
-        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+        """F,F without pairing map: both-ends check needs length → error if missing."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            filter_hits_by_anchor,
+        )
 
-        # Terminus type cannot be determined → hit is kept without length check
+        # Now that F,F checks both ends, missing length raises an error
         df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
-        result = filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,F')
-        assert len(result) == 1
+        with pytest.raises(EnsembleSearchError, match='model lengths'):
+            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,F')
 
 
 class TestAnchorFilterLogging:
@@ -1620,6 +1662,136 @@ class TestAnchorFilterLogging:
 
         assert 'LeftTIR' in caplog.text
         assert 'RightTIR' in caplog.text
+
+
+# -----------------------------------------------------------------------------
+# Split Paired Output Tests
+# -----------------------------------------------------------------------------
+
+
+class TestValidateSplitPairedOutput:
+    """Tests for validate_split_paired_output."""
+
+    def test_valid_disjoint_models(self):
+        """No overlap between left and right columns → no error."""
+        from tirmite.cli.ensemble_search import validate_split_paired_output
+
+        pairing_map = {'LeftA': 'RightA', 'LeftB': 'RightB'}
+        validate_split_paired_output(pairing_map)  # should not raise
+
+    def test_overlap_raises_error(self):
+        """Model appearing in both left and right columns → raises error."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            validate_split_paired_output,
+        )
+
+        pairing_map = {'ModelA': 'ModelB', 'ModelB': 'ModelC'}
+        with pytest.raises(EnsembleSearchError, match='ModelB'):
+            validate_split_paired_output(pairing_map)
+
+    def test_symmetric_pairing_raises_error(self):
+        """Symmetric pairing (same model in both columns) → raises error."""
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            validate_split_paired_output,
+        )
+
+        pairing_map = {'TIR': 'TIR'}
+        with pytest.raises(EnsembleSearchError, match='TIR'):
+            validate_split_paired_output(pairing_map)
+
+
+class TestWriteSplitHits:
+    """Tests for write_split_hits."""
+
+    def _make_hit_table(self, rows):
+        return pd.DataFrame(rows)
+
+    def test_split_basic(self, tmp_path):
+        """Hits are correctly split into left and right files."""
+        from tirmite.cli.ensemble_search import write_split_hits
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'LeftA',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                },
+                {
+                    'model': 'RightA',
+                    'target': 'chr1',
+                    'hitStart': '500',
+                    'hitEnd': '600',
+                    'strand': '-',
+                    'evalue': '1e-10',
+                    'score': '90',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                },
+            ]
+        )
+        pairing_map = {'LeftA': 'RightA'}
+        left_file, right_file = write_split_hits(df, pairing_map, tmp_path, 'test')
+
+        assert left_file.exists()
+        assert right_file.exists()
+
+        left_content = left_file.read_text()
+        right_content = right_file.read_text()
+
+        assert 'LeftA' in left_content
+        assert 'RightA' not in left_content
+        assert 'RightA' in right_content
+        assert 'LeftA' not in right_content
+
+    def test_split_empty_table(self, tmp_path):
+        """Empty table produces empty output files."""
+        from tirmite.cli.ensemble_search import write_split_hits
+
+        df = self._make_hit_table([])
+        pairing_map = {'LeftA': 'RightA'}
+        left_file, right_file = write_split_hits(df, pairing_map, tmp_path, 'test')
+
+        assert left_file.exists()
+        assert right_file.exists()
+
+    def test_split_unassigned_warning(self, tmp_path, caplog):
+        """Hits from models not in pairing map trigger a warning."""
+        import logging as stdlib_logging
+
+        from tirmite.cli.ensemble_search import write_split_hits
+
+        df = self._make_hit_table(
+            [
+                {
+                    'model': 'UnknownModel',
+                    'target': 'chr1',
+                    'hitStart': '100',
+                    'hitEnd': '200',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'score': '100',
+                    'bias': 'NA',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                },
+            ]
+        )
+        pairing_map = {'LeftA': 'RightA'}
+        with caplog.at_level(stdlib_logging.WARNING):
+            write_split_hits(df, pairing_map, tmp_path, 'test')
+
+        assert 'UnknownModel' in caplog.text
 
 
 if __name__ == '__main__':

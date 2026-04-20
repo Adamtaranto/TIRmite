@@ -214,7 +214,16 @@ The `--max-offset` option anchors hits within a maximum distance from the **oute
 - Filtering out internal hits that overlap with the terminus region
 - Ensuring that hits used for pairing genuinely represent the element boundary
 
-When `--max-offset N` is set, only hits whose start position (on the positive strand) is within N bp of the outermost edge of the top-scoring hit for that terminus are retained.
+When `--max-offset N` is set, the outer edge of each hit is determined based on its
+terminus type (left/right) and strand orientation, using the same logic as `tirmite pair`:
+
+- **Left terminus, + strand**: outer edge = model position 1 → offset = `hmmStart - 1`
+- **Left terminus, - strand**: outer edge = model position `model_len` → offset = `model_len - hmmEnd`
+- **Right terminus, + strand**: outer edge = model position `model_len` → offset = `model_len - hmmEnd`
+- **Right terminus, - strand**: outer edge = model position 1 → offset = `hmmStart - 1`
+
+For same-strand orientations (F,F or R,R) without a pairing map, the hit must be
+within `--max-offset` bases of **both** ends of the query model.
 
 ```
 Terminus hit:   |=====HIT=====|
@@ -224,12 +233,40 @@ Retained:       |---------20bp---------|
 Discarded:      any hit starting beyond this window
 ```
 
+## Split Output for Asymmetrical Models
+
+When using `--split-paired-output` with a `--pairing-map`, left and right model hits
+are written to separate output files. This is useful for asymmetrical model pairs
+(e.g. Helitrons, Starships) where `tirmite pair` expects separate input files for
+each terminus.
+
+```bash
+tirmite search \
+  --hmm left_model.hmm right_model.hmm \
+  --genome $GENOME \
+  --pairing-map pairing_map.txt \
+  --split-paired-output \
+  --outdir SEARCH_OUTPUT
+```
+
+This produces:
+
+- `<prefix>_left_hits.tab` — hits from left-column models in the pairing map
+- `<prefix>_right_hits.tab` — hits from right-column models in the pairing map
+- `<prefix>_hits.tab` — all hits (always written)
+
+!!! warning "Model name uniqueness"
+    When `--split-paired-output` is enabled, each model name must appear exclusively
+    in either the left or right column of the pairing map. Models appearing in both
+    columns will cause an error.
+
 ## Output Files
 
 | File | Description |
 |------|-------------|
-| `<outname>_merged_hits.tab` | Merged, filtered hit table (BLAST tabular format) ready for `tirmite pair` |
-| `<outname>_raw_hits.tab` | Raw hits before merging (if saved) |
+| `<prefix>_hits.tab` | Merged, filtered hit table (BLAST tabular format) ready for `tirmite pair` |
+| `<prefix>_left_hits.tab` | Left model hits only (when `--split-paired-output` is used) |
+| `<prefix>_right_hits.tab` | Right model hits only (when `--split-paired-output` is used) |
 
 ## Next Steps
 
@@ -237,13 +274,29 @@ Pass the merged hit table to `tirmite pair`:
 
 → **[Using tirmite pair](tirmite-pair.md)**
 
+For **symmetrical** models (single model for both termini):
+
 ```bash
 tirmite pair \
   --genome $GENOME \
-  --blast-file ENSEMBLE_OUTPUT/<outname>_merged_hits.tab \
+  --blast-file ENSEMBLE_OUTPUT/<prefix>_hits.tab \
   --pairing-map pairing_map.txt \
   --orientation F,R \
   --mincov 0.4 \
+  --maxdist 20000 \
+  --outdir PAIR_OUTPUT \
+  --gff
+```
+
+For **asymmetrical** models (separate left and right models), use the split output files:
+
+```bash
+tirmite pair \
+  --genome $GENOME \
+  --left-hits SEARCH_OUTPUT/<prefix>_left_hits.tab \
+  --right-hits SEARCH_OUTPUT/<prefix>_right_hits.tab \
+  --pairing-map pairing_map.txt \
+  --orientation F,R \
   --maxdist 20000 \
   --outdir PAIR_OUTPUT \
   --gff

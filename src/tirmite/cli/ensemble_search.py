@@ -690,13 +690,33 @@ def filter_hits_by_anchor(
                 terminus_type = None
         else:
             # Same-strand orientation (F,F or R,R) without a pairing map –
-            # cannot determine which end is "outer"
+            # cannot determine which end is "outer", check both ends
             terminus_type = None
 
         if terminus_type is None:
-            # Cannot determine terminus type – keep the hit and note once
-            skipped_no_terminus += 1
-            kept.append(True)
+            # Same-strand symmetric (F,F or R,R) without a pairing map:
+            # check both ends of the query model
+            model_len = query_lengths.get(model)
+            if model_len is None:
+                missing_lengths.add(model)
+                kept.append(True)
+                continue
+
+            try:
+                hmm_start = int(row['hmmStart'])
+                hmm_end = int(row['hmmEnd'])
+            except (ValueError, TypeError):
+                kept.append(True)
+                continue
+
+            offset_start = hmm_start - 1
+            offset_end = model_len - hmm_end
+            if offset_start <= max_offset and offset_end <= max_offset:
+                kept.append(True)
+            else:
+                kept.append(False)
+                removed += 1
+                removed_per_model[model] = removed_per_model.get(model, 0) + 1
             continue
 
         model_len = query_lengths.get(model)
@@ -1414,6 +1434,96 @@ def write_hits_table(hit_table: pd.DataFrame, output_file: Path) -> None:
     logging.info(f'Wrote {len(hit_table)} hits to {output_file}')
 
 
+def validate_split_paired_output(pairing_map: Dict[str, str]) -> None:
+    """
+    Validate that no model name appears in both the left and right columns of the pairing map.
+
+    Parameters
+    ----------
+    pairing_map : dict
+        Dictionary mapping left feature names to right feature names.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If any model name appears in both the left and right columns.
+    """
+    left_models = set(pairing_map.keys())
+    right_models = set(pairing_map.values())
+    overlap = left_models & right_models
+
+    if overlap:
+        overlap_list = ', '.join(sorted(overlap))
+        raise EnsembleSearchError(
+            f'Cannot use --split-paired-output: model(s) {overlap_list} appear in both '
+            'the left and right columns of the pairing map. Each model must be '
+            'exclusively left or right when splitting output.'
+        )
+
+
+def write_split_hits(
+    hit_table: pd.DataFrame,
+    pairing_map: Dict[str, str],
+    outdir: Path,
+    prefix: str,
+) -> Tuple[Path, Path]:
+    """
+    Write left and right model hits to separate output files based on the pairing map.
+
+    Parameters
+    ----------
+    hit_table : pandas.DataFrame
+        Hit table to split and write.
+    pairing_map : dict
+        Dictionary mapping left feature names to right feature names.
+    outdir : Path
+        Output directory.
+    prefix : str
+        Prefix for output file names.
+
+    Returns
+    -------
+    tuple of (Path, Path)
+        Paths to the left and right output files.
+    """
+    left_models = set(pairing_map.keys())
+    right_models = set(pairing_map.values())
+
+    left_file = outdir / f'{prefix}_left_hits.tab'
+    right_file = outdir / f'{prefix}_right_hits.tab'
+
+    if hit_table.empty:
+        write_hits_table(hit_table, left_file)
+        write_hits_table(hit_table, right_file)
+        logging.info(
+            f'Split output: 0 left hits -> {left_file}, 0 right hits -> {right_file}'
+        )
+        return left_file, right_file
+
+    left_hits = hit_table[hit_table['model'].isin(left_models)]
+    right_hits = hit_table[hit_table['model'].isin(right_models)]
+
+    # Hits from models not in the pairing map are written to neither file
+    unassigned = hit_table[~hit_table['model'].isin(left_models | right_models)]
+
+    write_hits_table(left_hits, left_file)
+    write_hits_table(right_hits, right_file)
+
+    if not unassigned.empty:
+        logging.warning(
+            f'{len(unassigned)} hit(s) from model(s) not in the pairing map were not '
+            'written to either the left or right output file: '
+            f'{", ".join(sorted(unassigned["model"].unique()))}'
+        )
+
+    logging.info(
+        f'Split output: {len(left_hits)} left hits -> {left_file}, '
+        f'{len(right_hits)} right hits -> {right_file}'
+    )
+
+    return left_file, right_file
+
+
 # -----------------------------------------------------------------------------
 # Search Execution Functions
 # -----------------------------------------------------------------------------
@@ -1775,6 +1885,19 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         default='ensemble_search',
         help='Prefix for output files (default: ensemble_search)',
     )
+    output_group.add_argument(
+        '--split-paired-output',
+        action='store_true',
+        default=False,
+        dest='split_paired_output',
+        help=(
+            'Write left and right model hits to separate output files based on '
+            'the pairing map. Requires --pairing-map. Output files will be named '
+            '<prefix>_left_hits.tab and <prefix>_right_hits.tab. '
+            'Models appearing in both left and right columns of the pairing map '
+            'are not allowed when this option is enabled.'
+        ),
+    )
 
     # Processing options
     proc_group = parser.add_argument_group('Processing Options')
@@ -1889,6 +2012,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             raise EnsembleSearchError(
                 '--genome is required when running nhmmer searches with --hmm'
             )
+
+        # Validate --split-paired-output requirements
+        if args.split_paired_output:
+            if not args.pairing_map:
+                raise EnsembleSearchError(
+                    '--split-paired-output requires --pairing-map to identify '
+                    'left and right models.'
+                )
 
         # Validate lengths file requirement when using precomputed results without query files
         if has_precomputed and not has_search_inputs:
@@ -2026,6 +2157,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Write final output
         output_file = args.outdir / f'{args.prefix}_hits.tab'
         write_hits_table(hit_table, output_file)
+
+        # Write split output if requested
+        if args.split_paired_output:
+            pairing_map = parse_pairing_map(args.pairing_map)
+            validate_split_paired_output(pairing_map)
+            write_split_hits(hit_table, pairing_map, args.outdir, args.prefix)
 
         # Log completion message with logfile location if enabled
         if logfile_path and args.logfile:

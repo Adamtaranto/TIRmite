@@ -1111,7 +1111,10 @@ class TestShortContigBoundaries:
                 'hmm_start': 8,
                 'hmm_end': 553,
             },
-            # Dummy right hit so we can form a pair
+            # Second hit (same model, - strand) used only to satisfy the pairing
+            # requirement so the left hit is processed as a paired terminus.
+            # Both hits share the same model because this is a symmetric F,R
+            # single_model configuration.
             {
                 'model': 'LEFT',
                 'target': 'short',
@@ -1179,7 +1182,9 @@ class TestShortContigBoundaries:
         """Reproduces Example 1: right flank entirely after contig end → skip."""
         # blast fmt6: hmmStart=588, hmmEnd=994; hitStart=6297, hitEnd=6694
         rows = [
-            # Dummy left hit
+            # First hit (same model, + strand) used only to satisfy the pairing
+            # requirement.  Both hits use model 'RIGHT' because this is a symmetric
+            # F,R single_model configuration.
             {
                 'model': 'RIGHT',
                 'target': 'medium',
@@ -1315,11 +1320,13 @@ class TestShortContigBoundaries:
     # ------------------------------------------------------------------
 
     def test_right_flank_partially_after_contig_end_is_truncated(self):
-        """Right flank partially overlapping contig end returns a shorter sequence."""
-        # Hit near end of 'short' (538 bp), right flank partially extends past end
-        # Hit at 530-537, hmmStart=1, hmmEnd=8, model_len=10
-        # external_pos = 537 + (10-8) = 539; flank = [540, 549] → entirely beyond end
-        # Use a hit closer to end: hit at 525-534, flank=[535, 544] → only [535,538]=4bp
+        """Right flank partially overlapping contig end returns a shorter sequence.
+
+        Hit: positions 525-534 (- strand, hmmStart=1, hmmEnd=10, model_len=10)
+        Right terminus, - strand: offset = hmmStart - 1 = 0
+        external_pos = hitEnd + 0 = 534; flank = [535, 544]
+        Contig 'short' is 538 bp → clamped to [535, 538] = 4 bp
+        """
         rows = [
             {
                 'model': 'TIR',
@@ -1365,9 +1372,9 @@ class TestShortContigBoundaries:
                 for f in os.listdir(tmpdir)
                 if 'right_flank' in f and 'paired' not in f
             ]
-            # Right hit: is_left_terminus=False for - strand → external end at hitEnd
-            # - strand, right terminus: offset = hmmStart - 1 = 0
-            # external_pos = hitEnd + 0 = 534; flank = [535, 544] → clamped to [535, 538] = 4 bp
+            # - strand right terminus: offset = hmmStart - 1 = 0
+            # external_pos = hitEnd + 0 = 534; flank = [535, 544]
+            # Contig 'short' is 538 bp → clamped to [535, 538] = 4 bp
             assert len(right_files) == 1
 
             with open(os.path.join(tmpdir, right_files[0])) as fh:

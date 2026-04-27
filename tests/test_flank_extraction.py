@@ -1072,6 +1072,319 @@ class TestWriteFlanks:
 
 
 # ---------------------------------------------------------------------------
+# Short-contig / boundary tests (reproduces bug scenarios from issue)
+# ---------------------------------------------------------------------------
+
+
+class TestShortContigBoundaries:
+    """Tests for flank extraction when hits are near or at contig boundaries.
+
+    These tests reproduce the bug scenarios described in the issue:
+    - Example 1: right flank falls entirely after contig end (should skip)
+    - Example 3: left flank falls entirely before contig start (should skip,
+      not return 1 bp due to both coords clamping to 1)
+    """
+
+    # Genome: contig 'short' is 538 bp (mirrors issue Example 3 contig length)
+    SHORT_SEQ = 'G' + 'A' * 536 + 'C'  # 538 bp; first base 'G', last 'C'
+    # Contig 'medium' is 6694 bp (mirrors issue Example 1)
+    MEDIUM_SEQ = 'T' * 6694
+
+    def _genome(self):
+        return MockGenome({'short': self.SHORT_SEQ, 'medium': self.MEDIUM_SEQ})
+
+    # ------------------------------------------------------------------
+    # Example 3 reproduction: left terminus hit on a 538 bp contig
+    # hmmStart=8 → offset=7 → external_pos=1-7=-6 → flank entirely before start
+    # ------------------------------------------------------------------
+
+    def test_example3_left_flank_before_contig_start_returns_none(self):
+        """Reproduces Example 3: left flank entirely before contig start → skip, not 1bp."""
+        # blast fmt6: hmmStart=8, hmmEnd=553 (query cols 7-8); hitStart=1, hitEnd=538
+        rows = [
+            {
+                'model': 'LEFT',
+                'target': 'short',
+                'hit_start': 1,
+                'hit_end': 538,
+                'strand': '+',
+                'hmm_start': 8,
+                'hmm_end': 553,
+            },
+            # Second hit (same model, - strand) used only to satisfy the pairing
+            # requirement so the left hit is processed as a paired terminus.
+            # Both hits share the same model because this is a symmetric F,R
+            # single_model configuration.
+            {
+                'model': 'LEFT',
+                'target': 'short',
+                'hit_start': 300,
+                'hit_end': 399,
+                'strand': '-',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+        ]
+        hitTable = _make_hitTable(rows)
+        _, hitIndex, paired = _make_paired_data(hitTable)
+
+        config = PairingConfig(orientation='F,R', single_model='LEFT')
+        model_lengths = {'LEFT': 1000}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            writeFlanks(
+                outDir=tmpdir,
+                hitTable=hitTable,
+                model_lengths=model_lengths,
+                paired=paired,
+                hitIndex=hitIndex,
+                config=config,
+                genome=self._genome(),
+                flank_len=50,
+                write_all=True,
+                write_paired=True,
+            )
+
+            # The left flank is entirely before the contig start, so no left flank
+            # file should be produced (and certainly not a 1 bp file).
+            left_files = [
+                f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
+            ]
+            assert len(left_files) == 0, (
+                f'Expected no left flank file for out-of-bounds flank, got: {left_files}'
+            )
+
+    def test_example3_left_flank_before_contig_start_no_1bp_extraction(self):
+        """The 1-bp extraction bug: both clamped coords become 1 → must NOT extract."""
+        # Directly test compute_flank_coordinates and then the extraction path
+        # by checking the sequence file contents.
+        fs, fe, offset = compute_flank_coordinates(
+            hit_start=1,
+            hit_end=538,
+            strand='+',
+            is_left_terminus=True,
+            hmm_start=8,
+            hmm_end=553,
+            model_len=1000,
+            flank_len=50,
+        )
+        # external_pos = 1 - (8-1) = -6; flank = [-56, -7] → entirely before contig
+        assert offset == 7
+        assert fe == -7
+        assert fs == -56
+
+    # ------------------------------------------------------------------
+    # Example 1 reproduction: right terminus hit on medium contig,
+    # offset=6 pushes flank start beyond contig end (6701 > 6694)
+    # ------------------------------------------------------------------
+
+    def test_example1_right_flank_after_contig_end_returns_none(self):
+        """Reproduces Example 1: right flank entirely after contig end → skip."""
+        # blast fmt6: hmmStart=588, hmmEnd=994; hitStart=6297, hitEnd=6694
+        rows = [
+            # First hit (same model, + strand) used only to satisfy the pairing
+            # requirement.  Both hits use model 'RIGHT' because this is a symmetric
+            # F,R single_model configuration.
+            {
+                'model': 'RIGHT',
+                'target': 'medium',
+                'hit_start': 100,
+                'hit_end': 199,
+                'strand': '+',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+            {
+                'model': 'RIGHT',
+                'target': 'medium',
+                'hit_start': 6297,
+                'hit_end': 6694,
+                'strand': '+',
+                'hmm_start': 588,
+                'hmm_end': 994,
+            },
+        ]
+        hitTable = _make_hitTable(rows)
+        _, hitIndex, paired = _make_paired_data(hitTable)
+
+        config = PairingConfig(orientation='F,R', single_model='RIGHT')
+        model_lengths = {'RIGHT': 1000}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            writeFlanks(
+                outDir=tmpdir,
+                hitTable=hitTable,
+                model_lengths=model_lengths,
+                paired=paired,
+                hitIndex=hitIndex,
+                config=config,
+                genome=self._genome(),
+                flank_len=50,
+                write_all=True,
+                write_paired=True,
+            )
+
+            # The right flank start (6701) exceeds contig length (6694) → no file
+            right_files = [
+                f
+                for f in os.listdir(tmpdir)
+                if 'right_flank' in f and 'paired' not in f
+            ]
+            assert len(right_files) == 0, (
+                f'Expected no right flank file for out-of-bounds coords, got: {right_files}'
+            )
+
+    def test_example1_right_flank_coordinates(self):
+        """Verify the coordinate arithmetic for Example 1 matches the issue description."""
+        fs, fe, offset = compute_flank_coordinates(
+            hit_start=6297,
+            hit_end=6694,
+            strand='+',
+            is_left_terminus=False,
+            hmm_start=588,
+            hmm_end=994,
+            model_len=1000,
+            flank_len=50,
+        )
+        # offset = model_len - hmmEnd = 1000 - 994 = 6
+        # external_pos = hit_end + offset = 6694 + 6 = 6700
+        # flank = [6701, 6750]
+        assert offset == 6
+        assert fs == 6701
+        assert fe == 6750
+
+    # ------------------------------------------------------------------
+    # Partial boundary: flank partially extends before contig start
+    # ------------------------------------------------------------------
+
+    def test_left_flank_partially_before_start_is_truncated(self):
+        """Left flank partially overlapping contig start returns a shorter sequence."""
+        # Hit at positions 5-104 (hmmStart=1, full hit), flank_len=10
+        # external_pos = 5, flank = [−5, 4] → clamped to [1, 4] = 4 bp
+        rows = [
+            {
+                'model': 'TIR',
+                'target': 'short',
+                'hit_start': 5,
+                'hit_end': 104,
+                'strand': '+',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+            {
+                'model': 'TIR',
+                'target': 'short',
+                'hit_start': 400,
+                'hit_end': 499,
+                'strand': '-',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+        ]
+        hitTable = _make_hitTable(rows)
+        _, hitIndex, paired = _make_paired_data(hitTable)
+
+        config = PairingConfig(orientation='F,R', single_model='TIR')
+        model_lengths = {'TIR': 100}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            writeFlanks(
+                outDir=tmpdir,
+                hitTable=hitTable,
+                model_lengths=model_lengths,
+                paired=paired,
+                hitIndex=hitIndex,
+                config=config,
+                genome=self._genome(),
+                flank_len=10,
+                write_all=True,
+                write_paired=True,
+            )
+
+            left_files = [
+                f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
+            ]
+            # A truncated flank should still be written
+            assert len(left_files) == 1
+
+            with open(os.path.join(tmpdir, left_files[0])) as fh:
+                seq = ''.join(
+                    ln for ln in fh.read().splitlines() if not ln.startswith('>')
+                )
+            # external_pos=5, flank=[−5,4] → clamped to [1,4] → 4 bp
+            assert len(seq) == 4
+            assert seq == 'GAAA'  # first 4 bases of SHORT_SEQ: 'G','A','A','A'
+
+    # ------------------------------------------------------------------
+    # Partial boundary: right flank partially extends beyond contig end
+    # ------------------------------------------------------------------
+
+    def test_right_flank_partially_after_contig_end_is_truncated(self):
+        """Right flank partially overlapping contig end returns a shorter sequence.
+
+        Hit: positions 525-534 (- strand, hmmStart=1, hmmEnd=10, model_len=10)
+        Right terminus, - strand: offset = hmmStart - 1 = 0
+        external_pos = hitEnd + 0 = 534; flank = [535, 544]
+        Contig 'short' is 538 bp → clamped to [535, 538] = 4 bp
+        """
+        rows = [
+            {
+                'model': 'TIR',
+                'target': 'short',
+                'hit_start': 200,
+                'hit_end': 299,
+                'strand': '+',
+                'hmm_start': 1,
+                'hmm_end': 100,
+            },
+            {
+                'model': 'TIR',
+                'target': 'short',
+                'hit_start': 525,
+                'hit_end': 534,
+                'strand': '-',
+                'hmm_start': 1,
+                'hmm_end': 10,
+            },
+        ]
+        hitTable = _make_hitTable(rows)
+        _, hitIndex, paired = _make_paired_data(hitTable)
+
+        config = PairingConfig(orientation='F,R', single_model='TIR')
+        model_lengths = {'TIR': 10}
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            writeFlanks(
+                outDir=tmpdir,
+                hitTable=hitTable,
+                model_lengths=model_lengths,
+                paired=paired,
+                hitIndex=hitIndex,
+                config=config,
+                genome=self._genome(),
+                flank_len=10,
+                write_all=True,
+                write_paired=True,
+            )
+
+            right_files = [
+                f
+                for f in os.listdir(tmpdir)
+                if 'right_flank' in f and 'paired' not in f
+            ]
+            # - strand right terminus: offset = hmmStart - 1 = 0
+            # external_pos = hitEnd + 0 = 534; flank = [535, 544]
+            # Contig 'short' is 538 bp → clamped to [535, 538] = 4 bp
+            assert len(right_files) == 1
+
+            with open(os.path.join(tmpdir, right_files[0])) as fh:
+                seq = ''.join(
+                    ln for ln in fh.read().splitlines() if not ln.startswith('>')
+                )
+            assert len(seq) == 4  # only 4 bp available at contig end
+
+
+# ---------------------------------------------------------------------------
 # writeElements filename tests
 # ---------------------------------------------------------------------------
 

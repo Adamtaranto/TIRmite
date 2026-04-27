@@ -2386,6 +2386,16 @@ def writeFlanks(
             )
             return None
 
+        # Check if the flank region falls entirely before the contig start.
+        # When flank_end < 1 both coords would be clamped to 1, producing a
+        # spurious 1 bp extraction rather than the expected empty result.
+        if flank_end < 1:
+            logging.warning(
+                f'Flank for hit {hit.idx} on {hit.target} falls entirely before '
+                f'contig start (computed coords {flank_start}–{flank_end}), skipping'
+            )
+            return None
+
         # Clamp to valid 1-based range
         flank_start = max(1, flank_start)
         flank_end = max(1, flank_end)
@@ -2403,9 +2413,14 @@ def writeFlanks(
             chrom = genome[hit.target]
             # Clamp end to chromosome length
             chrom_len = len(chrom)
-            flank_end = min(flank_end, chrom_len)
-            if flank_start > flank_end:
+            if flank_start > chrom_len:
+                logging.warning(
+                    f'Flank for hit {hit.idx} on {hit.target} falls entirely after '
+                    f'contig end (coords {flank_start}–{flank_end}, '
+                    f'contig length {chrom_len}), skipping'
+                )
                 return None
+            flank_end = min(flank_end, chrom_len)
             seq_str = str(chrom[flank_start - 1 : flank_end])
 
         if seq_str is None:
@@ -2413,6 +2428,27 @@ def writeFlanks(
                 f'Failed to extract flank sequence for hit {hit.idx}, skipping'
             )
             return None
+
+        # Warn if the extracted flank is shorter than the requested length.
+        # This happens when the flank region is partially outside the contig.
+        # When using blastdb, an extraction longer than the requested window
+        # indicates that blastdbcmd received an invalid (out-of-bounds) range
+        # and returned an unexpected amount of sequence; reject it.
+        actual_len = len(seq_str)
+        if actual_len > flank_len:
+            logging.warning(
+                f'Flank extraction for hit {hit.idx} on {hit.target} returned '
+                f'{actual_len}bp but expected {flank_len}bp '
+                f'(coords {flank_start}–{flank_end}). '
+                f'Contig may be shorter than the requested flank region, skipping'
+            )
+            return None
+        if actual_len < flank_len:
+            logging.warning(
+                f'Flank for hit {hit.idx} on {hit.target} is truncated at '
+                f'contig boundary: expected {flank_len}bp, '
+                f'extracted {actual_len}bp (coords {flank_start}–{flank_end})'
+            )
 
         record = SeqRecord(Seq.Seq(seq_str))
         side = 'L' if is_left else 'R'
@@ -3018,6 +3054,16 @@ def writeTargetSites(
         if flank_max_offset is not None and offset > flank_max_offset:
             return None
 
+        # Check if the flank region falls entirely before the contig start.
+        # When flank_end < 1 both coords would be clamped to 1, producing a
+        # spurious 1 bp extraction rather than the expected empty result.
+        if flank_end < 1:
+            logging.warning(
+                f'Flank for hit {hit.idx} on {hit.target} falls entirely before '
+                f'contig start (computed coords {flank_start}–{flank_end}), skipping'
+            )
+            return None
+
         flank_start = max(1, flank_start)
         flank_end = max(1, flank_end)
 
@@ -3031,10 +3077,32 @@ def writeTargetSites(
         else:
             chrom = genome[hit.target]
             chrom_len = len(chrom)
-            flank_end = min(flank_end, chrom_len)
-            if flank_start > flank_end:
+            if flank_start > chrom_len:
+                logging.warning(
+                    f'Flank for hit {hit.idx} on {hit.target} falls entirely after '
+                    f'contig end (coords {flank_start}–{flank_end}, '
+                    f'contig length {chrom_len}), skipping'
+                )
                 return None
+            flank_end = min(flank_end, chrom_len)
             seq_str = str(chrom[flank_start - 1 : flank_end])
+
+        if seq_str is not None:
+            actual_len = len(seq_str)
+            if actual_len > flank_len:
+                logging.warning(
+                    f'Flank extraction for hit {hit.idx} on {hit.target} returned '
+                    f'{actual_len}bp but expected {flank_len}bp '
+                    f'(coords {flank_start}–{flank_end}). '
+                    f'Contig may be shorter than the requested flank region, skipping'
+                )
+                return None
+            if actual_len < flank_len:
+                logging.warning(
+                    f'Flank for hit {hit.idx} on {hit.target} is truncated at '
+                    f'contig boundary: expected {flank_len}bp, '
+                    f'extracted {actual_len}bp (coords {flank_start}–{flank_end})'
+                )
 
         return seq_str
 

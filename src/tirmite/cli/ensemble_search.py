@@ -316,7 +316,7 @@ def validate_cluster_mapping(
     Returns
     -------
     tuple
-        (is_valid, list of warning messages)
+        (is_valid, list of warning messages).
 
     Notes
     -----
@@ -391,7 +391,7 @@ def parse_pairing_map(pairing_file: Path) -> Dict[str, str]:
     ----------
     pairing_file : Path
         Path to tab-delimited pairing map file.
-        Format: left_feature<TAB>right_feature
+        Format: left_feature<TAB>right_feature.
 
     Returns
     -------
@@ -1857,7 +1857,24 @@ def run_blastn_search(
 
 
 def validate_evalue(value: str) -> float:
-    """Validate e-value argument."""
+    """
+    Validate e-value argument.
+
+    Parameters
+    ----------
+    value : str
+        Raw argument string from argparse.
+
+    Returns
+    -------
+    float
+        The parsed e-value.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not a positive number.
+    """
     try:
         fvalue = float(value)
         if fvalue <= 0:
@@ -1868,7 +1885,24 @@ def validate_evalue(value: str) -> float:
 
 
 def validate_identity(value: str) -> float:
-    """Validate identity percentage argument."""
+    """
+    Validate identity percentage argument.
+
+    Parameters
+    ----------
+    value : str
+        Raw argument string from argparse.
+
+    Returns
+    -------
+    float
+        The parsed identity percentage.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not a number between 0 and 100.
+    """
     try:
         fvalue = float(value)
         if not 0 <= fvalue <= 100:
@@ -1881,7 +1915,24 @@ def validate_identity(value: str) -> float:
 
 
 def validate_threads(value: str) -> int:
-    """Validate threads argument."""
+    """
+    Validate threads argument.
+
+    Parameters
+    ----------
+    value : str
+        Raw argument string from argparse.
+
+    Returns
+    -------
+    int
+        The parsed thread count.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not an integer of at least 1.
+    """
     try:
         ivalue = int(value)
         if ivalue < 1:
@@ -1892,7 +1943,24 @@ def validate_threads(value: str) -> int:
 
 
 def validate_word_size(value: str) -> int:
-    """Validate word_size argument."""
+    """
+    Validate word_size argument.
+
+    Parameters
+    ----------
+    value : str
+        Raw argument string from argparse.
+
+    Returns
+    -------
+    int
+        The parsed word size.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not an integer of at least 4.
+    """
     try:
         ivalue = int(value)
         if ivalue < 4:
@@ -1936,7 +2004,19 @@ def add_search_parser(subparsers: Any) -> argparse.ArgumentParser:
 
 
 def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
-    """Configure parser with search command arguments."""
+    """
+    Configure parser with search command arguments.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        Parser to configure.
+
+    Returns
+    -------
+    None
+        Modifies parser in place.
+    """
     # Input mode: either run searches or load precomputed results
     input_group = parser.add_argument_group('Input Options')
 
@@ -2384,7 +2464,7 @@ def _process_hits(
     blast_files : list of Path
         BLAST result files to load.
     nhmmer_files : list of Path
-        nhmmer result files to load.
+        Nhmmer result files to load.
     query_lengths : dict, optional
         Mapping of model name to model length.  Required for anchor filtering.
 

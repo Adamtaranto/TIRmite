@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       # Checkout the latest commit associated with the PR
       - uses: actions/checkout@v7
@@ -42,12 +42,12 @@ jobs:
         run: |
           pytest
         shell: bash -l {0}
-
-# Upload coverage report to Codecov
-# Only upload coverage for the latest Python version
-#- name: Upload coverage reports to Codecov
-#  uses: codecov/codecov-action@v5
-#  if: matrix.python-version == '3.13'
-#  with:
-#    token: ${{ secrets.CODECOV_TOKEN }}
-#    slug: Adamtaranto/TIRmite
+      # Upload coverage report to Codecov.
+      # Only for the latest Python version: every matrix job produces the same
+      # coverage.xml, so uploading from all of them just duplicates the report.
+      - name: Upload coverage reports to Codecov
+        if: matrix.python-version == '3.14'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: Adamtaranto/TIRmite

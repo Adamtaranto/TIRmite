@@ -22,15 +22,15 @@ import subprocess
 import tempfile
 
 import pandas as pd
-import pytest
 from pyfaidx import Fasta
+import pytest
 
-import tirmite.tirmitetools as tirmite
 from tirmite.cli.hmm_build import (
     BlastHit,
     extract_flanked_sequences_from_chains,
     extract_sequences_from_chains,
 )
+import tirmite.tirmitetools as tirmite
 from tirmite.tirmitetools import extractTIRs, fetch_padded_hit
 from tirmite.utils.extract import (
     BlastDBSource,

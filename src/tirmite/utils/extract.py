@@ -38,9 +38,9 @@ the same query:
 """
 
 import logging
+from pathlib import Path
 import shutil
 import subprocess
-from pathlib import Path
 from typing import Any, Dict, NamedTuple, Optional, Tuple, Union
 
 # Shared timeout for all blastdbcmd invocations, in seconds.  Previously these

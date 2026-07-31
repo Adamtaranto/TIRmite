@@ -9,7 +9,7 @@ dependencies:
   - mafft
   - pip
   - pyhmmer
-  - python 3.12
+  - python 3.14
   - samtools
   - seqkit
   - pip:

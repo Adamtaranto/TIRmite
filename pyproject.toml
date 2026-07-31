@@ -76,6 +76,9 @@ version-file = "src/tirmite/_version.py"
 addopts = "-v --cov=tirmite --cov-branch --cov-report=xml --cov-report=term"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "slow: tests that shell out to BLAST+ repeatedly; deselect with -m 'not slow'",
+]
 
 [tool.ruff]
 target-version = "py310"

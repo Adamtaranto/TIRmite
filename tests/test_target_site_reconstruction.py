@@ -19,6 +19,7 @@ import pytest
 
 from tirmite.tirmitetools import (
     PairingConfig,
+    compare_tsds,
     compute_flank_coordinates,
     compute_inner_tsd_coordinates,
     format_interleaved_flanks,
@@ -1082,3 +1083,101 @@ class TestPairCliTsdArgs:
             ]
         )
         assert args.insertion_site is False
+
+
+# ---------------------------------------------------------------------------
+# Contig-boundary behaviour: padding, and TSDs that cannot be verified
+# ---------------------------------------------------------------------------
+
+
+class TestTsdComparison:
+    """compare_tsds must never report an unverifiable TSD as a match."""
+
+    def test_identical_tsds(self):
+        assert compare_tsds('ACGT', 'ACGT') == (0, 4)
+
+    def test_mismatched_tsds(self):
+        assert compare_tsds('ACGT', 'ACGA') == (1, 4)
+
+    def test_case_insensitive(self):
+        assert compare_tsds('acgt', 'ACGT') == (0, 4)
+
+    def test_unequal_length_is_unverifiable(self):
+        """Different lengths cannot be compared, and must not read as 0."""
+        assert compare_tsds('ACG', 'ACGT') == (None, 0)
+
+    def test_empty_is_unverifiable(self):
+        assert compare_tsds('', '') == (None, 0)
+        assert compare_tsds('ACGT', '') == (None, 0)
+
+    def test_padded_positions_are_excluded(self):
+        """A padded position is neither a match nor a mismatch."""
+        # Only the first two positions were observed on both sides.
+        assert compare_tsds('ACNN', 'ACGT') == (0, 2)
+        assert compare_tsds('AGNN', 'ACGT') == (1, 2)
+
+    def test_fully_padded_is_unverifiable(self):
+        """No informative position means no verdict, not a perfect score."""
+        assert compare_tsds('NNNN', 'ACGT') == (None, 0)
+        assert compare_tsds('NNNN', 'NNNN') == (None, 0)
+
+
+class TestTsdUnverifiableReporting:
+    """A TSD that could not be compared must report NA, never 0."""
+
+    def test_short_right_flank_yields_unverifiable_tsd(self):
+        """
+        The defect this guards: when a flank was shortened at a contig boundary
+        the two TSDs came out different lengths, the comparison was skipped, and
+        the result was still written as hamming 0 - indistinguishable from a
+        verified perfect duplication.
+        """
+        # Right flank is shorter than the TSD, as happens when a flank is
+        # truncated against a contig end.
+        ts, l_tsd, r_tsd, ham = reconstruct_target_site(
+            left_flank_seq='AAAAACGT',
+            right_flank_seq='CG',
+            tsd_length=3,
+            tsd_in_model=False,
+        )
+
+        assert len(l_tsd) != len(r_tsd)
+        assert ham is None, 'unverifiable TSD must not report a distance'
+
+    def test_fully_padded_tsd_is_unverifiable(self):
+        """A TSD made entirely of pad characters carries no evidence."""
+        ts, l_tsd, r_tsd, ham = reconstruct_target_site(
+            left_flank_seq='AAAAANNN',
+            right_flank_seq='NNNCCCCC',
+            tsd_length=3,
+            tsd_in_model=False,
+        )
+
+        assert l_tsd == 'NNN'
+        assert r_tsd == 'NNN'
+        assert ham is None
+
+    def test_partially_padded_tsd_compares_informative_positions(self):
+        """Padded positions are excluded; real ones still decide the verdict."""
+        ts, l_tsd, r_tsd, ham = reconstruct_target_site(
+            left_flank_seq='AAAAANGT',
+            right_flank_seq='AGTCCCCC',
+            tsd_length=3,
+            tsd_in_model=False,
+        )
+
+        assert l_tsd == 'NGT'
+        assert r_tsd == 'AGT'
+        # Position 1 is padded on the left, so only GT vs GT is compared.
+        assert ham == 0
+
+    def test_short_right_flank_leaves_left_flank_intact(self):
+        """A right flank shorter than the TSD is consumed; the left survives."""
+        ts, _l, _r, _h = reconstruct_target_site(
+            left_flank_seq='AAAAA',
+            right_flank_seq='CG',
+            tsd_length=5,
+            tsd_in_model=False,
+        )
+
+        assert ts == 'AAAAA'

@@ -1257,10 +1257,10 @@ class TestShortContigBoundaries:
     # Partial boundary: flank partially extends before contig start
     # ------------------------------------------------------------------
 
-    def test_left_flank_partially_before_start_is_truncated(self):
-        """Left flank partially overlapping contig start returns a shorter sequence."""
+    def test_left_flank_partially_before_start_is_padded(self):
+        """Left flank overlapping the contig start is N-padded to full length."""
         # Hit at positions 5-104 (hmmStart=1, full hit), flank_len=10
-        # external_pos = 5, flank = [−5, 4] → clamped to [1, 4] = 4 bp
+        # external_pos = 5, flank = [−5, 4] → 4 bp available, 6 bp padded
         rows = [
             {
                 'model': 'TIR',
@@ -1304,28 +1304,32 @@ class TestShortContigBoundaries:
             left_files = [
                 f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
             ]
-            # A truncated flank should still be written
+            # A partially available flank should still be written
             assert len(left_files) == 1
 
             with open(os.path.join(tmpdir, left_files[0])) as fh:
-                seq = ''.join(
-                    ln for ln in fh.read().splitlines() if not ln.startswith('>')
-                )
-            # external_pos=5, flank=[−5,4] → clamped to [1,4] → 4 bp
-            assert len(seq) == 4
-            assert seq == 'GAAA'  # first 4 bases of SHORT_SEQ: 'G','A','A','A'
+                content = fh.read()
+            header = next(ln for ln in content.splitlines() if ln.startswith('>'))
+            seq = ''.join(ln for ln in content.splitlines() if not ln.startswith('>'))
+            # external_pos=5, flank=[−5,4]: 6 bp before the contig start are
+            # padded, then the 4 real bases.
+            assert len(seq) == 10
+            assert seq == 'NNNNNN' + 'GAAA'
+            # The header reports the real coordinates and flags the padding.
+            assert ' 1_4 ' in header
+            assert 'padded:6,0' in header
 
     # ------------------------------------------------------------------
     # Partial boundary: right flank partially extends beyond contig end
     # ------------------------------------------------------------------
 
-    def test_right_flank_partially_after_contig_end_is_truncated(self):
-        """Right flank partially overlapping contig end returns a shorter sequence.
+    def test_right_flank_partially_after_contig_end_is_padded(self):
+        """Right flank overlapping the contig end is N-padded to full length.
 
         Hit: positions 525-534 (- strand, hmmStart=1, hmmEnd=10, model_len=10)
         Right terminus, - strand: offset = hmmStart - 1 = 0
         external_pos = hitEnd + 0 = 534; flank = [535, 544]
-        Contig 'short' is 538 bp → clamped to [535, 538] = 4 bp
+        Contig 'short' is 538 bp → 4 bp real at [535, 538], 6 bp padded
         """
         rows = [
             {
@@ -1374,14 +1378,19 @@ class TestShortContigBoundaries:
             ]
             # - strand right terminus: offset = hmmStart - 1 = 0
             # external_pos = hitEnd + 0 = 534; flank = [535, 544]
-            # Contig 'short' is 538 bp → clamped to [535, 538] = 4 bp
+            # Contig 'short' is 538 bp → 4 bp real, then 6 bp padded
             assert len(right_files) == 1
 
             with open(os.path.join(tmpdir, right_files[0])) as fh:
-                seq = ''.join(
-                    ln for ln in fh.read().splitlines() if not ln.startswith('>')
-                )
-            assert len(seq) == 4  # only 4 bp available at contig end
+                content = fh.read()
+            header = next(ln for ln in content.splitlines() if ln.startswith('>'))
+            seq = ''.join(ln for ln in content.splitlines() if not ln.startswith('>'))
+            assert len(seq) == 10
+            # Padding is appended on the side that ran off the contig.
+            assert seq.endswith('NNNNNN')
+            assert 'N' not in seq[:4]
+            assert ' 535_538 ' in header
+            assert 'padded:0,6' in header
 
 
 # ---------------------------------------------------------------------------
@@ -1460,3 +1469,119 @@ class TestWriteElements:
             assert len(files) == 1
             # Filename should include count: myrun_TIR_elements_1.fasta
             assert files[0] == 'myrun_TIR_elements_1.fasta'
+
+
+# ---------------------------------------------------------------------------
+# Invalid model lengths must not shift the flank window into the hit
+# ---------------------------------------------------------------------------
+
+
+class TestInvalidModelLength:
+    """A model length inconsistent with the alignment must not corrupt flanks."""
+
+    def test_model_len_below_hmm_end_does_not_invert_offset(self):
+        """
+        A model_len smaller than hmmEnd is impossible for a correct model.
+
+        Left unclamped, `model_len - hmm_end` goes negative and the flank window
+        is shifted *into* the hit, so element sequence is extracted and written
+        as flanking sequence. The flank_max_offset guard cannot catch it either,
+        since `offset > max` is trivially false for a negative value.
+        """
+        fs, fe, offset = compute_flank_coordinates(
+            hit_start=1000,
+            hit_end=1099,
+            strand='-',
+            is_left_terminus=True,
+            hmm_start=1,
+            hmm_end=120,  # runs past the declared model length
+            model_len=100,
+            flank_len=10,
+        )
+
+        assert offset == 0, 'a negative deficit must be clamped to 0'
+        # The flank must stay strictly outside the hit.
+        assert fe < 1000
+        assert fs == 990
+        assert fe == 999
+
+    def test_right_terminus_negative_deficit_clamped(self):
+        """Same clamp on the right terminus, + strand."""
+        fs, fe, offset = compute_flank_coordinates(
+            hit_start=2000,
+            hit_end=2099,
+            strand='+',
+            is_left_terminus=False,
+            hmm_start=1,
+            hmm_end=150,
+            model_len=100,
+            flank_len=10,
+        )
+
+        assert offset == 0
+        # Flank starts strictly after the hit, never inside it.
+        assert fs == 2100
+        assert fe == 2109
+
+    def test_warns_about_inconsistent_model_length(self, caplog):
+        """The user is told their model length looks wrong."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            compute_flank_coordinates(
+                hit_start=1000,
+                hit_end=1099,
+                strand='+',
+                is_left_terminus=False,
+                hmm_start=1,
+                hmm_end=150,
+                model_len=100,
+                flank_len=10,
+            )
+
+        assert 'inconsistent' in caplog.text.lower()
+
+
+class TestBothEndsIncomplete:
+    """A hit incomplete at both ends uses the correct deficit at each end."""
+
+    def test_flank_uses_external_deficit_only(self):
+        """
+        hmmStart=6 and hmmEnd=90 of a 100bp model: 5 uncovered outside, 10 in.
+
+        For a left terminus on + strand the external edge is the hmmStart side,
+        so only that deficit may move the flank.
+        """
+        fs, fe, offset = compute_flank_coordinates(
+            hit_start=1000,
+            hit_end=1084,
+            strand='+',
+            is_left_terminus=True,
+            hmm_start=6,
+            hmm_end=90,
+            model_len=100,
+            flank_len=10,
+        )
+
+        assert offset == 5  # not 10, and not 15
+        assert fe == 994  # external_pos - 1 = (1000 - 5) - 1
+        assert fs == 985
+
+    def test_inner_tsd_uses_inner_deficit_only(self):
+        """The same hit's in-model TSD uses the opposite (inner) deficit."""
+        from tirmite.tirmitetools import compute_inner_tsd_coordinates
+
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=1000,
+            hit_end=1084,
+            strand='+',
+            is_left_terminus=True,
+            hmm_start=6,
+            hmm_end=90,
+            model_len=100,
+            tsd_length=4,
+        )
+
+        # inner_pos = hit_end + (model_len - hmm_end) = 1084 + 10 = 1094
+        assert tsd_end == 1094
+        assert tsd_start == 1091

@@ -24,6 +24,7 @@ import pandas as pd  # type: ignore[import-untyped]
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
 import tirmite.tirmitetools as tirmite
+from tirmite.utils.extract import check_ids, make_source
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
@@ -945,6 +946,37 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
+    parser.add_argument(
+        '--no-pad-flanks',
+        action='store_true',
+        default=False,
+        dest='no_pad_flanks',
+        help=(
+            'Do not pad flanking and target-site sequences that extend past a '
+            'contig boundary. By default such regions are padded with N so that '
+            'every flank is --flank-len bases and records remain comparable '
+            'position by position; padded records are marked in their FASTA '
+            'description. With this flag they are truncated instead, so record '
+            'lengths vary near contig ends. Regions that fall entirely outside '
+            'a contig are skipped either way.'
+        ),
+    )
+
+    parser.add_argument(
+        '--extend-hits-to-model',
+        action='store_true',
+        default=False,
+        dest='extend_hits_to_model',
+        help=(
+            'Extend extracted terminus sequences outward by the offset between '
+            'the hit alignment and the external end of the model, so that hits '
+            'which only partially cover the model are emitted at full model '
+            'length and are directly comparable. Affects the hit and paired '
+            'terminus FASTA output only, not flanks or pairing. '
+            'Default: extract only the aligned region.'
+        ),
+    )
+
     # Target site reconstruction options
     parser.add_argument(
         '--insertion-site',
@@ -1707,6 +1739,19 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         logging.info(f'Total remaining hits: {len(hitTable)}')
 
+        # Verify that every target sequence can be resolved in the chosen
+        # sequence source before extraction begins. On the BLAST side the usual
+        # cause of failure is a database built without -parse_seqids, or an
+        # accession that differs from the FASTA header token.
+        if len(hitTable):
+            extraction_source = make_source(genome=genome, blastdb=args.blastdb)
+            missing_targets = check_ids(extraction_source, hitTable['target'])
+            if missing_targets:
+                logging.warning(
+                    f'{len(missing_targets)} target sequence(s) could not be '
+                    'resolved; hits on those sequences will be skipped.'
+                )
+
         # Apply anchor filter if --max-offset is set
         if args.max_offset is not None:
             logging.info(
@@ -1838,6 +1883,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 padlen=args.padlen,
                 genome_descriptions=genome_descriptions,
                 blastdb=args.blastdb if args.blastdb else None,
+                model_lengths=model_lengths,
+                extend_hits_to_model=args.extend_hits_to_model,
+                pad=not args.no_pad_flanks,
             )
 
         # Skip pairing if requested
@@ -1943,6 +1991,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         padlen=args.padlen,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
+                        model_lengths=model_lengths,
+                        extend_hits_to_model=args.extend_hits_to_model,
+                        pad=not args.no_pad_flanks,
                     )
 
                 # Write paired TIRs
@@ -1990,6 +2041,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         write_paired=args.flanks_paired,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
+                        pad_flanks=not args.no_pad_flanks,
                     )
 
                     # Reconstruct target sites for this pair
@@ -2016,6 +2068,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             tsd_length_map=tsd_length_map_data,
                             genome_descriptions=genome_descriptions,
                             blastdb=args.blastdb if args.blastdb else None,
+                            pad_flanks=not args.no_pad_flanks,
                         )
 
                 # Write summary report for this pair
@@ -2204,6 +2257,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     write_paired=args.flanks_paired,
                     genome_descriptions=genome_descriptions,
                     blastdb=args.blastdb if args.blastdb else None,
+                    pad_flanks=not args.no_pad_flanks,
                 )
 
                 # Reconstruct target sites if explicitly requested
@@ -2233,6 +2287,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         tsd_length_map=tsd_length_map,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
+                        pad_flanks=not args.no_pad_flanks,
                     )
 
             # Write GFF if requested

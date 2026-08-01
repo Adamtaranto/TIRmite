@@ -31,20 +31,45 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install --retries 10 --timeout 180 --prefer-binary --progress-bar off --no-cache-dir '.[test]'
         shell: bash -l {0}
+      # BLAST+ supplies makeblastdb and blastdbcmd, which the sequence
+      # extraction equivalence tests shell out to. Without them those tests
+      # skip, so the FASTA-vs-BLAST-database guarantee goes unchecked. Only
+      # installed for the version that reports coverage, to keep the other
+      # matrix jobs fast.
+      - name: Install BLAST+
+        if: matrix.python-version == '3.14'
+        run: |
+          conda install -y -c conda-forge -c bioconda blast
+        shell: bash -l {0}
       # Verify pip installation
       - name: Verify Python/pip
         run: |
           python --version
           python -m pip --version
         shell: bash -l {0}
-      # Run pytest on the specified directory
+      # Fail loudly if BLAST+ is missing, rather than silently skipping the
+      # equivalence tests and reporting a green run.
+      - name: Verify BLAST+
+        if: matrix.python-version == '3.14'
+        run: |
+          makeblastdb -version
+          blastdbcmd -version
+        shell: bash -l {0}
+      # Run pytest. Coverage is enabled by addopts in pyproject.toml, so it is
+      # switched off explicitly on every version except the one we report from.
       - name: Test with pytest
+        if: matrix.python-version != '3.14'
+        run: |
+          pytest --no-cov
+        shell: bash -l {0}
+      - name: Test with pytest and coverage
+        if: matrix.python-version == '3.14'
         run: |
           pytest
         shell: bash -l {0}
-      # Upload coverage report to Codecov.
-      # Only for the latest Python version: every matrix job produces the same
-      # coverage.xml, so uploading from all of them just duplicates the report.
+      # Upload coverage report to Codecov. Only the job above produces a
+      # coverage.xml, and every matrix job would otherwise report the same
+      # numbers.
       - name: Upload coverage reports to Codecov
         if: matrix.python-version == '3.14'
         uses: codecov/codecov-action@v5

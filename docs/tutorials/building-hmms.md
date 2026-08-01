@@ -83,7 +83,8 @@ tirmite seed \
   --model-name MY_TIR \
   --outdir MY_TIR_HMM \
   --genome $GENOME \
-  --max-gap 10 \
+  --min-coverage 0.5 \
+  --min-identity 60 \
   --save-blast-hits \
   --threads 8
 ```
@@ -95,11 +96,13 @@ Key options:
 | `--left-seed` | FASTA file with seed sequence(s) for the left/symmetric terminus |
 | `--right-seed` | FASTA file with seed sequence(s) for the right terminus (asymmetric only) |
 | `--model-name` | Name for the output HMM model |
-| `--genome` | Path to target genome FASTA (can specify multiple files) |
+| `--genome` | Path to target genome FASTA (one of `--genome`, `--genome-list` or `--blastdb` is required) |
 | `--outdir` | Output directory |
-| `--max-gap` | Maximum allowed internal gap in BLAST hits |
+| `--evalue` | E-value threshold for the BLAST search |
+| `--min-coverage` | Minimum fraction of the seed a hit must cover to be kept |
+| `--min-identity` | Minimum percent identity for a hit to be kept |
 | `--flank-size` | Add N bp of flanking sequence outside each hit (useful for checking truncation) |
-| `--save-blast-hits` | Save the raw BLAST hits to file |
+| `--save-blast-hits` | Save the BLAST hits to file, for reuse with `--blast-hits` |
 | `--threads` | Number of CPU threads for BLAST |
 
 !!! tip "Check flanking sequence"
@@ -107,11 +110,14 @@ Key options:
 
 ### With an existing HMM — update/extend the model
 
-If you already have an HMM and want to update it with additional sequences from a new genome:
+If you already have an HMM and want to update it with additional sequences from
+a new genome, pass `--update` with `--hmm-file`. In this mode the genome is
+searched with the existing HMM rather than with a seed sequence, so
+`--left-seed` is not required:
 
 ```bash
 tirmite seed \
-  --left-seed existing_seed.fa \
+  --update \
   --hmm-file existing_model.hmm \
   --model-name MY_TIR_updated \
   --genome new_genome.fa \
@@ -137,25 +143,33 @@ tirmite seed \
 
 ### With pre-calculated BLAST hits
 
-If you have already run BLAST and want to skip the search step:
+To skip the search step, reuse a hit table from an earlier run. The table must
+be in TIRmite's own tabular format, which is what `--save-blast-hits` writes —
+raw `blastn` output is not interchangeable with it.
+
+Sequence extraction still needs the genome, so `--genome`, `--genome-list` or
+`--blastdb` remains required even when the search itself is skipped:
 
 ```bash
-# Run BLAST yourself (format 6 with extra fields for length info)
-blastn \
-  -query seed.fa \
-  -db genome_db \
-  -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen" \
-  -out my_blast_hits.tab \
-  -evalue 0.001
-
-# Pass pre-calculated hits to tirmite seed
+# First run saves the hit table
 tirmite seed \
   --left-seed seed.fa \
   --model-name MY_TIR \
-  --blast-file my_blast_hits.tab \
   --genome $GENOME \
-  --outdir MY_TIR_HMM
+  --outdir MY_TIR_HMM \
+  --save-blast-hits
+
+# Reuse those hits, skipping the BLAST search
+tirmite seed \
+  --left-seed seed.fa \
+  --model-name MY_TIR \
+  --blast-hits MY_TIR_HMM/MY_TIR_all_blast_hits.tab \
+  --genome $GENOME \
+  --outdir MY_TIR_HMM_rerun
 ```
+
+For asymmetric elements the equivalent options are `--left-blast-hits` and
+`--right-blast-hits`.
 
 ### Asymmetric termini — separate left and right seeds
 
@@ -170,8 +184,8 @@ tirmite seed \
 ```
 
 This produces two HMM files:
-- `MY_ELEMENT_LEFT.hmm` — model for the left terminus
-- `MY_ELEMENT_RIGHT.hmm` — model for the right terminus
+- `MY_ELEMENT_left.hmm` — model for the left terminus
+- `MY_ELEMENT_right.hmm` — model for the right terminus
 
 ## Step 3: Inspect and Curate the Output Alignment
 

@@ -45,8 +45,7 @@ test = [
     "pytest-cov",
 ]
 docs = [
-    "mkdocs-material>=9.0",
-    "pymdown-extensions>=10.0",
+    "zensical",
 ]
 
 [project.urls]

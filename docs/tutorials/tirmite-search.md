@@ -159,11 +159,10 @@ GENOME="genome.fa"
 HMMFILE="MY_TIR.hmm"
 
 tirmite search \
-  --hmm-file $HMMFILE \
+  --hmm $HMMFILE \
   --genome $GENOME \
   --outdir SEARCH_OUTPUT \
-  --maxeval 0.001 \
-  --mincov 0.4 \
+  --hmm-max-evalue 0.001 \
   --threads 8
 ```
 
@@ -171,23 +170,27 @@ tirmite search \
 
 ```bash
 tirmite search \
-  --blast-query TIR_seed.fa \
+  --fasta TIR_seed.fa \
   --genome $GENOME \
   --outdir SEARCH_OUTPUT \
-  --maxeval 0.001 \
+  --blast-max-evalue 0.001 \
+  --min-identity 60 \
   --threads 8
 ```
 
 ### Run both nhmmer and BLAST, merge results
 
+Each search type has its own e-value threshold, so they can be tuned
+independently:
+
 ```bash
 tirmite search \
-  --hmm-file $HMMFILE \
-  --blast-query TIR_seed.fa \
+  --hmm $HMMFILE \
+  --fasta TIR_seed.fa \
   --genome $GENOME \
   --outdir SEARCH_OUTPUT \
-  --maxeval 0.001 \
-  --mincov 0.4 \
+  --hmm-max-evalue 0.001 \
+  --blast-max-evalue 0.001 \
   --threads 8
 ```
 
@@ -195,23 +198,29 @@ tirmite search \
 
 ### Load precomputed nhmmer output
 
+`--max-evalue` filters precomputed hits, as opposed to `--hmm-max-evalue` and
+`--blast-max-evalue`, which are passed to the search tools themselves.
+
 ```bash
 tirmite search \
-  --nhmmer-file precomputed_hits.tab \
-  --hmm-file $HMMFILE \
+  --nhmmer-results precomputed_hits.tab \
+  --hmm $HMMFILE \
   --outdir SEARCH_OUTPUT \
-  --maxeval 0.001 \
-  --mincov 0.4
+  --max-evalue 0.001
 ```
 
 ### Load precomputed BLAST output
 
+Query lengths are not recorded in BLAST tabular output, so supply them with
+`--lengths-file` (a tab-delimited `model_name<TAB>length` file) when no query
+file is given:
+
 ```bash
 tirmite search \
   --blast-results precomputed_blast.tab \
-  --query-len 100 \
+  --lengths-file query_lengths.txt \
   --outdir SEARCH_OUTPUT \
-  --maxeval 0.001
+  --max-evalue 0.001
 ```
 
 ## Example: Using cluster map and pairing map for multiple models
@@ -230,13 +239,12 @@ cat pairing_map.txt
 # LEFT_TIR    LEFT_TIR
 
 tirmite search \
-  --hmm-file all_subtypes.hmm \
+  --hmm all_subtypes.hmm \
   --genome $GENOME \
   --cluster-map cluster_map.txt \
   --pairing-map pairing_map.txt \
   --outdir ENSEMBLE_OUTPUT \
-  --maxeval 0.001 \
-  --mincov 0.4 \
+  --hmm-max-evalue 0.001 \
   --threads 8
 ```
 
@@ -307,12 +315,17 @@ Pass the merged hit table to `tirmite pair`:
 
 → **[Using tirmite pair](tirmite-pair.md)**
 
+`tirmite search` writes hits in BLAST tabular format, which does not record query
+lengths. `tirmite pair` needs those lengths to compute hit coverage, so pass
+them with `--lengths-file` (or `--query-len` for a single query).
+
 For **symmetrical** models (single model for both termini):
 
 ```bash
 tirmite pair \
   --genome $GENOME \
   --blast-file ENSEMBLE_OUTPUT/<prefix>_hits.tab \
+  --lengths-file model_lengths.txt \
   --pairing-map pairing_map.txt \
   --orientation F,R \
   --mincov 0.4 \
@@ -321,13 +334,16 @@ tirmite pair \
   --gff
 ```
 
-For **asymmetrical** models (separate left and right models), use the split output files:
+For **asymmetrical** models (separate left and right models), use the split
+output files with `--left-blast`/`--right-blast`. Asymmetric BLAST pairing
+always requires `--lengths-file`:
 
 ```bash
 tirmite pair \
   --genome $GENOME \
-  --left-hits SEARCH_OUTPUT/<prefix>_left_hits.tab \
-  --right-hits SEARCH_OUTPUT/<prefix>_right_hits.tab \
+  --left-blast SEARCH_OUTPUT/<prefix>_left_hits.tab \
+  --right-blast SEARCH_OUTPUT/<prefix>_right_hits.tab \
+  --lengths-file model_lengths.txt \
   --pairing-map pairing_map.txt \
   --orientation F,R \
   --maxdist 20000 \

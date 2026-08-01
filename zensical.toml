@@ -1,0 +1,111 @@
+# Zensical configuration for the TIRmite documentation site.
+#
+# Migrated from mkdocs.yml (Material for MkDocs), which entered maintenance
+# mode. Zensical is the successor from the same team and renders the same HTML,
+# so the Markdown sources needed no changes.
+#
+# Build with `zensical build`, preview with `zensical serve`.
+# Reference: https://zensical.org/docs/
+
+[project]
+site_name = "TIRmite"
+site_description = "Map profile HMMs of transposon termini to genomic sequences for annotation of cryptic transposon variants."
+site_author = "Adam Taranto"
+site_url = "https://adamtaranto.github.io/TIRmite"
+
+repo_name = "adamtaranto/TIRmite"
+repo_url = "https://github.com/Adamtaranto/TIRmite"
+edit_uri = "edit/main/docs/"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Tutorials" = [
+    { "Building HMMs for Transposon Termini" = "tutorials/building-hmms.md" },
+    { "Using tirmite search" = "tutorials/tirmite-search.md" },
+    { "Using tirmite pair" = "tutorials/tirmite-pair.md" },
+    { "Reconstructing and Validating Target Sites" = "tutorials/tirmite-validate.md" },
+  ] },
+]
+
+# Mermaid is loaded from a CDN and rendered client-side, matching the previous
+# Material for MkDocs setup.
+extra_javascript = ["https://unpkg.com/mermaid@10/dist/mermaid.min.js"]
+
+# ----------------------------------------------------------------------------
+# Theme
+# ----------------------------------------------------------------------------
+[project.theme]
+
+# Keep the familiar Material for MkDocs appearance rather than Zensical's
+# newer default look, so the site is unchanged for existing readers.
+variant = "classic"
+
+logo = "tirmite_hexlogo.jpg"
+favicon = "tirmite_hexlogo.jpg"
+language = "en"
+
+features = [
+  "navigation.tabs",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.expand",
+  "search.highlight",
+  "search.share",
+  "content.code.copy",
+  "content.action.edit",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "teal"
+accent = "cyan"
+toggle.icon = "material/brightness-7"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "teal"
+accent = "cyan"
+toggle.icon = "material/brightness-4"
+toggle.name = "Switch to light mode"
+
+# ----------------------------------------------------------------------------
+# Extra
+# ----------------------------------------------------------------------------
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/Adamtaranto/TIRmite"
+
+# ----------------------------------------------------------------------------
+# Markdown extensions
+#
+# Search is built into Zensical, so the MkDocs `plugins: [search]` entry has no
+# equivalent and was dropped.
+# ----------------------------------------------------------------------------
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.md_in_html]
+
+[project.markdown_extensions.toc]
+permalink = true
+
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.inlinehilite]
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+
+# The `!!python/name:` YAML tag the MkDocs config needed is not required here:
+# the format is given as a plain string.
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
+]
+
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true

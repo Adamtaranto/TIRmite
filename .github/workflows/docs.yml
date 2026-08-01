@@ -1,26 +1,42 @@
-name: Deploy MkDocs to GitHub Pages
+name: Deploy Zensical docs to GitHub Pages
 on:
   push:
     branches:
       - main
     paths:
       - 'docs/**'
-      - 'mkdocs.yml'
+      - 'zensical.toml'
   workflow_dispatch:
+# Zensical builds into site/ and the result is published as a Pages artifact,
+# so this no longer needs write access to the repository (mkdocs gh-deploy
+# pushed to a gh-pages branch and required contents: write).
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 jobs:
   deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v6
       - name: Checkout repository
         uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Install MkDocs and dependencies
-        run: |
-          pip install mkdocs-material pymdown-extensions
+      - name: Install Zensical
+        run: pip install zensical
+      - name: Build site
+        run: zensical build --clean --strict
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
       - name: Deploy to GitHub Pages
-        run: mkdocs gh-deploy --force
+        id: deployment
+        uses: actions/deploy-pages@v5

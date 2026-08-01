@@ -37,7 +37,6 @@ from pyhmmer.plan7 import (  # type: ignore[import-not-found]
 
 from tirmite.runners.hmmer_wrappers import (
     build_hmmalign_command,
-    build_hmmbuild_command,
     build_hmmpress_command,
     build_nhmmer_command,
 )
@@ -1364,48 +1363,6 @@ def calculate_pairwise_identity(alignment_file: Path) -> pd.DataFrame:
     except Exception as e:
         logging.warning(f'Failed to calculate pairwise identity: {e}')
         return pd.DataFrame()
-
-
-def build_hmm_from_alignment(
-    alignment_file: Path, model_name: str, output_dir: Path
-) -> Path:
-    """
-    Build HMM from multiple sequence alignment.
-
-    Parameters
-    ----------
-    alignment_file : Path
-        Path to multiple sequence alignment file.
-    model_name : str
-        Name for the HMM model.
-    output_dir : Path
-        Directory to write HMM output file.
-
-    Returns
-    -------
-    Path
-        Path to created HMM file.
-    """
-    clean_model_name = cleanID(model_name)
-
-    try:
-        command, output_hmm = build_hmmbuild_command(
-            model_name=clean_model_name,
-            input_alignment=alignment_file,
-            output_dir=output_dir,
-        )
-
-        logging.info(f'Building HMM for {model_name}')
-        result = run_command(command, verbose=True)
-
-        if result.returncode != 0:
-            raise HMMBuildError(f'hmmbuild failed: {result.stderr}')
-
-        logging.info(f'HMM written to {output_hmm}')
-        return output_hmm
-
-    except Exception as e:
-        raise HMMBuildError(f'HMM building failed: {e}') from e
 
 
 def clean_hmm_name(name: str) -> str:

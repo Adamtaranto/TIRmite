@@ -459,25 +459,6 @@ def contig_exists(source: SequenceSource, seqid: str) -> bool:
     return source.contig_length(seqid) is not None
 
 
-def get_contig_length(source: SequenceSource, seqid: str) -> Optional[int]:
-    """
-    Return the length of a sequence in a source.
-
-    Parameters
-    ----------
-    source : FastaSource or BlastDBSource
-        Sequence source to query.
-    seqid : str
-        Sequence identifier.
-
-    Returns
-    -------
-    int or None
-        Length in bases, or None if ``seqid`` is absent.
-    """
-    return source.contig_length(seqid)
-
-
 def clamp_region(
     source: SequenceSource, seqid: str, start: int, end: int
 ) -> Optional[Tuple[int, int]]:

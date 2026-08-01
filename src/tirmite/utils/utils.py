@@ -9,7 +9,6 @@ Provides tools for:
 - Legacy compatibility functions
 """
 
-from collections import Counter
 from contextlib import contextmanager
 import gzip
 import logging
@@ -17,11 +16,9 @@ import os
 from pathlib import Path
 import re
 import shutil
-import sys
 import tempfile
 from typing import Any, Generator, Optional, Tuple, Union
 
-from Bio import SeqIO  # type: ignore[import-not-found]
 from pyfaidx import Fasta  # type: ignore[import-not-found]
 
 
@@ -280,59 +277,6 @@ def cleanup_temp_directory(temp_dir: Union[str, Path], keep_temp: bool = False) 
             logging.warning(f'Failed to clean up temporary directory {temp_path}: {e}')
 
 
-# Legacy function for backwards compatibility
-def dochecks(args: Any) -> Tuple[Path, Path]:
-    """
-    DEPRECATED: Use setup_directories() instead.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Command-line arguments.
-
-    Returns
-    -------
-    tuple
-        (outdir, tempdir) paths as strings.
-    """
-    import warnings
-
-    warnings.warn(
-        'dochecks() is deprecated. Use setup_directories() instead.',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    return setup_directories(args)
-
-
-def isfile(path: str) -> None:
-    """
-    DEPRECATED: Use validate_input_files() instead.
-
-    Parameters
-    ----------
-    path : str
-        File path to check.
-
-    Returns
-    -------
-    None
-        No return value. Raises SystemExit if file not found.
-    """
-    import warnings
-
-    warnings.warn(
-        'isfile() is deprecated. Use validate_input_files() instead.',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    if not os.path.isfile(path):
-        print('Input file not found: %s' % path)
-        sys.exit(1)
-
-
 def cleanID(s: str) -> str:
     """
     Remove non-alphanumeric characters and normalize whitespace in string.
@@ -356,71 +300,6 @@ def cleanID(s: str) -> str:
     s = re.sub(r'[^\w\s]', '', s)
     s = re.sub(r'\s+', '_', s)
     return s
-
-
-def manageTemp(
-    record: Any = None, tempPath: Optional[str] = None, scrub: bool = False
-) -> None:
-    """
-    Write sequence record to temporary file or delete temporary file.
-
-    Parameters
-    ----------
-    record : Bio.SeqRecord.SeqRecord, optional
-        Sequence record to write to file. Required if scrub is False.
-    tempPath : str, optional
-        Path to temporary file for writing or deletion.
-    scrub : bool, default False
-        If True, deletes file at tempPath. If False, writes record to tempPath.
-
-    Returns
-    -------
-    None
-        No return value.
-
-    Notes
-    -----
-    This is a legacy function. Consider using temporary_directory()
-    context manager for more robust temporary file handling.
-    """
-    if scrub and tempPath:
-        try:
-            os.remove(tempPath)
-        except OSError:
-            pass
-    elif tempPath:
-        with open(tempPath, 'w') as f:
-            SeqIO.write(record, f, 'fasta')
-
-
-def checkUniqueID(records: Any) -> None:
-    """
-    Verify that all sequence IDs in record list are unique.
-
-    Parameters
-    ----------
-    records : list of Bio.SeqRecord.SeqRecord
-        List of sequence records to check.
-
-    Returns
-    -------
-    None
-        No return value.
-
-    Raises
-    ------
-    SystemExit
-        If duplicate IDs are found, prints duplicate IDs and exits with code 1.
-    """
-    seqIDs = [records[x].id for x in range(len(records))]
-    IDcounts = Counter(seqIDs)
-    duplicates = [k for k, v in IDcounts.items() if v > 1]
-    if duplicates:
-        print('Input sequence IDs not unique. Quiting.')
-        print(duplicates)
-        sys.exit(1)
-    else:
-        pass
 
 
 def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:

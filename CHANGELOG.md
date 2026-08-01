@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Common Changelog](https://common-changelog.org/).
 
+## [Unreleased]
+
+### Removed
+
+- 15 functions that were never called from anywhere in the package or its test suite, totalling ~630 lines. Six had carried a `DeprecationWarning` since 1.4; the other nine were silently dead. None were part of a documented API.
+  - `tirmite.cli.hmm_build`: `build_hmm_from_alignment` (superseded by `build_hmm_from_alignment_pyhmmer`, which runs in-process rather than shelling out to `hmmbuild`).
+  - `tirmite.runners.runBlastn`: `run_blast_batch`, `makeBlast`, `run_blast`, and the legacy `Error` class.
+  - `tirmite.runners.wrapping`: `write_script_file`, `run_script_file`, `syscall`, `run_cmd`, `_write_script`, `decode`, and the legacy `Error` class. This removed ~45% of the module.
+  - `tirmite.utils.utils`: `dochecks`, `isfile`, `manageTemp`, `checkUniqueID`.
+  - `tirmite.utils.extract`: `get_contig_length` (a thin wrapper over `SequenceSource.contig_length`, never called).
+
+  Both `Error` classes were raised only from functions in this list, so nothing that survives can raise them.
+
 ## [1.5.0] - 2026-08-01
 
 ### Added

@@ -21,10 +21,6 @@ jobs:
         with:
           src: "./src/tirmite ./tests"
           args: "check --fix"
-      - uses: isort/isort-action@v1
-        with:
-          configuration: "--settings-path=./pyproject.toml"
-          paths: "./src/tirmite ./tests"
       - uses: stefanzweifel/git-auto-commit-action@v7
         id: auto-commit-action
         with:

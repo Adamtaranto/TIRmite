@@ -11,9 +11,6 @@ Covers:
 - Pairing map file loading with expected formats
 """
 
-import os
-import tempfile
-
 import pandas as pd
 import pytest
 
@@ -473,38 +470,31 @@ class TestPairingMapIgnoresUnlistedModels:
 class TestPairingMapFileFormat:
     """Tests for pairing map file loading specific to hmm_pair context."""
 
-    def test_blast_pairing_map_two_column_tsv(self):
+    def test_blast_pairing_map_two_column_tsv(self, tmp_path):
         """Two-column TSV pairing map with left/right blast query names loads correctly."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('# Pairing map for blast queries\n')
-            f.write('hphi_5p_head_1000\thphi_3p_tail_1000\n')
-            f.write('ltr_left_query\tltr_right_query\n')
-            fname = f.name
-        try:
-            pairings = load_pairing_map(fname)
-            assert len(pairings) == 2
-            assert pairings[0] == ('hphi_5p_head_1000', 'hphi_3p_tail_1000')
-            assert pairings[1] == ('ltr_left_query', 'ltr_right_query')
-        finally:
-            os.unlink(fname)
+        path = tmp_path / 'blast_pairs.tsv'
+        path.write_text(
+            '# Pairing map for blast queries\n'
+            'hphi_5p_head_1000\thphi_3p_tail_1000\n'
+            'ltr_left_query\tltr_right_query\n'
+        )
 
-    def test_pairing_map_comments_and_blank_lines_skipped(self):
+        pairings = load_pairing_map(str(path))
+        assert len(pairings) == 2
+        assert pairings[0] == ('hphi_5p_head_1000', 'hphi_3p_tail_1000')
+        assert pairings[1] == ('ltr_left_query', 'ltr_right_query')
+
+    def test_pairing_map_comments_and_blank_lines_skipped(self, tmp_path):
         """Comment lines and blank lines are skipped during loading."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('# Header comment\n')
-            f.write('\n')
-            f.write('left1\tright1\n')
-            f.write('\n')
-            f.write('# Another comment\n')
-            f.write('left2\tright2\n')
-            fname = f.name
-        try:
-            pairings = load_pairing_map(fname)
-            assert len(pairings) == 2
-            assert pairings[0] == ('left1', 'right1')
-            assert pairings[1] == ('left2', 'right2')
-        finally:
-            os.unlink(fname)
+        path = tmp_path / 'commented.tsv'
+        path.write_text(
+            '# Header comment\n\nleft1\tright1\n\n# Another comment\nleft2\tright2\n'
+        )
+
+        pairings = load_pairing_map(str(path))
+        assert len(pairings) == 2
+        assert pairings[0] == ('left1', 'right1')
+        assert pairings[1] == ('left2', 'right2')
 
 
 # ---------------------------------------------------------------------------

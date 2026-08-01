@@ -5,9 +5,6 @@ Tests for ensemble search functionality in TIRmite.
 Tests cluster mapping, hit merging, nested hit removal, and CLI functionality.
 """
 
-import os
-import tempfile
-
 import pandas as pd
 import pytest
 
@@ -31,79 +28,71 @@ from tirmite.cli.ensemble_search import (
 
 
 @pytest.fixture
-def cluster_mapping_file():
-    """Create a temporary cluster mapping file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-        f.write('# Cluster mapping file\n')
-        f.write('ClusterA\tComponentA1\tComponentA2\tComponentA3\n')
-        f.write('ClusterB\tComponentB1\tComponentB2\n')
-        f.write('ClusterC\tComponentC1\n')
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+def cluster_mapping_file(tmp_path):
+    """Create a temporary cluster mapping file.
+
+    Format is cluster name first, then one or more component model names, all
+    tab-delimited: ``cluster<TAB>component1<TAB>component2...``.
+    """
+    path = tmp_path / 'clusters.tsv'
+    path.write_text(
+        '# Cluster mapping file\n'
+        'ClusterA\tComponentA1\tComponentA2\tComponentA3\n'
+        'ClusterB\tComponentB1\tComponentB2\n'
+        'ClusterC\tComponentC1\n'
+    )
+    return str(path)
 
 
 @pytest.fixture
-def pairing_map_file():
+def pairing_map_file(tmp_path):
     """Create a temporary pairing map file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-        f.write('# Pairing map: left<TAB>right\n')
-        f.write('LeftA\tRightA\n')
-        f.write('LeftB\tRightB\n')
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'pairing.tsv'
+    path.write_text('# Pairing map: left<TAB>right\nLeftA\tRightA\nLeftB\tRightB\n')
+    return str(path)
 
 
 @pytest.fixture
-def blast_result_file():
+def blast_result_file(tmp_path):
     """Create a temporary BLAST result file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-        # Format: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
-        f.write('ComponentA1\tchr1\t95.0\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n')
-        f.write(
-            'ComponentA2\tchr1\t93.0\t98\t7\t0\t1\t98\t1050\t1147\t1e-35\t180\n'
-        )  # Overlaps A1
-        f.write(
-            'ComponentA3\tchr1\t90.0\t95\t10\t0\t1\t95\t2000\t2094\t1e-30\t160\n'
-        )  # No overlap
-        f.write('ComponentB1\tchr2\t92.0\t100\t8\t0\t1\t100\t500\t599\t1e-38\t190\n')
-        f.write(
-            'ComponentB2\tchr2\t88.0\t96\t12\t0\t1\t96\t520\t615\t1e-32\t170\n'
-        )  # Overlaps B1
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'hits.blast'
+    # Format: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+    path.write_text(
+        'ComponentA1\tchr1\t95.0\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n'
+        # ComponentA2 overlaps ComponentA1 on chr1.
+        'ComponentA2\tchr1\t93.0\t98\t7\t0\t1\t98\t1050\t1147\t1e-35\t180\n'
+        # ComponentA3 sits well clear of the other two.
+        'ComponentA3\tchr1\t90.0\t95\t10\t0\t1\t95\t2000\t2094\t1e-30\t160\n'
+        'ComponentB1\tchr2\t92.0\t100\t8\t0\t1\t100\t500\t599\t1e-38\t190\n'
+        # ComponentB2 overlaps ComponentB1 on chr2.
+        'ComponentB2\tchr2\t88.0\t96\t12\t0\t1\t96\t520\t615\t1e-32\t170\n'
+    )
+    return str(path)
 
 
 @pytest.fixture
-def nhmmer_result_file():
-    """Create a temporary nhmmer result file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.nhmmer', delete=False) as f:
-        # Format expected by import_nhmmer: space-delimited with specific column order
-        # target, accession, query, accession, model, hmmstart, hmmend, hitstart, hitend, strand, trunc, pass, gc, bias, score, evalue, inc, description
-        f.write(
-            '#target name         accession query name           accession mdl mdl from   '
-            'mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc '
-            'description of target\n'
-        )
-        f.write(
-            '#------------------- --------- -------------------- --------- --- -------- '
-            '-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- '
-            '--- ---------------------\n'
-        )
-        # Format: target accession model accession mdl hmmFrom hmmTo seqFrom seqTo strand trunc pass gc bias score evalue inc desc
-        f.write(
-            'chr1                 -         ComponentA1          -          cm        1       '
-            '60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n'
-        )
-        f.write(
-            'chr1                 -         ComponentA2          -          cm        1       '
-            '58     1020     1077      +    no    1 0.42   0.0   42.1   2.5e-09 yes -\n'
-        )
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+def nhmmer_result_file(tmp_path):
+    """Create a temporary nhmmer result file.
+
+    Column order expected by ``import_nhmmer`` is the whitespace-delimited
+    ``--tblout`` layout: target, accession, query, accession, mdl, hmmFrom,
+    hmmTo, seqFrom, seqTo, strand, trunc, pass, gc, bias, score, evalue, inc,
+    description.
+    """
+    path = tmp_path / 'hits.nhmmer'
+    path.write_text(
+        '#target name         accession query name           accession mdl mdl from   '
+        'mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc '
+        'description of target\n'
+        '#------------------- --------- -------------------- --------- --- -------- '
+        '-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- '
+        '--- ---------------------\n'
+        'chr1                 -         ComponentA1          -          cm        1       '
+        '60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n'
+        'chr1                 -         ComponentA2          -          cm        1       '
+        '58     1020     1077      +    no    1 0.42   0.0   42.1   2.5e-09 yes -\n'
+    )
+    return str(path)
 
 
 @pytest.fixture
@@ -143,32 +132,26 @@ class TestClusterMapping:
         assert cluster_map['ClusterB'] == ['ComponentB1', 'ComponentB2']
         assert cluster_map['ClusterC'] == ['ComponentC1']
 
-    def test_parse_cluster_mapping_empty_file(self):
+    def test_parse_cluster_mapping_empty_file(self, tmp_path):
         """Test parsing an empty cluster mapping file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('# Only comments\n')
-            fname = f.name
+        path = tmp_path / 'empty.tsv'
+        path.write_text('# Only comments\n')
 
-        try:
-            cluster_map = parse_cluster_mapping(fname)
-            assert cluster_map == {}
-        finally:
-            os.unlink(fname)
+        cluster_map = parse_cluster_mapping(str(path))
+        assert cluster_map == {}
 
-    def test_parse_cluster_mapping_invalid_lines(self):
+    def test_parse_cluster_mapping_invalid_lines(self, tmp_path):
         """Test parsing cluster mapping file with invalid lines."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('ValidCluster\tComp1\tComp2\n')
-            f.write('InvalidLine\n')  # Only one column
-            f.write('\tNoClusterName\n')  # Empty cluster name
-            fname = f.name
+        path = tmp_path / 'invalid.tsv'
+        path.write_text(
+            'ValidCluster\tComp1\tComp2\n'
+            'InvalidLine\n'  # Only one column
+            '\tNoClusterName\n'  # Empty cluster name
+        )
 
-        try:
-            cluster_map = parse_cluster_mapping(fname)
-            assert len(cluster_map) == 1
-            assert 'ValidCluster' in cluster_map
-        finally:
-            os.unlink(fname)
+        cluster_map = parse_cluster_mapping(str(path))
+        assert len(cluster_map) == 1
+        assert 'ValidCluster' in cluster_map
 
     def test_validate_cluster_mapping_valid(self):
         """Test validation of a valid cluster mapping."""
@@ -238,32 +221,26 @@ class TestPairingMap:
         assert pairing_map['LeftA'] == 'RightA'
         assert pairing_map['LeftB'] == 'RightB'
 
-    def test_parse_pairing_map_empty(self):
+    def test_parse_pairing_map_empty(self, tmp_path):
         """Test parsing an empty pairing map file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('# Comments only\n')
-            fname = f.name
+        path = tmp_path / 'empty.tsv'
+        path.write_text('# Comments only\n')
 
-        try:
-            pairing_map = parse_pairing_map(fname)
-            assert pairing_map == {}
-        finally:
-            os.unlink(fname)
+        pairing_map = parse_pairing_map(str(path))
+        assert pairing_map == {}
 
-    def test_parse_pairing_map_invalid_lines(self):
+    def test_parse_pairing_map_invalid_lines(self, tmp_path):
         """Test parsing pairing map with invalid lines."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('ValidLeft\tValidRight\n')
-            f.write('TooMany\tColumns\tHere\n')  # 3 columns
-            f.write('OnlyOne\n')  # 1 column
-            fname = f.name
+        path = tmp_path / 'invalid.tsv'
+        path.write_text(
+            'ValidLeft\tValidRight\n'
+            'TooMany\tColumns\tHere\n'  # 3 columns
+            'OnlyOne\n'  # 1 column
+        )
 
-        try:
-            pairing_map = parse_pairing_map(fname)
-            assert len(pairing_map) == 1
-            assert 'ValidLeft' in pairing_map
-        finally:
-            os.unlink(fname)
+        pairing_map = parse_pairing_map(str(path))
+        assert len(pairing_map) == 1
+        assert 'ValidLeft' in pairing_map
 
 
 # -----------------------------------------------------------------------------

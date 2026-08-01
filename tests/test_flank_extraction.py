@@ -13,6 +13,7 @@ from collections import namedtuple
 import os
 import tempfile
 
+from conftest import MockGenome
 import pandas as pd
 import pytest
 
@@ -290,29 +291,8 @@ class TestDetermineTerminusType:
 # ---------------------------------------------------------------------------
 
 
-class MockChrom:
-    """Minimal pyfaidx Fasta chromosome substitute."""
-
-    def __init__(self, seq):
-        self._seq = seq
-
-    def __len__(self):
-        return len(self._seq)
-
-    def __getitem__(self, key):
-        if isinstance(key, slice):
-            return self._seq[key]
-        return self._seq[key]
-
-    def __str__(self):
-        return self._seq
-
-
-class MockGenome(dict):
-    """Dict-based mock for pyfaidx.Fasta."""
-
-    def __getitem__(self, key):
-        return MockChrom(super().__getitem__(key))
+# MockChrom / MockGenome now live in tests/conftest.py so that this module and
+# test_target_site_reconstruction.py share a single definition.
 
 
 def _make_paired_data(hitTable):

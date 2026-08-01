@@ -5,9 +5,6 @@ Tests for BLAST input support in TIRmite.
 Tests BLAST parsing, format detection, and basic functionality.
 """
 
-import os
-import tempfile
-
 import pandas as pd
 import pytest
 
@@ -16,47 +13,38 @@ import tirmite.tirmitetools as tirmite
 
 
 @pytest.fixture
-def blast_file():
+def blast_file(tmp_path):
     """Create a temporary BLAST tabular output file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-        f.write('# BLASTN 2.12.0+\n')
-        f.write('# Query: TIR_query1\n')
-        f.write('# Database: test_genome\n')
-        f.write(
-            '# Fields: query acc.ver, subject acc.ver, % identity, alignment length, '
-            'mismatches, gap opens, q. start, q. end, s. start, s. end, evalue, bit score\n'
-        )
-        f.write('TIR_query1\tchr1\t95.00\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n')
-        f.write('TIR_query1\tchr1\t93.00\t98\t7\t0\t3\t100\t5500\t5597\t1e-35\t180\n')
-        f.write(
-            'TIR_query1\tchr2\t90.00\t95\t10\t0\t5\t99\t2000\t1906\t1e-30\t160\n'
-        )  # Reverse strand
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'hits.blast'
+    path.write_text(
+        '# BLASTN 2.12.0+\n'
+        '# Query: TIR_query1\n'
+        '# Database: test_genome\n'
+        '# Fields: query acc.ver, subject acc.ver, % identity, alignment length, '
+        'mismatches, gap opens, q. start, q. end, s. start, s. end, evalue, bit score\n'
+        'TIR_query1\tchr1\t95.00\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n'
+        'TIR_query1\tchr1\t93.00\t98\t7\t0\t3\t100\t5500\t5597\t1e-35\t180\n'
+        # sstart > send marks a reverse-strand hit.
+        'TIR_query1\tchr2\t90.00\t95\t10\t0\t5\t99\t2000\t1906\t1e-30\t160\n'
+    )
+    return str(path)
 
 
 @pytest.fixture
-def nhmmer_file():
+def nhmmer_file(tmp_path):
     """Create a temporary nhmmer output file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.nhmmer', delete=False) as f:
-        f.write(
-            '#target name         accession query name           accession mdl mdl from   '
-            'mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc '
-            'description of target\n'
-        )
-        f.write(
-            '#------------------- --------- -------------------- --------- --- -------- '
-            '-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- '
-            '--- ---------------------\n'
-        )
-        f.write(
-            'chr1                 -         TIR_model1           -          cm        1       '
-            '60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n'
-        )
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'hits.nhmmer'
+    path.write_text(
+        '#target name         accession query name           accession mdl mdl from   '
+        'mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc '
+        'description of target\n'
+        '#------------------- --------- -------------------- --------- --- -------- '
+        '-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- '
+        '--- ---------------------\n'
+        'chr1                 -         TIR_model1           -          cm        1       '
+        '60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n'
+    )
+    return str(path)
 
 
 def test_detect_blast_format(blast_file):
@@ -121,32 +109,28 @@ def test_import_blast_with_query_name(blast_file):
     assert all(hitTable['model'] == 'MyCustomQuery')
 
 
-def test_import_blast_empty_file():
+def test_import_blast_empty_file(tmp_path):
     """Test importing empty BLAST file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-        f.write('# BLASTN 2.12.0+\n')
-        f.write('# No hits found\n')
-        fname = f.name
+    path = tmp_path / 'empty.blast'
+    path.write_text('# BLASTN 2.12.0+\n# No hits found\n')
 
-    try:
-        hitTable = tirmite.import_blast(fname)
-        assert len(hitTable) == 0
-        # Should still have correct columns
-        expected_cols = [
-            'model',
-            'target',
-            'hitStart',
-            'hitEnd',
-            'strand',
-            'evalue',
-            'score',
-            'bias',
-            'hmmStart',
-            'hmmEnd',
-        ]
-        assert list(hitTable.columns) == expected_cols
-    finally:
-        os.unlink(fname)
+    hitTable = tirmite.import_blast(str(path))
+    assert len(hitTable) == 0
+    # An empty result must still carry the full column set so that downstream
+    # concatenation and filtering do not raise on a missing column.
+    expected_cols = [
+        'model',
+        'target',
+        'hitStart',
+        'hitEnd',
+        'strand',
+        'evalue',
+        'score',
+        'bias',
+        'hmmStart',
+        'hmmEnd',
+    ]
+    assert list(hitTable.columns) == expected_cols
 
 
 def test_import_blast_concatenate(blast_file):
@@ -160,36 +144,30 @@ def test_import_blast_concatenate(blast_file):
     assert len(hitTable2) == 6  # Should have double the hits
 
 
-def test_import_blast_multiple_queries():
+def test_import_blast_multiple_queries(tmp_path):
     """Test importing BLAST file with multiple query sequences."""
-    # Create BLAST file with multiple queries
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-        f.write('query1\tseq1\t100.000\t50\t0\t0\t1\t50\t100\t149\t1e-20\t100\n')
-        f.write('query1\tseq2\t95.000\t50\t2\t0\t1\t50\t200\t249\t1e-18\t95\n')
-        f.write('query2\tseq1\t98.000\t45\t1\t0\t1\t45\t300\t344\t1e-19\t97\n')
-        f.write('query3\tseq3\t100.000\t40\t0\t0\t1\t40\t500\t539\t1e-17\t90\n')
-        fname = f.name
+    path = tmp_path / 'multi_query.blast'
+    path.write_text(
+        'query1\tseq1\t100.000\t50\t0\t0\t1\t50\t100\t149\t1e-20\t100\n'
+        'query1\tseq2\t95.000\t50\t2\t0\t1\t50\t200\t249\t1e-18\t95\n'
+        'query2\tseq1\t98.000\t45\t1\t0\t1\t45\t300\t344\t1e-19\t97\n'
+        'query3\tseq3\t100.000\t40\t0\t0\t1\t40\t500\t539\t1e-17\t90\n'
+    )
 
-    try:
-        hitTable = tirmite.import_blast(fname)
+    hitTable = tirmite.import_blast(str(path))
 
-        # Should have 4 hits
-        assert len(hitTable) == 4
+    assert len(hitTable) == 4
 
-        # Should have 3 unique models (query1, query2, query3)
-        unique_models = hitTable['model'].unique()
-        assert len(unique_models) == 3
-        assert 'query1' in unique_models
-        assert 'query2' in unique_models
-        assert 'query3' in unique_models
+    # Each distinct query id becomes its own model.
+    unique_models = hitTable['model'].unique()
+    assert len(unique_models) == 3
+    assert 'query1' in unique_models
+    assert 'query2' in unique_models
+    assert 'query3' in unique_models
 
-        # Check hit counts per model
-        assert len(hitTable[hitTable['model'] == 'query1']) == 2
-        assert len(hitTable[hitTable['model'] == 'query2']) == 1
-        assert len(hitTable[hitTable['model'] == 'query3']) == 1
-
-    finally:
-        os.unlink(fname)
+    assert len(hitTable[hitTable['model'] == 'query1']) == 2
+    assert len(hitTable[hitTable['model'] == 'query2']) == 1
+    assert len(hitTable[hitTable['model'] == 'query3']) == 1
 
 
 if __name__ == '__main__':

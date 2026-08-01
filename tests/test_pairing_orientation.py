@@ -10,8 +10,6 @@ Validates that:
 """
 
 from collections import namedtuple
-import os
-import tempfile
 
 import pandas as pd
 import pytest
@@ -501,24 +499,24 @@ class TestModelAssignment:
     """Validate that left/right model names are correctly assigned from separate files."""
 
     @pytest.fixture
-    def left_blast_file(self):
+    def left_blast_file(self, tmp_path):
         """BLAST output file for the left query (alphabetically later: query_5p)."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-            # query_5p hits at 100-200 on chr1 (forward strand, sstart < send)
-            f.write('query_5p\tchr1\t100.000\t100\t0\t0\t1\t100\t100\t199\t0.0\t185\n')
-            fname = f.name
-        yield fname
-        os.unlink(fname)
+        path = tmp_path / 'left.blast'
+        # query_5p hits at 100-199 on chr1 (forward strand, sstart < send)
+        path.write_text(
+            'query_5p\tchr1\t100.000\t100\t0\t0\t1\t100\t100\t199\t0.0\t185\n'
+        )
+        return str(path)
 
     @pytest.fixture
-    def right_blast_file(self):
+    def right_blast_file(self, tmp_path):
         """BLAST output file for the right query (alphabetically earlier: query_3p)."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-            # query_3p hits at 300-399 on chr1 (forward strand)
-            f.write('query_3p\tchr1\t100.000\t100\t0\t0\t1\t100\t300\t399\t0.0\t185\n')
-            fname = f.name
-        yield fname
-        os.unlink(fname)
+        path = tmp_path / 'right.blast'
+        # query_3p hits at 300-399 on chr1 (forward strand)
+        path.write_text(
+            'query_3p\tchr1\t100.000\t100\t0\t0\t1\t100\t300\t399\t0.0\t185\n'
+        )
+        return str(path)
 
     def test_left_model_from_left_file(self, left_blast_file, right_blast_file):
         """Model names from leftBlast/rightBlast should be assigned by file, not alphabetical order."""

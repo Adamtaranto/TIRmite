@@ -4,6 +4,51 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Common Changelog](https://common-changelog.org/).
 
+## [1.5.0] - 2026-08-01
+
+### Added
+
+- Unified sequence extraction API in `tirmite/utils/extract.py`. `FastaSource` and `BlastDBSource` share one primitive with a single documented contract: 1-based inclusive plus-strand coordinates in, uppercase plus-strand sequence out, clamped and length-verified. All extraction sites route through it.
+- N-padding of regions that extend past a contig boundary, so flanks, in-model TSDs and `--padlen` windows are always the requested width. Padded records carry a `padded:<left>,<right>` field in their FASTA description. Regions that fall entirely outside a contig are still skipped.
+- `--no-pad-flanks` for `tirmite pair`: truncate boundary-overrunning regions instead of padding them, restoring the previous behaviour.
+- `--extend-hits-to-model` for `tirmite pair`: emit hits that only partially cover the model at full model length, extended outward by the uncovered model positions.
+- `element_orientation` field in reconstructed target site headers, recording whether the element is inserted forward or reverse.
+- `tests/test_extraction_equivalence.py`: a differential suite that builds a FASTA and a BLAST database from the same file and asserts byte-identical results across a coordinate matrix, both strands, soft-masking, and out-of-bounds windows.
+- Test coverage for symmetric same-strand pairing, reverse-inserted asymmetric elements, and `--maxdist` semantics, none of which were previously exercised.
+- BLAST+ is installed in CI for the Python 3.14 job, so the extraction equivalence tests actually run rather than skipping silently.
+
+### Fixed
+
+- **Extraction from a BLAST database and from an indexed FASTA returned different sequences.** Each of ~10 call sites reimplemented coordinate conversion, clamping and strand handling in its own branch, and the two had drifted:
+  - With `--padlen` on a minus-strand hit, lowercase pad markers were computed in forward-genomic space but applied to a sequence `blastdbcmd` had already reverse-complemented, so they marked the wrong end and mislabelled which bases were the hit.
+  - Elements and left TIRs were reverse-complemented from the BLAST path but returned plus-strand from the FASTA path. Plus strand is now canonical, matching the GFF coordinates.
+  - `blastdbcmd` silently returns the entire sequence, with a zero exit status, when a range starts past the contig end. A returned-length check now rejects this rather than substituting a whole contig for the intended region.
+  - `blastdbcmd` discards soft-masking while `pyfaidx` preserves it; both are now uppercased.
+  - Record IDs, descriptions and failure modes are now identical between backends.
+- **A TSD truncated at a contig end was reported as a perfect match.** The length mismatch caused the comparison to be skipped and written as `tsd_hamming=0`, indistinguishable from a verified duplication. Unverifiable TSDs now report `NA`, and padded positions are excluded from the comparison.
+- **Symmetric `F,F` pairing never produced any pairs**, so the documented LTR use case returned nothing. Candidate discovery only ever searched in one direction when both termini are on the same strand, so reciprocity could never be established.
+- **Symmetric `R,R` pairing paired hits with themselves.** The reference hit was not excluded from its own candidate list, and on the minus strand the 5'/3' swap makes the self-distance positive, so a lone hit produced a "pair" of one.
+- **`--max-offset` measured the wrong model edge for reverse-inserted asymmetric elements**, silently discarding valid hits before pairing.
+- **Flanks for unpaired asymmetric hits were taken from inside the element** when the element was inserted in reverse.
+- A pairing-map row naming the same feature in both columns was always treated as a right terminus and never received the both-ends anchor test.
+- Negative model-coverage offsets from an incorrect `--lengths-file` or mismatched HMM shifted the flank window into the hit, extracting element sequence and labelling it as flanking. Offsets are now clamped and the inconsistency is reported.
+- 1-based nhmmer coordinates were passed into a 0-based `pyfaidx` slice in `tirmite seed`, dropping the first base of every extracted hit.
+- `--orientation` was not upper-cased when building the pairing configuration, so `f,r` silently set both strands to `-`. Malformed values produced zero pairs with no error; they are now rejected.
+- Inverted hit windows produced a nonsensical arrangement of flanks rather than being skipped.
+- Corrected usage examples throughout the tutorials. Every command was checked against the CLI: `tirmite search` was documented with an older interface (`--hmm-file`, `--blast-query`, `--nhmmer-file`, `--maxeval`, `--mincov`, `--query-len`), `tirmite seed` was shown with the removed `--max-gap` and with `--blast-file` instead of `--blast-hits`, the HMM-update example omitted `--update`, several `--insertion-site` examples omitted the required `--flanks`/`--flanks-paired`, and asymmetric output filenames were given as `_LEFT.hmm`/`_RIGHT.hmm` rather than `_left.hmm`/`_right.hmm`.
+
+### Changes
+
+- **Documentation now builds with [Zensical](https://zensical.org/)** instead of Material for MkDocs, which has entered maintenance mode. `mkdocs.yml` is replaced by `zensical.toml`; the Markdown sources are unchanged and the site keeps the same appearance. The deploy workflow publishes via the Pages artifact rather than a `gh-pages` branch, so the repository's Pages source must be set to "GitHub Actions".
+- **`--maxdist` now measures the gap between the facing inner edges of the two terminus hits**, i.e. the length of the element interior. The pairing path previously measured to the partner's far edge, adding the whole length of that terminus, and disagreed with the legacy path. Runs that leave `--maxdist` unset are unaffected; an explicit value now admits a slightly narrower set of pairs, short by roughly one terminus length. Overlapping termini are also now rejected.
+- Extracted sequences are always uppercase. Soft-masking in the input genome is no longer carried through, so the lowercase convention marking `--padlen` flanks is unambiguous.
+- For asymmetric elements, output files and `_L`/`_R` suffixes follow the terminus role rather than genomic order, so each model's termini stay in that model's file regardless of insertion direction. Sequences and coordinates are unchanged.
+- `reconstruct_target_site` returns `None` rather than `0` for a TSD that could not be compared.
+- Coverage is measured only on the Python 3.14 CI job; the other matrix jobs run without instrumentation.
+- Default Python version bumped to 3.14; `isort` now runs via `ruff` rather than as a separate step.
+
+---
+
 ## [1.4.0] - 2026-04-20
 
 ### Added

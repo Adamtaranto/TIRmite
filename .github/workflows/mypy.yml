@@ -1,0 +1,26 @@
+name: Type check
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  mypy:
+    if: ${{ github.actor != 'dependabot[bot]' }} # Do not run on commits created by dependabot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          # Matches [tool.mypy] python_version in pyproject.toml.
+          python-version: "3.9"
+      - name: Install package and type checker
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      # Reported as advisory for now. mypy has never run in CI, so this job
+      # first has to burn down the existing backlog (9 errors at the time it
+      # was added) before it can block a merge. Flip continue-on-error to
+      # false once the count reaches zero.
+      - name: Run mypy
+        continue-on-error: true
+        run: mypy src/tirmite

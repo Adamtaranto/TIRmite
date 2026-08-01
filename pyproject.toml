@@ -61,6 +61,12 @@ source = "src"
 
 exclude = ["environment.yml", ".github", ".vscode"]
 
+# Ship the PEP 561 marker so that type checkers in downstream projects honour
+# the inline annotations rather than treating tirmite as untyped.
+[tool.hatch.build.targets.wheel]
+packages = ["src/tirmite"]
+artifacts = ["src/tirmite/py.typed"]
+
 [tool.hatch.version]
 source = "vcs"
 
@@ -80,7 +86,9 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+# Must match `requires-python` above. The CI matrix runs the full test suite on
+# 3.9, so linting against a newer target would let 3.10-only syntax through.
+target-version = "py39"
 line-length = 88
 fix = true
 
@@ -151,8 +159,9 @@ exclude_files = [
 ]
 
 [tool.mypy]
-# Type hint strictness settings
-python_version = "3.10"
+# Type hint strictness settings.
+# Must match `requires-python`; see the note on [tool.ruff] target-version.
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

@@ -26,6 +26,11 @@ from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite.utils.extract import (
+    BlastDBSource,
+    blastdbcmd_available,
+    fetch_sequence,
+)
 from tirmite.utils.logs import init_logging
 
 
@@ -387,7 +392,7 @@ def extract_hit_sequence(
     strand: str,
 ) -> Optional[str]:
     """
-    Extract a sequence region from a BLAST database using blastdbcmd.
+    Extract a sequence region from a BLAST database.
 
     Parameters
     ----------
@@ -396,43 +401,34 @@ def extract_hit_sequence(
     subject_id : str
         Subject sequence identifier.
     start : int
-        1-based start coordinate.
+        1-based inclusive start coordinate, on the plus strand.
     end : int
-        1-based end coordinate.
+        1-based inclusive end coordinate, on the plus strand.
     strand : str
-        Strand: 'plus' or 'minus'.
+        Strand: 'plus' or 'minus'. The result is reverse complemented
+        for 'minus'.
 
     Returns
     -------
     str or None
         Extracted sequence, or None if extraction failed.
+
+    Notes
+    -----
+    Delegates to :func:`tirmite.utils.extract.fetch_sequence`, which applies the
+    same clamping and validation used for FASTA-indexed genomes.
     """
-    if not shutil.which('blastdbcmd'):
+    if not blastdbcmd_available():
         logging.error('blastdbcmd not found in PATH')
         return None
 
-    cmd = [
-        'blastdbcmd',
-        '-db',
-        blastdb,
-        '-entry',
-        subject_id,
-        '-range',
-        f'{start}-{end}',
-        '-strand',
-        strand,
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        logging.warning(
-            f'blastdbcmd failed for {subject_id}:{start}-{end}: {result.stderr}'
-        )
+    seq = fetch_sequence(BlastDBSource(blastdb), subject_id, start, end)
+    if seq is None:
         return None
 
-    # Parse FASTA output
-    lines = result.stdout.strip().split('\n')
-    seq = ''.join(line for line in lines if not line.startswith('>'))
+    if strand == 'minus':
+        seq = str(Seq(seq).reverse_complement())
+
     return seq if seq else None
 
 

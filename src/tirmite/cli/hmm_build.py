@@ -18,7 +18,6 @@ import logging
 import os
 from pathlib import Path
 import shutil
-import subprocess
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from Bio import SeqIO  # type: ignore[import-not-found]
@@ -45,6 +44,13 @@ from tirmite.runners.hmmer_wrappers import (
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
 from tirmite.tirmitetools import import_nhmmer
+from tirmite.utils.extract import (
+    BlastDBSource,
+    FastaSource,
+    check_ids,
+    clamp_region,
+    fetch_sequence,
+)
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanID,
@@ -838,6 +844,7 @@ def warn_multiple_queries(hits: List[BlastHit], context: str = '') -> None:
     Returns
     -------
     None
+        Emits a warning; returns nothing.
     """
     query_ids: Set[str] = {h.query_id for h in hits}
     if len(query_ids) > 1:
@@ -865,190 +872,55 @@ def check_targets_in_blastdb(hits: List[BlastHit], blast_db: Path) -> List[str]:
     list of str
         Subject IDs that could NOT be found in the database.
     """
-    seen: Set[str] = set()
-    missing: List[str] = []
-
-    for hit in hits:
-        sid = hit.subject_id
-        if sid in seen:
-            continue
-        seen.add(sid)
-
-        try:
-            result = subprocess.run(
-                ['blastdbcmd', '-db', str(blast_db), '-entry', sid, '-range', '1-1'],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if result.returncode != 0 or not result.stdout.strip():
-                missing.append(sid)
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            logging.warning(
-                f'blastdbcmd not available or timed out when checking target {sid}'
-            )
-            break
-
-    return missing
+    return check_ids(BlastDBSource(blast_db), (h.subject_id for h in hits))
 
 
-def extract_sequences_from_hits_blastdb(
-    hits: List[BlastHit], blast_db: Path, model_name: str
-) -> List[SeqRecord]:
+def _build_source(blast_db: Optional[Path], genome_files: List[Path]):  # type: ignore[no-untyped-def]
     """
-    Extract sequences from BLAST hits using blastdbcmd.
+    Build the sequence source for extraction from CLI inputs.
 
     Parameters
     ----------
-    hits : list of BlastHit
-        BLAST hits to extract sequences for.
-    blast_db : Path
-        Path to BLAST database created with ``-parse_seqids``.
-    model_name : str
-        Name of model used to generate sequence IDs.
+    blast_db : Path or None
+        BLAST database path. Takes precedence over ``genome_files``.
+    genome_files : list of Path
+        Genome FASTA files. Only the first is indexed for extraction.
 
     Returns
     -------
-    list of Bio.SeqRecord.SeqRecord
-        Extracted sequences.  Hits that cannot be retrieved are skipped with
-        a warning.
+    FastaSource or BlastDBSource
+        A source wrapping whichever backend was supplied.
+
+    Raises
+    ------
+    HMMBuildError
+        If neither source is available, or the genome cannot be indexed.
     """
-    sequences = []
+    if blast_db is not None:
+        return BlastDBSource(blast_db)
 
-    for hit in hits:
-        # blastdbcmd uses 1-based inclusive coordinates; take genomic extent
-        start = min(hit.subject_start, hit.subject_end)
-        end = max(hit.subject_start, hit.subject_end)
+    if not genome_files:
+        raise HMMBuildError('No genome or BLAST database available for extraction')
 
-        cmd = [
-            'blastdbcmd',
-            '-db',
-            str(blast_db),
-            '-entry',
-            hit.subject_id,
-            '-range',
-            f'{start}-{end}',
-        ]
-        if hit.strand == '-':
-            cmd += ['-strand', 'minus']
+    if len(genome_files) > 1:
+        logging.warning(
+            f'{len(genome_files)} genomes were searched but sequences will be '
+            f'extracted only from {genome_files[0].name}. Hits on other genomes '
+            'will be skipped.'
+        )
 
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, timeout=60
-            )
-            lines = result.stdout.strip().split('\n')
-            if len(lines) < 2 or not lines[0].startswith('>'):
-                logging.warning(
-                    f'Unexpected blastdbcmd output for '
-                    f'{hit.subject_id}:{start}-{end}. Skipping.'
-                )
-                continue
+    try:
+        genome_index, descriptions = indexGenome(genome_files[0])
+    except Exception as e:
+        raise HMMBuildError(
+            f'Failed to index genome for sequence extraction: {e}'
+        ) from e
 
-            seq_str = ''.join(lines[1:]).upper()
-            seq_id = f'{model_name}_{hit.subject_id}_{start}_{end}_{hit.strand}'
-            sequences.append(SeqRecord(Seq(seq_str), id=seq_id, description=''))
-
-        except subprocess.CalledProcessError as e:
-            logging.warning(
-                f'blastdbcmd failed for {hit.subject_id}:{start}-{end}: '
-                f'{e.stderr.strip()}. Skipping.'
-            )
-        except subprocess.TimeoutExpired:
-            logging.warning(
-                f'blastdbcmd timed out for {hit.subject_id}:{start}-{end}. Skipping.'
-            )
-        except FileNotFoundError as e:
-            raise HMMBuildError(
-                'blastdbcmd not found. Is BLAST+ installed and on PATH?'
-            ) from e
-
-    return sequences
-
-
-def extract_flanked_sequences_from_hits_blastdb(
-    hits: List[BlastHit], blast_db: Path, model_name: str, flank_size: int
-) -> List[SeqRecord]:
-    """
-    Extract sequences with flanking regions from BLAST hits using blastdbcmd.
-
-    Parameters
-    ----------
-    hits : list of BlastHit
-        BLAST hits to extract sequences for.
-    blast_db : Path
-        Path to BLAST database created with ``-parse_seqids``.
-    model_name : str
-        Name of model used to generate sequence IDs.
-    flank_size : int
-        Number of flanking bases to include on each side of the hit.
-
-    Returns
-    -------
-    list of Bio.SeqRecord.SeqRecord
-        Extracted sequences with flanking regions.
-    """
-    sequences = []
-
-    for hit in hits:
-        start = min(hit.subject_start, hit.subject_end)
-        end = max(hit.subject_start, hit.subject_end)
-
-        # Expand coordinates by flank_size (blastdbcmd clips to sequence boundaries)
-        flanked_start = max(1, start - flank_size)
-        flanked_end = end + flank_size
-
-        cmd = [
-            'blastdbcmd',
-            '-db',
-            str(blast_db),
-            '-entry',
-            hit.subject_id,
-            '-range',
-            f'{flanked_start}-{flanked_end}',
-        ]
-        if hit.strand == '-':
-            cmd += ['-strand', 'minus']
-
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, check=True, timeout=60
-            )
-            lines = result.stdout.strip().split('\n')
-            if len(lines) < 2 or not lines[0].startswith('>'):
-                logging.warning(
-                    f'Unexpected blastdbcmd output for flanked '
-                    f'{hit.subject_id}:{flanked_start}-{flanked_end}. Skipping.'
-                )
-                continue
-
-            seq_str = ''.join(lines[1:]).upper()
-            seq_id = (
-                f'{model_name}_{hit.subject_id}_{flanked_start}_{flanked_end}'
-                f'_{hit.strand}_flanked{flank_size}'
-            )
-            sequences.append(SeqRecord(Seq(seq_str), id=seq_id, description=''))
-
-        except subprocess.CalledProcessError as e:
-            logging.warning(
-                f'blastdbcmd failed for flanked '
-                f'{hit.subject_id}:{flanked_start}-{flanked_end}: '
-                f'{e.stderr.strip()}. Skipping.'
-            )
-        except subprocess.TimeoutExpired:
-            logging.warning(
-                f'blastdbcmd timed out for flanked '
-                f'{hit.subject_id}:{flanked_start}-{flanked_end}. Skipping.'
-            )
-        except FileNotFoundError as e:
-            raise HMMBuildError(
-                'blastdbcmd not found. Is BLAST+ installed and on PATH?'
-            ) from e
-
-    return sequences
+    return FastaSource(genome_index, descriptions)
 
 
 def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
-    chains: List[List[BlastHit]], genome_index, model_name: str
+    chains: List[List[BlastHit]], source, model_name: str
 ) -> List[SeqRecord]:
     """
     Extract sequences from hit chains, concatenating fragments where needed.
@@ -1057,8 +929,8 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
     ----------
     chains : list of list of BlastHit
         List of hit chains where each chain is a list of consecutive hits.
-    genome_index : pyfaidx.Fasta
-        Indexed genome object for sequence extraction.
+    source : FastaSource or BlastDBSource
+        Sequence source, from :func:`tirmite.utils.extract.make_source`.
     model_name : str
         Name of model for sequence ID generation.
 
@@ -1066,6 +938,10 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
     -------
     list of Bio.SeqRecord.SeqRecord
         List of extracted sequences, one per chain.
+
+    Notes
+    -----
+    Coordinates are 1-based inclusive; see :mod:`tirmite.utils.extract`.
     """
     sequences = []
 
@@ -1075,29 +951,23 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
                 # Single hit
                 hit = chain[0]
 
-                # Validate that subject_id exists in genome
-                if hit.subject_id not in genome_index:
-                    logging.warning(
-                        f'Subject sequence {hit.subject_id} not found in genome. Skipping hit.'
-                    )
-                    continue
-
-                chrom = genome_index[hit.subject_id]
-
-                # Handle strand orientation
-                start = (
-                    min(hit.subject_start, hit.subject_end) - 1
-                )  # Convert to 0-based
+                start = min(hit.subject_start, hit.subject_end)
                 end = max(hit.subject_start, hit.subject_end)
 
-                seq_str = str(chrom[start:end]).upper()  # Convert to uppercase
+                seq_str = fetch_sequence(source, hit.subject_id, start, end)
+                if seq_str is None:
+                    logging.warning(
+                        f'Could not extract {hit.subject_id}:{start}-{end}. '
+                        'Skipping hit.'
+                    )
+                    continue
 
                 # Reverse complement if on negative strand
                 if hit.strand == '-':
                     seq_str = str(Seq(seq_str).reverse_complement())
 
                 # Include strand in sequence ID
-                seq_id = f'{model_name}_{hit.subject_id}_{start + 1}_{end}_{hit.strand}'
+                seq_id = f'{model_name}_{hit.subject_id}_{start}_{end}_{hit.strand}'
 
             else:
                 # Chained hits - concatenate fragments
@@ -1106,24 +976,23 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
                 valid_chain = True
 
                 for hit in chain:
-                    # Validate that subject_id exists in genome
-                    if hit.subject_id not in genome_index:
+                    start = min(hit.subject_start, hit.subject_end)
+                    end = max(hit.subject_start, hit.subject_end)
+
+                    fragment = fetch_sequence(source, hit.subject_id, start, end)
+                    if fragment is None:
                         logging.warning(
-                            f'Subject sequence {hit.subject_id} not found in genome. Skipping chain.'
+                            f'Could not extract {hit.subject_id}:{start}-{end}. '
+                            'Skipping chain.'
                         )
                         valid_chain = False
                         break
 
-                    chrom = genome_index[hit.subject_id]
-                    start = min(hit.subject_start, hit.subject_end) - 1
-                    end = max(hit.subject_start, hit.subject_end)
-
-                    fragment = str(chrom[start:end]).upper()  # Convert to uppercase
                     if hit.strand == '-':
                         fragment = str(Seq(fragment).reverse_complement())
 
                     seq_parts.append(fragment)
-                    locations.append(f'{start + 1}_{end}_{hit.strand}')
+                    locations.append(f'{start}_{end}_{hit.strand}')
 
                 if not valid_chain:
                     continue
@@ -1153,7 +1022,7 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
 
 
 def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
-    chains: List[List[BlastHit]], genome_index, model_name: str, flank_size: int
+    chains: List[List[BlastHit]], source, model_name: str, flank_size: int
 ) -> List[SeqRecord]:
     """
     Extract sequences from hit chains with flanking sequence.
@@ -1162,8 +1031,8 @@ def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
     ----------
     chains : list of list of BlastHit
         List of hit chains where each chain is a list of consecutive hits.
-    genome_index : pyfaidx.Fasta
-        Indexed genome object for sequence extraction.
+    source : FastaSource or BlastDBSource
+        Sequence source, from :func:`tirmite.utils.extract.make_source`.
     model_name : str
         Name of model for sequence ID generation.
     flank_size : int
@@ -1177,7 +1046,9 @@ def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
     Notes
     -----
     For chained hits, only adds flanks to the beginning of the first segment
-    and end of the last segment.
+    and end of the last segment. Sequence IDs report the flank coordinates
+    after clamping to the contig, so both backends label the same region
+    identically.
     """
     sequences = []
 
@@ -1187,87 +1058,92 @@ def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
                 # Single hit with flanking
                 hit = chain[0]
 
-                # Validate that subject_id exists in genome
-                if hit.subject_id not in genome_index:
-                    logging.warning(
-                        f'Subject sequence {hit.subject_id} not found in genome. Skipping hit.'
-                    )
-                    continue
-
-                chrom = genome_index[hit.subject_id]
-                chrom_len = len(chrom)
-
-                # Handle strand orientation for coordinates
-                hit_start = (
-                    min(hit.subject_start, hit.subject_end) - 1
-                )  # Convert to 0-based
+                hit_start = min(hit.subject_start, hit.subject_end)
                 hit_end = max(hit.subject_start, hit.subject_end)
 
-                # Add flanking sequence
-                flanked_start = max(0, hit_start - flank_size)
-                flanked_end = min(chrom_len, hit_end + flank_size)
+                # Add flanking sequence, clamped to the contig
+                region = clamp_region(
+                    source,
+                    hit.subject_id,
+                    hit_start - flank_size,
+                    hit_end + flank_size,
+                )
+                if region is None:
+                    logging.warning(
+                        f'Could not resolve {hit.subject_id}. Skipping hit.'
+                    )
+                    continue
+                flanked_start, flanked_end = region
 
-                seq_str = str(chrom[flanked_start:flanked_end]).upper()
+                seq_str = fetch_sequence(
+                    source, hit.subject_id, flanked_start, flanked_end
+                )
+                if seq_str is None:
+                    logging.warning(
+                        f'Could not extract {hit.subject_id}:'
+                        f'{flanked_start}-{flanked_end}. Skipping hit.'
+                    )
+                    continue
 
                 # Reverse complement if on negative strand
                 if hit.strand == '-':
                     seq_str = str(Seq(seq_str).reverse_complement())
 
                 # Include flanking info in sequence ID
-                seq_id = f'{model_name}_{hit.subject_id}_{flanked_start + 1}_{flanked_end}_{hit.strand}_flank{flank_size}'
+                seq_id = f'{model_name}_{hit.subject_id}_{flanked_start}_{flanked_end}_{hit.strand}_flank{flank_size}'
 
             else:
                 # Chained hits - add flanks only to first and last segments
                 first_hit = chain[0]
-                chain[-1]
-
-                # Validate all subject_ids exist in genome
-                valid_chain = True
-                for hit in chain:
-                    if hit.subject_id not in genome_index:
-                        logging.warning(
-                            f'Subject sequence {hit.subject_id} not found in genome. Skipping chain.'
-                        )
-                        valid_chain = False
-                        break
-
-                if not valid_chain:
-                    continue
-
-                # All hits should be on the same chromosome for a valid chain
-                chrom = genome_index[first_hit.subject_id]
-                chrom_len = len(chrom)
 
                 seq_parts = []
                 locations = []
+                valid_chain = True
 
                 for i, hit in enumerate(chain):
-                    hit_start = min(hit.subject_start, hit.subject_end) - 1
+                    hit_start = min(hit.subject_start, hit.subject_end)
                     hit_end = max(hit.subject_start, hit.subject_end)
 
                     # Add flanking sequence only to first and last segments
                     if i == 0:  # First segment
-                        start = max(0, hit_start - flank_size)
-                        end = hit_end
-                        locations.append(
-                            f'{start + 1}_{end}_{hit.strand}_5flank{flank_size}'
-                        )
+                        req_start = hit_start - flank_size
+                        req_end = hit_end
+                        suffix = f'_5flank{flank_size}'
                     elif i == len(chain) - 1:  # Last segment
-                        start = hit_start
-                        end = min(chrom_len, hit_end + flank_size)
-                        locations.append(
-                            f'{start + 1}_{end}_{hit.strand}_3flank{flank_size}'
-                        )
+                        req_start = hit_start
+                        req_end = hit_end + flank_size
+                        suffix = f'_3flank{flank_size}'
                     else:  # Middle segments - no flanking
-                        start = hit_start
-                        end = hit_end
-                        locations.append(f'{start + 1}_{end}_{hit.strand}')
+                        req_start = hit_start
+                        req_end = hit_end
+                        suffix = ''
 
-                    fragment = str(chrom[start:end]).upper()
+                    region = clamp_region(source, hit.subject_id, req_start, req_end)
+                    if region is None:
+                        logging.warning(
+                            f'Could not resolve {hit.subject_id}. Skipping chain.'
+                        )
+                        valid_chain = False
+                        break
+                    start, end = region
+
+                    fragment = fetch_sequence(source, hit.subject_id, start, end)
+                    if fragment is None:
+                        logging.warning(
+                            f'Could not extract {hit.subject_id}:{start}-{end}. '
+                            'Skipping chain.'
+                        )
+                        valid_chain = False
+                        break
+
                     if hit.strand == '-':
                         fragment = str(Seq(fragment).reverse_complement())
 
+                    locations.append(f'{start}_{end}_{hit.strand}{suffix}')
                     seq_parts.append(fragment)
+
+                if not valid_chain:
+                    continue
 
                 seq_str = ('N' * 10).join(seq_parts)  # Join fragments with Ns
                 seq_id = f'{model_name}_{first_hit.subject_id}_chain_{chain_idx}_flank{flank_size}_{"_".join(locations)}'
@@ -1943,15 +1819,8 @@ def process_seed_sequences(
 
     resolved_hits = resolve_overlapping_hits(filtered_hits)
 
-    # Pre-compute genome index and single-element chains for the genome path
-    genome_index = None
-    if blast_db is None:
-        try:
-            genome_index, _ = indexGenome(genome_files[0])
-        except Exception as e:
-            raise HMMBuildError(
-                f'Failed to index genome for sequence extraction: {e}'
-            ) from e
+    # Pre-compute the sequence source and single-element chains
+    source = _build_source(blast_db, genome_files)
     # Each resolved hit forms its own independent chain (no fragmented-hit chaining)
     hit_chains = [[h] for h in resolved_hits]
 
@@ -1959,14 +1828,7 @@ def process_seed_sequences(
     # Step 3 – Extract sequences                                           #
     # ------------------------------------------------------------------ #
     try:
-        if blast_db is not None:
-            sequences = extract_sequences_from_hits_blastdb(
-                resolved_hits, blast_db, model_name
-            )
-        else:
-            sequences = extract_sequences_from_chains(
-                hit_chains, genome_index, model_name
-            )
+        sequences = extract_sequences_from_chains(hit_chains, source, model_name)
     except HMMBuildError:
         raise
     except Exception as e:
@@ -2008,17 +1870,12 @@ def process_seed_sequences(
         )
 
         try:
-            if blast_db is not None:
-                flanked_sequences = extract_flanked_sequences_from_hits_blastdb(
-                    resolved_hits, blast_db, model_name, flank_size
-                )
-            else:
-                flanked_sequences = extract_flanked_sequences_from_chains(
-                    hit_chains,
-                    genome_index,
-                    model_name,
-                    flank_size,
-                )
+            flanked_sequences = extract_flanked_sequences_from_chains(
+                hit_chains,
+                source,
+                model_name,
+                flank_size,
+            )
 
             for seed_record in seed_records:
                 uppercase_seed = SeqRecord(
@@ -2282,15 +2139,8 @@ def process_asymmetric_seeds(
     # ------------------------------------------------------------------ #
     # Step 4 – Extract sequences                                           #
     # ------------------------------------------------------------------ #
-    # Determine genome index for non-blastdb path
-    genome_index = None
-    if blast_db is None and genome_files:
-        try:
-            genome_index, _ = indexGenome(genome_files[0])
-        except Exception as e:
-            raise HMMBuildError(
-                f'Failed to index genome for sequence extraction: {e}'
-            ) from e
+    # Determine the sequence source for extraction
+    source = _build_source(blast_db, genome_files)
     # Each resolved hit forms its own independent chain (no fragmented-hit chaining)
     left_chains = [[h] for h in resolved_left]
     right_chains = [[h] for h in resolved_right]
@@ -2298,14 +2148,9 @@ def process_asymmetric_seeds(
     # Process left seed
     logging.info(f'Processing left seed sequences for {model_name}_left')
     try:
-        if blast_db is not None:
-            left_sequences = extract_sequences_from_hits_blastdb(
-                resolved_left, blast_db, f'{model_name}_left'
-            )
-        else:
-            left_sequences = extract_sequences_from_chains(
-                left_chains, genome_index, f'{model_name}_left'
-            )
+        left_sequences = extract_sequences_from_chains(
+            left_chains, source, f'{model_name}_left'
+        )
     except HMMBuildError:
         raise
     except Exception as e:
@@ -2338,16 +2183,11 @@ def process_asymmetric_seeds(
     # Process right seed
     logging.info(f'Processing right seed sequences for {model_name}_right')
     try:
-        if blast_db is not None:
-            right_sequences = extract_sequences_from_hits_blastdb(
-                resolved_right, blast_db, f'{model_name}_right'
-            )
-        else:
-            right_sequences = extract_sequences_from_chains(
-                right_chains,
-                genome_index,
-                f'{model_name}_right',
-            )
+        right_sequences = extract_sequences_from_chains(
+            right_chains,
+            source,
+            f'{model_name}_right',
+        )
     except HMMBuildError:
         raise
     except Exception as e:
@@ -2405,20 +2245,12 @@ def process_asymmetric_seeds(
         )
 
         try:
-            if blast_db is not None:
-                left_flanked_sequences = extract_flanked_sequences_from_hits_blastdb(
-                    resolved_left, blast_db, f'{model_name}_left', flank_size
-                )
-                right_flanked_sequences = extract_flanked_sequences_from_hits_blastdb(
-                    resolved_right, blast_db, f'{model_name}_right', flank_size
-                )
-            else:
-                left_flanked_sequences = extract_flanked_sequences_from_chains(
-                    left_chains, genome_index, f'{model_name}_left', flank_size
-                )
-                right_flanked_sequences = extract_flanked_sequences_from_chains(
-                    right_chains, genome_index, f'{model_name}_right', flank_size
-                )
+            left_flanked_sequences = extract_flanked_sequences_from_chains(
+                left_chains, source, f'{model_name}_left', flank_size
+            )
+            right_flanked_sequences = extract_flanked_sequences_from_chains(
+                right_chains, source, f'{model_name}_right', flank_size
+            )
 
             for seed_record in left_seed_records:
                 left_flanked_sequences.append(
@@ -2957,9 +2789,11 @@ def search_and_extract_hits(
 
     # Index genome for sequence extraction
     try:
-        genome_index, _ = indexGenome(genome_file)
+        genome_index, descriptions = indexGenome(genome_file)
     except Exception as e:
         raise HMMBuildError(f'Failed to index genome: {e}') from e
+
+    source = FastaSource(genome_index, descriptions)
 
     # Extract sequences from hits
     hit_sequences: List[SeqRecord] = []
@@ -2967,21 +2801,27 @@ def search_and_extract_hits(
     for idx, row in hits_df.iterrows():
         try:
             seq_id = row['target']
+            # nhmmer coordinates are 1-based inclusive, as fetch_sequence expects
             start = int(row['hitStart'])
             end = int(row['hitEnd'])
             strand = row['strand']
 
             # Adjust coordinates for flanking sequence
             if flank_size:
-                seq_len = len(genome_index[seq_id])
-                flank_start = max(0, start - flank_size)
-                flank_end = min(seq_len, end + flank_size)
+                flank_start = start - flank_size
+                flank_end = end + flank_size
             else:
                 flank_start = start
                 flank_end = end
 
-            # Extract sequence
-            seq_str = genome_index[seq_id][flank_start:flank_end].seq
+            # Extract sequence (clamped to the contig by fetch_sequence)
+            seq_str = fetch_sequence(source, seq_id, flank_start, flank_end)
+            if seq_str is None:
+                logging.warning(
+                    f'Failed to extract sequence for hit {idx} '
+                    f'({seq_id}:{flank_start}-{flank_end})'
+                )
+                continue
 
             # Reverse complement if on minus strand
             if strand == '-':

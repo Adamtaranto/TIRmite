@@ -14,6 +14,7 @@ import os
 import tempfile
 
 import pandas as pd
+import pytest
 
 import tirmite.tirmitetools as tirmite
 from tirmite.tirmitetools import (
@@ -1257,10 +1258,10 @@ class TestShortContigBoundaries:
     # Partial boundary: flank partially extends before contig start
     # ------------------------------------------------------------------
 
-    def test_left_flank_partially_before_start_is_truncated(self):
-        """Left flank partially overlapping contig start returns a shorter sequence."""
+    def test_left_flank_partially_before_start_is_padded(self):
+        """Left flank overlapping the contig start is N-padded to full length."""
         # Hit at positions 5-104 (hmmStart=1, full hit), flank_len=10
-        # external_pos = 5, flank = [−5, 4] → clamped to [1, 4] = 4 bp
+        # external_pos = 5, flank = [−5, 4] → 4 bp available, 6 bp padded
         rows = [
             {
                 'model': 'TIR',
@@ -1304,28 +1305,32 @@ class TestShortContigBoundaries:
             left_files = [
                 f for f in os.listdir(tmpdir) if 'left_flank' in f and 'paired' not in f
             ]
-            # A truncated flank should still be written
+            # A partially available flank should still be written
             assert len(left_files) == 1
 
             with open(os.path.join(tmpdir, left_files[0])) as fh:
-                seq = ''.join(
-                    ln for ln in fh.read().splitlines() if not ln.startswith('>')
-                )
-            # external_pos=5, flank=[−5,4] → clamped to [1,4] → 4 bp
-            assert len(seq) == 4
-            assert seq == 'GAAA'  # first 4 bases of SHORT_SEQ: 'G','A','A','A'
+                content = fh.read()
+            header = next(ln for ln in content.splitlines() if ln.startswith('>'))
+            seq = ''.join(ln for ln in content.splitlines() if not ln.startswith('>'))
+            # external_pos=5, flank=[−5,4]: 6 bp before the contig start are
+            # padded, then the 4 real bases.
+            assert len(seq) == 10
+            assert seq == 'NNNNNN' + 'GAAA'
+            # The header reports the real coordinates and flags the padding.
+            assert ' 1_4 ' in header
+            assert 'padded:6,0' in header
 
     # ------------------------------------------------------------------
     # Partial boundary: right flank partially extends beyond contig end
     # ------------------------------------------------------------------
 
-    def test_right_flank_partially_after_contig_end_is_truncated(self):
-        """Right flank partially overlapping contig end returns a shorter sequence.
+    def test_right_flank_partially_after_contig_end_is_padded(self):
+        """Right flank overlapping the contig end is N-padded to full length.
 
         Hit: positions 525-534 (- strand, hmmStart=1, hmmEnd=10, model_len=10)
         Right terminus, - strand: offset = hmmStart - 1 = 0
         external_pos = hitEnd + 0 = 534; flank = [535, 544]
-        Contig 'short' is 538 bp → clamped to [535, 538] = 4 bp
+        Contig 'short' is 538 bp → 4 bp real at [535, 538], 6 bp padded
         """
         rows = [
             {
@@ -1374,14 +1379,19 @@ class TestShortContigBoundaries:
             ]
             # - strand right terminus: offset = hmmStart - 1 = 0
             # external_pos = hitEnd + 0 = 534; flank = [535, 544]
-            # Contig 'short' is 538 bp → clamped to [535, 538] = 4 bp
+            # Contig 'short' is 538 bp → 4 bp real, then 6 bp padded
             assert len(right_files) == 1
 
             with open(os.path.join(tmpdir, right_files[0])) as fh:
-                seq = ''.join(
-                    ln for ln in fh.read().splitlines() if not ln.startswith('>')
-                )
-            assert len(seq) == 4  # only 4 bp available at contig end
+                content = fh.read()
+            header = next(ln for ln in content.splitlines() if ln.startswith('>'))
+            seq = ''.join(ln for ln in content.splitlines() if not ln.startswith('>'))
+            assert len(seq) == 10
+            # Padding is appended on the side that ran off the contig.
+            assert seq.endswith('NNNNNN')
+            assert 'N' not in seq[:4]
+            assert ' 535_538 ' in header
+            assert 'padded:0,6' in header
 
 
 # ---------------------------------------------------------------------------
@@ -1460,3 +1470,300 @@ class TestWriteElements:
             assert len(files) == 1
             # Filename should include count: myrun_TIR_elements_1.fasta
             assert files[0] == 'myrun_TIR_elements_1.fasta'
+
+
+# ---------------------------------------------------------------------------
+# Invalid model lengths must not shift the flank window into the hit
+# ---------------------------------------------------------------------------
+
+
+class TestInvalidModelLength:
+    """A model length inconsistent with the alignment must not corrupt flanks."""
+
+    def test_model_len_below_hmm_end_does_not_invert_offset(self):
+        """
+        A model_len smaller than hmmEnd is impossible for a correct model.
+
+        Left unclamped, `model_len - hmm_end` goes negative and the flank window
+        is shifted *into* the hit, so element sequence is extracted and written
+        as flanking sequence. The flank_max_offset guard cannot catch it either,
+        since `offset > max` is trivially false for a negative value.
+        """
+        fs, fe, offset = compute_flank_coordinates(
+            hit_start=1000,
+            hit_end=1099,
+            strand='-',
+            is_left_terminus=True,
+            hmm_start=1,
+            hmm_end=120,  # runs past the declared model length
+            model_len=100,
+            flank_len=10,
+        )
+
+        assert offset == 0, 'a negative deficit must be clamped to 0'
+        # The flank must stay strictly outside the hit.
+        assert fe < 1000
+        assert fs == 990
+        assert fe == 999
+
+    def test_right_terminus_negative_deficit_clamped(self):
+        """Same clamp on the right terminus, + strand."""
+        fs, fe, offset = compute_flank_coordinates(
+            hit_start=2000,
+            hit_end=2099,
+            strand='+',
+            is_left_terminus=False,
+            hmm_start=1,
+            hmm_end=150,
+            model_len=100,
+            flank_len=10,
+        )
+
+        assert offset == 0
+        # Flank starts strictly after the hit, never inside it.
+        assert fs == 2100
+        assert fe == 2109
+
+    def test_warns_about_inconsistent_model_length(self, caplog):
+        """The user is told their model length looks wrong."""
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            compute_flank_coordinates(
+                hit_start=1000,
+                hit_end=1099,
+                strand='+',
+                is_left_terminus=False,
+                hmm_start=1,
+                hmm_end=150,
+                model_len=100,
+                flank_len=10,
+            )
+
+        assert 'inconsistent' in caplog.text.lower()
+
+
+class TestBothEndsIncomplete:
+    """A hit incomplete at both ends uses the correct deficit at each end."""
+
+    def test_flank_uses_external_deficit_only(self):
+        """
+        hmmStart=6 and hmmEnd=90 of a 100bp model: 5 uncovered outside, 10 in.
+
+        For a left terminus on + strand the external edge is the hmmStart side,
+        so only that deficit may move the flank.
+        """
+        fs, fe, offset = compute_flank_coordinates(
+            hit_start=1000,
+            hit_end=1084,
+            strand='+',
+            is_left_terminus=True,
+            hmm_start=6,
+            hmm_end=90,
+            model_len=100,
+            flank_len=10,
+        )
+
+        assert offset == 5  # not 10, and not 15
+        assert fe == 994  # external_pos - 1 = (1000 - 5) - 1
+        assert fs == 985
+
+    def test_inner_tsd_uses_inner_deficit_only(self):
+        """The same hit's in-model TSD uses the opposite (inner) deficit."""
+        from tirmite.tirmitetools import compute_inner_tsd_coordinates
+
+        tsd_start, tsd_end = compute_inner_tsd_coordinates(
+            hit_start=1000,
+            hit_end=1084,
+            strand='+',
+            is_left_terminus=True,
+            hmm_start=6,
+            hmm_end=90,
+            model_len=100,
+            tsd_length=4,
+        )
+
+        # inner_pos = hit_end + (model_len - hmm_end) = 1084 + 10 = 1094
+        assert tsd_end == 1094
+        assert tsd_start == 1091
+
+
+# ---------------------------------------------------------------------------
+# Terminus role vs genomic side, and flank content for both insertion
+# directions in every orientation
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTerminus:
+    """resolve_terminus separates terminus ROLE from the genomic side it faces."""
+
+    @staticmethod
+    def _hit(model, strand):
+        return HitRec(model, 'chr1', 100, 200, strand, 0, 1e-10)
+
+    def _asym(self, orientation):
+        return PairingConfig(orientation=orientation, left_model='L', right_model='R')
+
+    def test_asymmetric_forward_role_matches_side(self):
+        """Forward insertion: the left model is also at the lower coordinate."""
+        cfg = self._asym('F,R')
+        t = tirmite.resolve_terminus(self._hit('L', '+'), cfg)
+        assert (t.role, t.is_lower) == ('left', True)
+        t = tirmite.resolve_terminus(self._hit('R', '-'), cfg)
+        assert (t.role, t.is_lower) == ('right', False)
+
+    def test_asymmetric_reverse_role_and_side_diverge(self):
+        """
+        Reverse insertion: the left model sits at the HIGHER coordinate.
+
+        Its role is still 'left', but its outer edge now faces higher
+        coordinates. Conflating the two took the flank from inside the element.
+        """
+        cfg = self._asym('F,R')
+        t = tirmite.resolve_terminus(self._hit('L', '-'), cfg)
+        assert t.role == 'left'
+        assert t.is_lower is False
+        t = tirmite.resolve_terminus(self._hit('R', '+'), cfg)
+        assert t.role == 'right'
+        assert t.is_lower is True
+
+    @pytest.mark.parametrize('orientation', ['F,R', 'R,F', 'F,F', 'R,R'])
+    def test_asymmetric_both_directions_in_every_orientation(self, orientation):
+        """Role follows the model; side flips with the insertion direction."""
+        cfg = self._asym(orientation)
+        left_expected = cfg.left_strand
+        right_expected = cfg.right_strand
+
+        fwd_l = tirmite.resolve_terminus(self._hit('L', left_expected), cfg)
+        fwd_r = tirmite.resolve_terminus(self._hit('R', right_expected), cfg)
+        assert (fwd_l.role, fwd_l.is_lower) == ('left', True)
+        assert (fwd_r.role, fwd_r.is_lower) == ('right', False)
+
+        flip = {'+': '-', '-': '+'}
+        rev_l = tirmite.resolve_terminus(self._hit('L', flip[left_expected]), cfg)
+        rev_r = tirmite.resolve_terminus(self._hit('R', flip[right_expected]), cfg)
+        assert (rev_l.role, rev_l.is_lower) == ('left', False)
+        assert (rev_r.role, rev_r.is_lower) == ('right', True)
+
+    def test_symmetric_differing_strands_unchanged(self):
+        cfg = PairingConfig(orientation='F,R', single_model='TIR')
+        assert tirmite.resolve_terminus(self._hit('TIR', '+'), cfg).role == 'left'
+        assert tirmite.resolve_terminus(self._hit('TIR', '-'), cfg).role == 'right'
+
+    @pytest.mark.parametrize('orientation', ['F,F', 'R,R'])
+    def test_symmetric_same_strand_is_undeterminable(self, orientation):
+        cfg = PairingConfig(orientation=orientation, single_model='LTR')
+        assert tirmite.resolve_terminus(self._hit('LTR', '+'), cfg) is None
+        assert tirmite.resolve_terminus(self._hit('LTR', '-'), cfg) is None
+
+    def test_unknown_model_returns_none(self):
+        assert (
+            tirmite.resolve_terminus(self._hit('OTHER', '+'), self._asym('F,R')) is None
+        )
+
+
+class TestUnpairedFlankSideByOrientation:
+    """
+    An unpaired hit's flank must come from OUTSIDE the element.
+
+    The mock genome uses distinct blocks either side of the hit, so taking the
+    flank from the wrong side is a content mismatch, not just a coordinate one.
+    """
+
+    # 1-200 = G (upstream block), 201-300 = hit, 301-500 = T (downstream block)
+    GENOME_SEQ = 'G' * 200 + 'A' * 100 + 'T' * 200
+
+    def _genome(self):
+        return MockGenome({'chr1': self.GENOME_SEQ})
+
+    def _run(self, model, strand, left_model, right_model, orientation):
+        rows = [
+            {
+                'model': model,
+                'target': 'chr1',
+                'hit_start': 201,
+                'hit_end': 300,
+                'strand': strand,
+                'hmm_start': 1,
+                'hmm_end': 100,
+            }
+        ]
+        hitTable = _make_hitTable(rows)
+        _, hitIndex = tirmite.table2dict(hitTable)
+        config = PairingConfig(
+            orientation=orientation, left_model=left_model, right_model=right_model
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            writeFlanks(
+                outDir=tmpdir,
+                hitTable=hitTable,
+                model_lengths={left_model: 100, right_model: 100},
+                paired={model: []},
+                hitIndex=hitIndex,
+                config=config,
+                genome=self._genome(),
+                flank_len=20,
+                write_all=True,
+            )
+            out = {}
+            for fn in os.listdir(tmpdir):
+                with open(os.path.join(tmpdir, fn)) as fh:
+                    out[fn] = ''.join(
+                        ln for ln in fh.read().splitlines() if not ln.startswith('>')
+                    )
+            return out
+
+    @pytest.mark.parametrize('orientation', ['F,R', 'R,F', 'F,F', 'R,R'])
+    def test_left_model_flank_is_outside_for_both_directions(self, orientation):
+        """
+        The left model's flank is upstream when forward-inserted and
+        downstream when reverse-inserted - never the element body.
+        """
+        cfg = PairingConfig(orientation=orientation, left_model='L', right_model='R')
+        flip = {'+': '-', '-': '+'}
+
+        fwd = self._run('L', cfg.left_strand, 'L', 'R', orientation)
+        assert fwd, 'forward-inserted left model produced no flank'
+        assert all(set(seq) == {'G'} for seq in fwd.values()), fwd
+
+        rev = self._run('L', flip[cfg.left_strand], 'L', 'R', orientation)
+        assert rev, 'reverse-inserted left model produced no flank'
+        assert all(set(seq) == {'T'} for seq in rev.values()), rev
+
+    @pytest.mark.parametrize('orientation', ['F,R', 'R,F', 'F,F', 'R,R'])
+    def test_right_model_flank_is_outside_for_both_directions(self, orientation):
+        """Mirror of the above for the right model."""
+        cfg = PairingConfig(orientation=orientation, left_model='L', right_model='R')
+        flip = {'+': '-', '-': '+'}
+
+        fwd = self._run('R', cfg.right_strand, 'L', 'R', orientation)
+        assert all(set(seq) == {'T'} for seq in fwd.values()), fwd
+
+        rev = self._run('R', flip[cfg.right_strand], 'L', 'R', orientation)
+        assert all(set(seq) == {'G'} for seq in rev.values()), rev
+
+    def test_reverse_left_model_routes_to_left_file(self):
+        """Provenance: the left model's flank belongs in the left model's file."""
+        out = self._run('L', '-', 'L', 'R', 'F,R')  # reverse insertion
+        assert any('left_flank' in fn for fn in out), sorted(out)
+        assert not any('right_flank' in fn for fn in out), sorted(out)
+
+
+class TestOrientationValidation:
+    """--orientation is validated once, and case-insensitively."""
+
+    def test_lowercase_matches_uppercase(self):
+        assert (
+            PairingConfig(orientation='f,r').left_strand
+            == PairingConfig(orientation='F,R').left_strand
+            == '+'
+        )
+        assert PairingConfig(orientation='f,r').right_strand == '-'
+
+    def test_whitespace_tolerated(self):
+        assert PairingConfig(orientation=' F , R ').orientation == ['F', 'R']
+
+    @pytest.mark.parametrize('bad', ['F,X', 'F', '', 'F,R,F', 'FR', 'X,Y'])
+    def test_invalid_orientation_raises(self, bad):
+        with pytest.raises(ValueError, match='orientation'):
+            PairingConfig(orientation=bad)

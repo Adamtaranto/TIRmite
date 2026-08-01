@@ -1,5 +1,12 @@
-# Testing
+# Sandpit
 .ideas/
+.plans/
+
+# Agent configs
+.claude/
+.claudeignore
+.env
+.mcp.json
 
 # Mac stuff
 .DS_Store

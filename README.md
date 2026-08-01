@@ -231,5 +231,10 @@ Software provided under GPL-3 license.
 
 ## Star History
 
-[![Star History
-Chart](https://api.star-history.com/svg?repos=adamtaranto/tirmite&type=Date)](https://star-history.com/#adamtaranto/tirmite&Date)
+<a href="https://www.star-history.com/?repos=Adamtaranto%2FTIRmite&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&theme=dark&legend=top-left&sealed_token=ZhBCA8u21A60-ZusDJQHA4CjpGDwz_KIuxpUpWxV3w5GwWlFBQAH0EhERpnCMSUzTT2pQEpa4lgEZSZpbfyZr8I-DWnVs78wCzi634DOqMAfgBu042EZ1QKYk0j7IzMqBHn54umijPW9fKN2V5Ypr-08eBYVoex-WMi89LQfT60_jnf2XY6gWKxj1p82" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&legend=top-left&sealed_token=ZhBCA8u21A60-ZusDJQHA4CjpGDwz_KIuxpUpWxV3w5GwWlFBQAH0EhERpnCMSUzTT2pQEpa4lgEZSZpbfyZr8I-DWnVs78wCzi634DOqMAfgBu042EZ1QKYk0j7IzMqBHn54umijPW9fKN2V5Ypr-08eBYVoex-WMi89LQfT60_jnf2XY6gWKxj1p82" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&legend=top-left&sealed_token=ZhBCA8u21A60-ZusDJQHA4CjpGDwz_KIuxpUpWxV3w5GwWlFBQAH0EhERpnCMSUzTT2pQEpa4lgEZSZpbfyZr8I-DWnVs78wCzi634DOqMAfgBu042EZ1QKYk0j7IzMqBHn54umijPW9fKN2V5Ypr-08eBYVoex-WMi89LQfT60_jnf2XY6gWKxj1p82" />
+ </picture>
+</a>

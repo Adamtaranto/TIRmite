@@ -32,7 +32,7 @@ nhmmer --dna --cpu 8 --tblout $NHMMERFILE $HMMFILE $GENOME
 
 ### Step 2: Run `tirmite pair` with target site reconstruction
 
-Use `--flank-len` to extract flanking sequence and `--insertion-site` to enable target site reconstruction.  Set `--tsd-length` to specify the TSD length and add `--tsd-in-model` if the TSD is encoded at the inner end of your terminus HMM model.
+Target site reconstruction is built from the external flanks of paired termini, so it needs flank extraction turned on: pass `--flanks-paired` (or `--flanks`) together with `--insertion-site`. `--flank-len` sets how much flanking sequence to take, and `--insertion-site` fails without one of the flank options. Set `--tsd-length` to specify the TSD length and add `--tsd-in-model` if the TSD is encoded at the inner end of your terminus HMM model.
 
 #### Case A: TSD is outside the termini model (TSD is in the flank)
 
@@ -51,6 +51,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --flanks-paired \
   --insertion-site \
   --tsd-length 8 \
   --outdir TIR_OUTPUT \
@@ -74,6 +75,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --flanks-paired \
   --insertion-site \
   --tsd-length 8 \
   --tsd-in-model \
@@ -102,6 +104,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --flanks-paired \
   --insertion-site \
   --tsd-length-map tsd_lengths.tsv \
   --outdir TIR_OUTPUT \
@@ -110,19 +113,23 @@ tirmite pair \
 
 ### Target site reconstruction output files
 
-When `--insertion-site` is set alongside `--flank-len`, `tirmite pair` writes two additional FASTA files:
+When `--insertion-site` is set alongside `--flanks-paired` and `--flank-len`, `tirmite pair` writes two additional FASTA files:
 
 | File | Contents |
 |------|----------|
-| `{prefix}target_sites.fasta` | Reconstructed target sites — one per paired element |
-| `{prefix}interleaved_flanks.fasta` | Interleaved left/right flanks showing TSD overlap position |
+| `{prefix}{pair_label}_target_sites_{N}.fasta` | Reconstructed target sites — one per paired element |
+| `{prefix}{pair_label}_interleaved_flanks_{N}.fasta` | Interleaved left/right flanks showing TSD overlap position |
+
+`{pair_label}` is the model pair the elements were called from and `{N}` is the
+number of records in the file, so a single-model run with `--model-name MY_TIR`
+produces e.g. `MY_TIR_target_sites_12.fasta`.
 
 #### Reconstructed target site FASTA header format
 
 Each target site entry includes rich metadata:
 
 ```
->MY_TIR_1 flank_len=30 tsd_len=8 tsd_in_model=False left_model=MY_TIR right_model=MY_TIR contig=chr1 left_flank_hit=+:1000_1050 right_flank_hit=-:2100_2150 tsd_hamming=0 left_tsd=ATCGATCG right_tsd=ATCGATCG
+>MY_TIR_1 flank_len=30 tsd_len=8 tsd_in_model=False left_model=MY_TIR right_model=MY_TIR contig=chr1 element_orientation=forward left_flank_hit=+:1000_1050 right_flank_hit=-:2100_2150 tsd_hamming=0 left_tsd=ATCGATCG right_tsd=ATCGATCG
 ```
 
 | Tag | Description |
@@ -132,10 +139,15 @@ Each target site entry includes rich metadata:
 | `tsd_in_model` | Whether TSD is inside the terminus model |
 | `left_model` / `right_model` | Names of the paired terminus models |
 | `contig` | Genome sequence ID containing the element |
+| `element_orientation` | `forward` when the left terminus is at the lower genomic coordinate, `reverse` when the element is inserted the other way round |
 | `left_flank_hit` | Strand and coordinates of the left terminus hit |
 | `right_flank_hit` | Strand and coordinates of the right terminus hit |
-| `tsd_hamming` | Hamming distance between left and right TSD copies |
+| `tsd_hamming` | Hamming distance between left and right TSD copies, or `NA` when the TSDs could not be compared |
 | `left_tsd` / `right_tsd` | Extracted TSD sequences (reported when > 0 bp) |
+
+`left_model` and `left_flank_hit` always describe the **left terminus of the
+element**, which for a reverse-inserted element is the hit at the *higher*
+genomic coordinate. `element_orientation` records which case applies.
 
 #### Interleaved flanks FASTA
 
@@ -305,6 +317,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --flanks-paired \
   --insertion-site \
   --tsd-length 8 \
   --outdir PAIR_OUTPUT \

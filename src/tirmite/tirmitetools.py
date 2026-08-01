@@ -17,12 +17,20 @@ import glob
 import logging
 from operator import attrgetter
 import os
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple, Union
 
 from Bio import AlignIO, Seq, SeqIO  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
 import pandas as pd  # type: ignore[import-untyped]
 
+from tirmite.utils.extract import (
+    SequenceSource,
+    annotate,
+    clamp_region,
+    fetch_region_padded,
+    fetch_sequence,
+    make_source,
+)
 from tirmite.utils.utils import cleanID
 
 
@@ -949,215 +957,168 @@ def iterateGetPairs(
     return hitIndex, paired, unpaired
 
 
-def extract_from_blastdb(
-    blastdb: str, seqid: str, start: int, end: int, strand: str = '+'
+def fetch_padded_hit(
+    source: SequenceSource,
+    seqid: str,
+    start: int,
+    end: int,
+    strand: str = '+',
+    padlen: Optional[int] = None,
+    pad: bool = True,
 ) -> Optional[str]:
     """
-    Extract sequence from BLAST database using blastdbcmd.
+    Fetch a hit region, optionally with flanking sequence marked in lowercase.
 
     Parameters
     ----------
-    blastdb : str
-        Path to BLAST database (without file extension).
+    source : FastaSource or BlastDBSource
+        Sequence source to read from.
     seqid : str
-        Sequence identifier to extract from.
-    start : int
-        Start position (1-based, inclusive).
-    end : int
-        End position (1-based, inclusive).
+        Sequence identifier.
+    start, end : int
+        1-based inclusive hit coordinates on the plus strand.
     strand : str, default '+'
-        Strand to extract: '+' for forward, '-' for reverse complement.
+        Strand of the hit. The result is reverse-complemented when '-'.
+    padlen : int, optional
+        Number of flanking bases to include either side of the hit. Flanking
+        bases are lowercased; the hit itself stays uppercase.
+    pad : bool, default True
+        When the padded window runs past a contig boundary, pad it with N so
+        the record is always ``(end - start + 1) + 2 * padlen`` bases. Padding
+        is lowercased along with the rest of the flank, keeping the "not part
+        of the hit" convention intact.
 
     Returns
     -------
     str or None
-        Extracted sequence string, or None if extraction failed.
+        Extracted sequence, or None if extraction failed.
 
     Notes
     -----
-    Uses blastdbcmd with -range parameter for sequence extraction.
-    Coordinates are 1-based as expected by blastdbcmd.
+    Case marking is applied to the plus-strand sequence and the reverse
+    complement is taken afterwards, so the lowercase markers stay attached to
+    the flanks they came from. Marking after reverse-complementing would swap
+    the 5' and 3' markers.
+
+    Only the pad region can extend past a contig; the hit itself came from the
+    contig and is always in bounds.
     """
-    import subprocess
-
-    try:
-        cmd = [
-            'blastdbcmd',
-            '-db',
-            blastdb,
-            '-entry',
-            seqid,
-            '-range',
-            f'{start}-{end}',
-        ]
-
-        if strand == '-':
-            cmd.append('-strand')
-            cmd.append('minus')
-
-        result = subprocess.run(
-            cmd, capture_output=True, text=True, check=True, timeout=30
-        )
-
-        # Parse FASTA output - validate format and skip header line
-        lines = result.stdout.strip().split('\n')
-        if len(lines) < 2 or not lines[0].startswith('>'):
-            logging.error(
-                f'Invalid FASTA output from blastdbcmd for {seqid}:{start}-{end}'
-            )
+    if not padlen:
+        seq = fetch_sequence(source, seqid, start, end)
+        if seq is None:
             return None
+        return seq if strand != '-' else str(Seq.Seq(seq).reverse_complement())
 
-        # Concatenate sequence lines (skip header at index 0)
-        seq = ''.join(lines[1:])
-        return seq
-
-    except subprocess.CalledProcessError as e:
-        logging.error(f'blastdbcmd failed: {e.stderr}')
-        return None
-    except subprocess.TimeoutExpired:
-        logging.error(f'blastdbcmd timed out for {seqid}:{start}-{end}')
-        return None
-    except FileNotFoundError:
-        logging.error('blastdbcmd command not found. Is BLAST+ installed?')
+    # An inverted window has no hit region to mark. Padding would still produce
+    # a valid-looking span, so reject it here rather than emit a nonsense
+    # arrangement of lowercase flanks around nothing.
+    if start > end:
+        logging.debug(f'Inverted hit window for {seqid}: {start}-{end}, skipping')
         return None
 
+    pad_start = start - padlen
+    pad_end = end + padlen
 
-def extractTIRs_blastdb(
-    model: Optional[str] = None,
-    hitTable: Optional[pd.DataFrame] = None,
-    maxeval: float = 0.001,
-    blastdb: Optional[str] = None,
-    padlen: Optional[int] = None,
-) -> Tuple[List[SeqRecord], int]:
+    if pad:
+        region = fetch_region_padded(source, seqid, pad_start, pad_end)
+        if region is None:
+            return None
+        full_seq = region.seq
+    else:
+        # Clamp the padded window so the case-marking offsets below are
+        # computed against the region actually returned.
+        clamped = clamp_region(source, seqid, pad_start, pad_end)
+        if clamped is None:
+            return None
+        pad_start, pad_end = clamped
+        maybe_seq = fetch_sequence(source, seqid, pad_start, pad_end)
+        if maybe_seq is None:
+            return None
+        full_seq = maybe_seq
+
+    # Offsets of the hit within the padded window, as 0-based half-open slice
+    # bounds. Both coordinate systems here are 1-based inclusive.
+    lead = max(0, start - pad_start)
+    tail = lead + (min(end, pad_end) - max(start, pad_start) + 1)
+
+    marked = full_seq[:lead].lower() + full_seq[lead:tail] + full_seq[tail:].lower()
+
+    if strand == '-':
+        return str(Seq.Seq(marked).reverse_complement())
+    return marked
+
+
+def _model_extension(
+    row: Any,
+    model: str,
+    model_lengths: Optional[Dict[str, int]],
+) -> Optional[Tuple[int, int]]:
     """
-    Extract TIR sequences from BLAST database for hits of a specific model.
+    Compute bases to add either side of a hit to span the full model.
 
     Parameters
     ----------
+    row : pandas.Series
+        Hit row carrying hmmStart, hmmEnd and strand.
     model : str
-        Name of model to extract hits for.
-    hitTable : pandas.DataFrame
-        DataFrame containing all hits with columns: model, target, hitStart, hitEnd,
-        strand, evalue, hmmStart, hmmEnd.
-    maxeval : float, default 0.001
-        Maximum e-value threshold for extracting hits.
-    blastdb : str
-        Path to BLAST database (without extension).
-    padlen : int, optional
-        Number of flanking bases to extract on each side of hit (shown in lowercase).
+        Model name, used to look up the length and for the warning.
+    model_lengths : dict or None
+        Mapping of model name to model length.
 
     Returns
     -------
-    seqList : list of Bio.SeqRecord.SeqRecord
-        List of SeqRecord objects containing extracted TIR sequences.
-    hitcount : int
-        Number of hits extracted that passed e-value threshold.
+    tuple of (int, int) or None
+        ``(lower, upper)`` bases to extend at the lower and higher genomic
+        coordinate ends, or None if the model length is unavailable.
 
     Notes
     -----
-    Uses blastdbcmd for sequence extraction from BLAST database.
-    Coordinates are adjusted for blastdbcmd (1-based, inclusive).
-    Padded flanking sequence is shown in lowercase letters.
+    The deficits are the same quantities used for flank projection: how many
+    model positions the alignment failed to cover at each end. On the plus
+    strand the ``hmmStart`` deficit sits at the lower-coordinate end; on the
+    minus strand the mapping is reversed.
     """
-    assert model is not None, 'model cannot be None'
-    assert hitTable is not None, 'hitTable cannot be None'
-    assert blastdb is not None, 'blastdb cannot be None'
-
-    hitcount = 0
-    seqList = []
-
-    eligible_hits = hitTable[
-        (hitTable['model'] == model) & (hitTable['evalue'].astype(float) <= maxeval)
-    ]
-    total_eligible = len(eligible_hits)
-    logging.info(
-        f'Extracting {total_eligible} hits for model "{model}" from BLAST database...'
-    )
-    _log_step = max(1, min(100, total_eligible // 10)) if total_eligible > 0 else 1
-
-    for index, row in eligible_hits.iterrows():
-        hitcount += 1
-        if hitcount % _log_step == 0 or hitcount == total_eligible:
-            logging.info(
-                f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"'
-            )
-
-        # blastdbcmd uses 1-based coordinates
-        start = int(row['hitStart'])
-        end = int(row['hitEnd'])
-
-        # Extract sequence (possibly with padding)
-        if padlen:
-            # Extract with padding
-            pad_start = max(1, start - padlen)
-            pad_end = end + padlen
-
-            # Extract the full padded region
-            full_seq = extract_from_blastdb(
-                blastdb, row['target'], pad_start, pad_end, row['strand']
-            )
-
-            if full_seq is None:
-                logging.warning(
-                    f'Failed to extract sequence for {model}_{index}, skipping'
-                )
-                continue
-
-            # Calculate positions within extracted sequence to apply case formatting
-            # blastdbcmd uses 1-based inclusive coordinates
-            # Convert to 0-based for Python string slicing
-            hit_start_in_seq = start - pad_start
-            hit_end_in_seq = end - pad_start + 1  # +1 for inclusive end in blastdbcmd
-
-            # Convert to lowercase/uppercase
-            hit_seq_str = (
-                full_seq[:hit_start_in_seq].lower()
-                + full_seq[hit_start_in_seq:hit_end_in_seq]
-                + full_seq[hit_end_in_seq:].lower()
-            )
-        else:
-            # Extract without padding
-            hit_seq_str = extract_from_blastdb(
-                blastdb, row['target'], start, end, row['strand']
-            )
-
-            if hit_seq_str is None:
-                logging.warning(
-                    f'Failed to extract sequence for {model}_{index}, skipping'
-                )
-                continue
-
-        # Create SeqRecord
-        hitrecord = SeqRecord(Seq.Seq(hit_seq_str))
-        hitrecord.id = model + '_' + str(index)
-        hitrecord.name = hitrecord.id
-
-        # Build description
-        hitrecord.description = '_'.join(
-            [
-                '[' + str(row['target']) + ':' + str(row['strand']),
-                str(row['hitStart']),
-                str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
-                str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
-            ]
+    model_len = model_lengths.get(model) if model_lengths else None
+    if model_len is None:
+        logging.warning(
+            f'Model length not found for {model}; cannot extend hits to model '
+            'length, extracting the aligned region only'
         )
+        return None
 
-        seqList.append(hitrecord)
+    try:
+        hmm_start = int(row['hmmStart'])
+        hmm_end = int(row['hmmEnd'])
+    except (ValueError, TypeError, KeyError):
+        logging.debug(f'HMM coordinates unavailable for a {model} hit, not extending')
+        return None
 
-    return seqList, hitcount
+    start_deficit = _model_deficit(
+        hmm_start - 1, 'hmmStart', hmm_start, hmm_end, model_len
+    )
+    end_deficit = _model_deficit(
+        model_len - hmm_end, 'hmmEnd', hmm_start, hmm_end, model_len
+    )
+
+    if row['strand'] == '-':
+        # hmmStart aligns to the higher genomic coordinate on the minus strand.
+        return end_deficit, start_deficit
+    return start_deficit, end_deficit
 
 
-# Fix: Do not load fasta into genome!
 def extractTIRs(
     model: Optional[str] = None,
     hitTable: Optional[pd.DataFrame] = None,
     maxeval: float = 0.001,
-    genome: Any = None,
+    source: Optional[SequenceSource] = None,
     padlen: Optional[int] = None,
     genome_descriptions: Optional[Dict[str, str]] = None,
+    model_lengths: Optional[Dict[str, int]] = None,
+    extend_to_model: bool = False,
+    pad: bool = True,
 ) -> Tuple[List[SeqRecord], int]:
     """
-    Extract TIR sequences from genome for hits of a specific model.
+    Extract TIR sequences for hits of a specific model.
 
     Parameters
     ----------
@@ -1168,12 +1129,20 @@ def extractTIRs(
         strand, evalue, hmmStart, hmmEnd.
     maxeval : float, default 0.001
         Maximum e-value threshold for extracting hits.
-    genome : pyfaidx.Fasta
-        Indexed genome object for sequence extraction.
+    source : FastaSource or BlastDBSource
+        Sequence source, from :func:`tirmite.utils.extract.make_source`.
     padlen : int, optional
         Number of flanking bases to extract on each side of hit (shown in lowercase).
     genome_descriptions : dict, optional
         Dictionary mapping sequence IDs to their descriptions.
+    model_lengths : dict, optional
+        Mapping of model name to model length. Required when
+        ``extend_to_model`` is set.
+    extend_to_model : bool, default False
+        Extend each hit outward by the number of model positions it failed to
+        cover, so partial hits are emitted at full model length.
+    pad : bool, default True
+        Pad with N where the extracted window runs past a contig boundary.
 
     Returns
     -------
@@ -1184,22 +1153,33 @@ def extractTIRs(
 
     Notes
     -----
-    Reverse complement is applied for hits on the negative strand.
-    Padded flanking sequence is shown in lowercase letters.
-    Uses 0-based indexing for pyfaidx extraction.
+    Reverse complement is applied for hits on the negative strand, and such
+    records get an '_rc' ID suffix. Padded flanking sequence is shown in
+    lowercase letters. Coordinates are 1-based inclusive throughout; see
+    :mod:`tirmite.utils.extract` for the extraction contract.
+
+    With ``extend_to_model``, the extension is added on both sides using the
+    same model-coverage deficits that :func:`compute_flank_coordinates` uses for
+    the external edge and :func:`compute_inner_tsd_coordinates` for the inner
+    edge. The extended bases were not matched by the model, so they are a
+    projection of where the terminus should end, not evidence that it does.
     """
     assert model is not None, 'model cannot be None'
     assert hitTable is not None, 'hitTable cannot be None'
-    assert genome is not None, 'genome cannot be None'
+    assert source is not None, 'source cannot be None'
     hitcount = 0
     seqList = []
+
+    if genome_descriptions is None:
+        genome_descriptions = getattr(source, 'descriptions', None)
 
     eligible_hits = hitTable[
         (hitTable['model'] == model) & (hitTable['evalue'].astype(float) <= maxeval)
     ]
     total_eligible = len(eligible_hits)
     logging.info(
-        f'Extracting {total_eligible} hits for model "{model}" from indexed genome...'
+        f'Extracting {total_eligible} hits for model "{model}" '
+        f'from {source.describe()}...'
     )
     _log_step = max(1, min(100, total_eligible // 10)) if total_eligible > 0 else 1
 
@@ -1210,53 +1190,59 @@ def extractTIRs(
                 f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"'
             )
 
-        # Extract sequence using pyfaidx (0-based indexing)
-        chrom = genome[row['target']]
-        start = int(row['hitStart']) - 1  # Convert to 0-based
-        end = int(row['hitEnd'])  # End is exclusive in slicing
+        hit_start = int(row['hitStart'])
+        hit_end = int(row['hitEnd'])
+        extension = ''
 
-        if padlen:
-            # Extract with padding
-            pad_start = max(0, start - padlen)
-            pad_end = min(len(chrom), end + padlen)
+        if extend_to_model:
+            span = _model_extension(row, model, model_lengths)
+            if span is not None:
+                lower_ext, upper_ext = span
+                hit_start -= lower_ext
+                hit_end += upper_ext
+                if lower_ext or upper_ext:
+                    extension = f' extended:{lower_ext},{upper_ext}'
 
-            # Build sequence with padding in lowercase
-            seq_parts = []
-            if start > pad_start:
-                seq_parts.append(str(chrom[pad_start:start]).lower())
-            seq_parts.append(str(chrom[start:end]))
-            if end < pad_end:
-                seq_parts.append(str(chrom[end:pad_end]).lower())
+        hit_seq_str = fetch_padded_hit(
+            source,
+            row['target'],
+            hit_start,
+            hit_end,
+            row['strand'],
+            padlen,
+            pad=pad,
+        )
 
-            hit_seq_str = ''.join(seq_parts)
-        else:
-            hit_seq_str = str(chrom[start:end])
+        if hit_seq_str is None:
+            logging.warning(f'Failed to extract sequence for {model}_{index}, skipping')
+            continue
 
         # Create SeqRecord
         hitrecord = SeqRecord(Seq.Seq(hit_seq_str))
         hitrecord.id = model + '_' + str(index)
 
         if row['strand'] == '-':
-            hitrecord = hitrecord.reverse_complement(id=hitrecord.id + '_rc')
+            # Sequence is already reverse-complemented by fetch_padded_hit;
+            # only the ID suffix is applied here.
+            hitrecord.id = hitrecord.id + '_rc'
 
         hitrecord.name = hitrecord.id
 
-        # Build description with genome description
+        # Build description with genome description. Report the extracted span
+        # so the header always describes the sequence actually emitted.
         coord_info = '_'.join(
             [
                 '[' + str(row['target']) + ':' + str(row['strand']),
-                str(row['hitStart']),
-                str(row['hitEnd']) + ' modelAlignment:' + str(row['hmmStart']),
-                str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + ']',
+                str(hit_start),
+                str(hit_end) + ' modelAlignment:' + str(row['hmmStart']),
+                str(row['hmmEnd']) + ' E-value:' + str(row['evalue']) + extension + ']',
             ]
         )
 
         # Add genome description if available
-        if genome_descriptions and row['target'] in genome_descriptions:
-            genome_desc = genome_descriptions[row['target']]
-            hitrecord.description = f'{coord_info} {genome_desc}'
-        else:
-            hitrecord.description = coord_info
+        hitrecord.description = annotate(
+            source, row['target'], coord_info, genome_descriptions
+        )
 
         seqList.append(hitrecord)
 
@@ -1273,6 +1259,9 @@ def writeTIRs(
     padlen: Optional[int] = None,
     genome_descriptions: Optional[Dict[str, str]] = None,
     blastdb: Optional[str] = None,
+    model_lengths: Optional[Dict[str, int]] = None,
+    extend_hits_to_model: bool = False,
+    pad: bool = True,
 ) -> None:
     """
     Write extracted TIR sequences to FASTA files organized by model.
@@ -1296,6 +1285,14 @@ def writeTIRs(
         Dictionary mapping sequence IDs to their descriptions.
     blastdb : str, optional
         Path to BLAST database for sequence extraction. Alternative to genome.
+    model_lengths : dict, optional
+        Mapping of model name to model length; required for
+        ``extend_hits_to_model``.
+    extend_hits_to_model : bool, default False
+        Emit partial hits at full model length by extending them outward by the
+        uncovered model positions.
+    pad : bool, default True
+        Pad with N where an extracted window runs past a contig boundary.
 
     Returns
     -------
@@ -1308,11 +1305,12 @@ def writeTIRs(
     {prefix}{model}_hits_{count}.fasta
 
     Either genome or blastdb must be provided for sequence extraction.
+
+    Set ``extend_hits_to_model`` to emit partial hits at full model length;
+    ``model_lengths`` is required for that and the option is ignored with a
+    warning without it.
     """
     assert hitTable is not None, 'hitTable cannot be None'
-    assert genome is not None or blastdb is not None, (
-        'Either genome or blastdb must be provided'
-    )
 
     if prefix:
         prefix = cleanID(prefix) + '_'
@@ -1325,25 +1323,21 @@ def writeTIRs(
     else:
         outDir = os.getcwd()
 
+    source = make_source(genome=genome, blastdb=blastdb)
+
     for model in hitTable['model'].unique():
         # List of TIR seqrecords, and count of hits
-        if blastdb:
-            seqList, hitcount = extractTIRs_blastdb(
-                model=model,
-                hitTable=hitTable,
-                maxeval=maxeval,
-                blastdb=blastdb,
-                padlen=padlen,
-            )
-        else:
-            seqList, hitcount = extractTIRs(
-                model=model,
-                hitTable=hitTable,
-                maxeval=maxeval,
-                genome=genome,
-                padlen=padlen,
-                genome_descriptions=genome_descriptions,
-            )
+        seqList, hitcount = extractTIRs(
+            model=model,
+            hitTable=hitTable,
+            maxeval=maxeval,
+            source=source,
+            padlen=padlen,
+            genome_descriptions=genome_descriptions,
+            model_lengths=model_lengths,
+            extend_to_model=extend_hits_to_model,
+            pad=pad,
+        )
         outfile = os.path.join(
             outDir, prefix + model + '_hits_' + str(hitcount) + '.fasta'
         )
@@ -1418,8 +1412,8 @@ def fetchElements(
     """
     assert paired is not None, 'paired cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
-    assert genome is not None or blastdb is not None, (
-        'Either genome or blastdb must be provided'
+    source = make_source(
+        genome=genome, blastdb=blastdb, descriptions=genome_descriptions
     )
     # Check if hitIndex is nested or flat
     is_nested = isinstance(next(iter(hitIndex.values())), dict)
@@ -1507,25 +1501,18 @@ def fetchElements(
                 # Create element ID with counter only (avoids model name duplication)
                 eleID = f'Element_{model_counter}'
 
-                # Extract element sequence
-                if blastdb:
-                    # Extract from BLAST database
-                    ele_seq_str = extract_from_blastdb(
-                        blastdb,
-                        leftHit.target,
-                        int(leftHit.hitStart),
-                        int(rightHit.hitEnd),
-                        leftHit.strand,
-                    )
-                    if ele_seq_str is None:
-                        logging.warning(f'Failed to extract element {eleID}, skipping')
-                        continue
-                else:
-                    # Extract using pyfaidx (0-based indexing)
-                    chrom = genome[leftHit.target]
-                    start = int(leftHit.hitStart) - 1  # Convert to 0-based
-                    end = int(rightHit.hitEnd)  # End is exclusive in slicing
-                    ele_seq_str = str(chrom[start:end])
+                # Extract element sequence. Always on the + strand so that the
+                # sequence matches the genomic coordinates reported in the GFF,
+                # consistent with the flank and target-site extractors.
+                ele_seq_str = fetch_sequence(
+                    source,
+                    leftHit.target,
+                    int(leftHit.hitStart),
+                    int(rightHit.hitEnd),
+                )
+                if ele_seq_str is None:
+                    logging.warning(f'Failed to extract element {eleID}, skipping')
+                    continue
 
                 eleSeq = SeqRecord(Seq.Seq(ele_seq_str))
                 eleSeq.id = eleID
@@ -1545,11 +1532,9 @@ def fetchElements(
                 )
 
                 # Add genome description if available
-                if genome_descriptions and leftHit.target in genome_descriptions:
-                    genome_desc = genome_descriptions[leftHit.target]
-                    eleSeq.description = f'{coord_info} {genome_desc}'
-                else:
-                    eleSeq.description = coord_info
+                eleSeq.description = annotate(
+                    source, leftHit.target, coord_info, genome_descriptions
+                )
 
                 TIRelement = gffTup(
                     model,  # This is the pairing model (left model for asymmetric)
@@ -1624,6 +1609,7 @@ def writePairedTIRs(
     padlen: Optional[int] = None,
     genome_descriptions: Optional[Dict[str, str]] = None,
     blastdb: Optional[str] = None,
+    config: Any = None,
 ) -> None:
     """
     Extract and write left and right TIR sequences from paired hits to FASTA.
@@ -1648,6 +1634,11 @@ def writePairedTIRs(
     blastdb : str, optional
         Path to BLAST database for sequence extraction. Alternative to genome.
 
+    config : PairingConfig, optional
+        Pairing configuration. When it describes an asymmetric element, the
+        _L/_R labels and output files follow the terminus role rather than
+        genomic order, so each model's termini stay together.
+
     Returns
     -------
     None
@@ -1664,8 +1655,8 @@ def writePairedTIRs(
     assert outDir is not None, 'outDir cannot be None'
     assert paired is not None, 'paired cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
-    assert genome is not None or blastdb is not None, (
-        'Either genome or blastdb must be provided'
+    source = make_source(
+        genome=genome, blastdb=blastdb, descriptions=genome_descriptions
     )
     if prefix:
         prefix = cleanID(prefix) + '_'
@@ -1739,132 +1730,45 @@ def writePairedTIRs(
                 leftHit, rightHit = flipTIRs(x, y)
                 eleID = f'{model}_{model_counter}'
 
-                # Extract TIR sequences
-                if blastdb:
-                    # Extract from BLAST database
-                    if padlen:
-                        # Extract left TIR with padding
-                        left_start = max(1, int(leftHit.hitStart) - padlen)
-                        left_end = int(leftHit.hitEnd) + padlen
-                        left_full = extract_from_blastdb(
-                            blastdb,
-                            leftHit.target,
-                            left_start,
-                            left_end,
-                            leftHit.strand,
-                        )
-                        if left_full is None:
-                            logging.warning(f'Failed to extract left TIR for {eleID}')
-                            continue
+                # Extract TIR sequences. Both are taken on the + strand; the
+                # right TIR is reverse complemented below so that the pair reads
+                # 5'->3' inward.
+                left_seq_str = fetch_padded_hit(
+                    source,
+                    leftHit.target,
+                    int(leftHit.hitStart),
+                    int(leftHit.hitEnd),
+                    '+',
+                    padlen,
+                )
+                right_seq_str = fetch_padded_hit(
+                    source,
+                    rightHit.target,
+                    int(rightHit.hitStart),
+                    int(rightHit.hitEnd),
+                    '+',
+                    padlen,
+                )
 
-                        # Apply case formatting
-                        # blastdbcmd uses 1-based inclusive coordinates
-                        hit_start_in_seq = int(leftHit.hitStart) - left_start
-                        hit_end_in_seq = (
-                            int(leftHit.hitEnd) - left_start + 1
-                        )  # +1 for inclusive end
-                        left_seq_str = (
-                            left_full[:hit_start_in_seq].lower()
-                            + left_full[hit_start_in_seq:hit_end_in_seq]
-                            + left_full[hit_end_in_seq:].lower()
-                        )
-
-                        # Extract right TIR with padding
-                        right_start = max(1, int(rightHit.hitStart) - padlen)
-                        right_end = int(rightHit.hitEnd) + padlen
-                        right_full = extract_from_blastdb(
-                            blastdb, rightHit.target, right_start, right_end, '+'
-                        )
-                        if right_full is None:
-                            logging.warning(f'Failed to extract right TIR for {eleID}')
-                            continue
-
-                        # Apply case formatting (before reverse complement)
-                        # blastdbcmd uses 1-based inclusive coordinates
-                        hit_start_in_seq = int(rightHit.hitStart) - right_start
-                        hit_end_in_seq = (
-                            int(rightHit.hitEnd) - right_start + 1
-                        )  # +1 for inclusive end
-                        right_seq_str = (
-                            right_full[:hit_start_in_seq].lower()
-                            + right_full[hit_start_in_seq:hit_end_in_seq]
-                            + right_full[hit_end_in_seq:].lower()
-                        )
-                    else:
-                        # Extract without padding
-                        left_seq_str = extract_from_blastdb(
-                            blastdb,
-                            leftHit.target,
-                            int(leftHit.hitStart),
-                            int(leftHit.hitEnd),
-                            leftHit.strand,
-                        )
-                        right_seq_str = extract_from_blastdb(
-                            blastdb,
-                            rightHit.target,
-                            int(rightHit.hitStart),
-                            int(rightHit.hitEnd),
-                            '+',  # Don't reverse complement yet
-                        )
-
-                        if left_seq_str is None or right_seq_str is None:
-                            logging.warning(f'Failed to extract TIRs for {eleID}')
-                            continue
-                else:
-                    # Extract using pyfaidx
-                    chrom = genome[leftHit.target]
-                    left_start = int(leftHit.hitStart) - 1  # Convert to 0-based
-                    left_end = int(leftHit.hitEnd)
-
-                    # Extract right TIR sequence using pyfaidx
-                    right_start = int(rightHit.hitStart) - 1  # Convert to 0-based
-                    right_end = int(rightHit.hitEnd)
-
-                    if padlen:
-                        # Extract with padding for left TIR
-                        left_pad_start = max(0, left_start - padlen)
-                        left_pad_end = min(len(chrom), left_end + padlen)
-
-                        left_seq_parts = []
-                        if left_start > left_pad_start:
-                            left_seq_parts.append(
-                                str(chrom[left_pad_start:left_start]).lower()
-                            )
-                        left_seq_parts.append(str(chrom[left_start:left_end]))
-                        if left_end < left_pad_end:
-                            left_seq_parts.append(
-                                str(chrom[left_end:left_pad_end]).lower()
-                            )
-
-                        left_seq_str = ''.join(left_seq_parts)
-
-                        # Extract with padding for right TIR
-                        right_pad_start = max(0, right_start - padlen)
-                        right_pad_end = min(len(chrom), right_end + padlen)
-
-                        right_seq_parts = []
-                        if right_start > right_pad_start:
-                            right_seq_parts.append(
-                                str(chrom[right_pad_start:right_start]).lower()
-                            )
-                        right_seq_parts.append(str(chrom[right_start:right_end]))
-                        if right_end < right_pad_end:
-                            right_seq_parts.append(
-                                str(chrom[right_end:right_pad_end]).lower()
-                            )
-
-                        right_seq_str = ''.join(right_seq_parts)
-                    else:
-                        left_seq_str = str(chrom[left_start:left_end])
-                        right_seq_str = str(chrom[right_start:right_end])
+                if left_seq_str is None or right_seq_str is None:
+                    logging.warning(f'Failed to extract TIRs for {eleID}, skipping')
+                    continue
 
                 # Create SeqRecords for FASTA output only
                 eleSeqLeft = SeqRecord(Seq.Seq(left_seq_str))
                 eleSeqRight = SeqRecord(Seq.Seq(right_seq_str))
                 eleSeqRight = eleSeqRight.reverse_complement()
 
-                eleSeqLeft.id = eleID + '_L'
-                eleSeqLeft.name = eleID + '_L'
+                # Sequence orientation is positional (the higher-coordinate
+                # terminus is reverse complemented so both read inward), but
+                # the _L/_R label and the output file follow terminus role, so
+                # each model's termini stay together for downstream alignment.
+                left_role, right_role = _pair_roles(leftHit, rightHit, config)
+                left_label = 'L' if left_role == 'left' else 'R'
+                right_label = 'L' if right_role == 'left' else 'R'
+
+                eleSeqLeft.id = eleID + '_' + left_label
+                eleSeqLeft.name = eleSeqLeft.id
 
                 # Build left description with genome description
                 left_coord = (
@@ -1877,14 +1781,12 @@ def writePairedTIRs(
                     + ']'
                 )
 
-                if genome_descriptions and leftHit.target in genome_descriptions:
-                    genome_desc = genome_descriptions[leftHit.target]
-                    eleSeqLeft.description = f'{left_coord} {genome_desc}'
-                else:
-                    eleSeqLeft.description = left_coord
+                eleSeqLeft.description = annotate(
+                    source, leftHit.target, left_coord, genome_descriptions
+                )
 
-                eleSeqRight.id = eleID + '_R'
-                eleSeqRight.name = eleID + '_R'
+                eleSeqRight.id = eleID + '_' + right_label
+                eleSeqRight.name = eleSeqRight.id
 
                 # Build right description with genome description
                 right_coord = (
@@ -1897,15 +1799,19 @@ def writePairedTIRs(
                     + ']'
                 )
 
-                if genome_descriptions and leftHit.target in genome_descriptions:
-                    genome_desc = genome_descriptions[leftHit.target]
-                    eleSeqRight.description = f'{right_coord} {genome_desc}'
-                else:
-                    eleSeqRight.description = right_coord
+                eleSeqRight.description = annotate(
+                    source, leftHit.target, right_coord, genome_descriptions
+                )
 
-                # Add to left/right sequence lists for separate FASTA output
-                left_seqList.append(eleSeqLeft)
-                right_seqList.append(eleSeqRight)
+                # File routing follows the same role labels.
+                for rec, label in (
+                    (eleSeqLeft, left_label),
+                    (eleSeqRight, right_label),
+                ):
+                    if label == 'L':
+                        left_seqList.append(rec)
+                    else:
+                        right_seqList.append(rec)
 
             # Write separate FASTA files for left and right terminus hits
             if left_seqList:
@@ -1935,6 +1841,56 @@ def writePairedTIRs(
                     for seq in right_seqList:
                         seq.id = prefix + str(seq.id)
                         SeqIO.write(seq, handle, 'fasta')
+
+
+def _model_deficit(
+    raw_offset: int,
+    which: str,
+    hmm_start: int,
+    hmm_end: int,
+    model_len: int,
+) -> int:
+    """
+    Clamp a model-coverage deficit to a non-negative value.
+
+    Parameters
+    ----------
+    raw_offset : int
+        Computed number of uncovered model positions, which may be negative if
+        the model length is wrong.
+    which : str
+        Name of the coordinate the deficit was derived from, for the warning.
+    hmm_start, hmm_end : int
+        Alignment coordinates on the model, for the warning.
+    model_len : int
+        Declared model length.
+
+    Returns
+    -------
+    int
+        ``raw_offset`` if it is non-negative, otherwise 0.
+
+    Notes
+    -----
+    A negative deficit means the alignment ran past the declared end of the
+    model, which is impossible for a correct model length. It indicates a
+    mismatched ``--lengths-file``, an HMM that does not correspond to the hit
+    table, or ``--query-len`` applied to a table containing several queries.
+    Left unclamped it shifts the flank window *into* the hit, silently
+    extracting element sequence and labelling it as flanking. The
+    ``flank_max_offset`` guard cannot catch it either, since ``offset > max``
+    is trivially false for a negative value.
+    """
+    if raw_offset >= 0:
+        return raw_offset
+
+    logging.warning(
+        f'Model length {model_len} is inconsistent with alignment coordinates '
+        f'{hmm_start}-{hmm_end} ({which} implies a deficit of {raw_offset}). '
+        'Check that the HMM or --lengths-file matches this hit table. '
+        'Treating the offset as 0.'
+    )
+    return 0
 
 
 def compute_flank_coordinates(
@@ -2006,22 +1962,30 @@ def compute_flank_coordinates(
     if is_left_terminus:
         # External end faces LEFT (lower genomic coordinates)
         if strand == '+':
-            offset = hmm_start - 1
+            offset = _model_deficit(
+                hmm_start - 1, 'hmmStart', hmm_start, hmm_end, model_len
+            )
             external_pos = hit_start - offset
         else:  # '-'
             # hmmStart aligns to hit_end (higher coord); hmmEnd aligns to hit_start
-            offset = model_len - hmm_end
+            offset = _model_deficit(
+                model_len - hmm_end, 'hmmEnd', hmm_start, hmm_end, model_len
+            )
             external_pos = hit_start - offset
         flank_start = external_pos - flank_len
         flank_end = external_pos - 1
     else:
         # External end faces RIGHT (higher genomic coordinates)
         if strand == '+':
-            offset = model_len - hmm_end
+            offset = _model_deficit(
+                model_len - hmm_end, 'hmmEnd', hmm_start, hmm_end, model_len
+            )
             external_pos = hit_end + offset
         else:  # '-'
             # hmmStart aligns to hit_end; external end is at hit_end side
-            offset = hmm_start - 1
+            offset = _model_deficit(
+                hmm_start - 1, 'hmmStart', hmm_start, hmm_end, model_len
+            )
             external_pos = hit_end + offset
         flank_start = external_pos + 1
         flank_end = external_pos + flank_len
@@ -2104,32 +2068,207 @@ def compute_inner_tsd_coordinates(
           end of the hit.  ``inner_pos = hit_start - (model_len - hmm_end)``.
           TSD occupies ``[inner_pos, inner_pos + tsd_length - 1]``.
     """
+    # Deficits are clamped to >= 0; see _model_deficit for why a negative value
+    # is possible and what it means.
+    end_deficit = _model_deficit(
+        model_len - hmm_end, 'hmmEnd', hmm_start, hmm_end, model_len
+    )
+    start_deficit = _model_deficit(
+        hmm_start - 1, 'hmmStart', hmm_start, hmm_end, model_len
+    )
+
     if is_left_terminus:
         # Inner end faces RIGHT (higher genomic coords)
         if strand == '+':
             # Model pos model_len aligns to right of hit
-            inner_pos = hit_end + (model_len - hmm_end)
-            tsd_start = inner_pos - tsd_length + 1
-            tsd_end = inner_pos
+            inner_pos = hit_end + end_deficit
         else:  # '-'
             # Model pos 1 (hmmStart) aligns to hit_end (rightmost genomic coord)
-            inner_pos = hit_end + (hmm_start - 1)
-            tsd_start = inner_pos - tsd_length + 1
-            tsd_end = inner_pos
+            inner_pos = hit_end + start_deficit
+        tsd_start = inner_pos - tsd_length + 1
+        tsd_end = inner_pos
     else:
         # Right terminus: inner end faces LEFT (lower genomic coords)
         if strand == '+':
             # Model pos 1 (hmmStart) aligns to hit_start (leftmost genomic coord)
-            inner_pos = hit_start - (hmm_start - 1)
-            tsd_start = inner_pos
-            tsd_end = inner_pos + tsd_length - 1
+            inner_pos = hit_start - start_deficit
         else:  # '-'
             # Model pos model_len aligns to hit_start (leftmost genomic coord)
-            inner_pos = hit_start - (model_len - hmm_end)
-            tsd_start = inner_pos
-            tsd_end = inner_pos + tsd_length - 1
+            inner_pos = hit_start - end_deficit
+        tsd_start = inner_pos
+        tsd_end = inner_pos + tsd_length - 1
 
     return tsd_start, tsd_end
+
+
+class FlankResult(NamedTuple):
+    """
+    External flanking sequence for one terminus hit.
+
+    Attributes
+    ----------
+    seq : str
+        Flank sequence on the plus strand, always ``flank_len`` bases when
+        ``pad`` was requested.
+    start, end : int
+        1-based inclusive coordinates of the real (non-padded) sequence.
+    offset : int
+        Uncovered model positions between the hit alignment and the projected
+        external edge of the element.
+    left_pad, right_pad : int
+        Bases synthesised because the flank ran past a contig boundary.
+    """
+
+    seq: str
+    start: int
+    end: int
+    offset: int
+    left_pad: int
+    right_pad: int
+
+    @property
+    def is_padded(self) -> bool:
+        """
+        Report whether any part of this flank was synthesised.
+
+        Returns
+        -------
+        bool
+            True if either pad count is non-zero.
+        """
+        return bool(self.left_pad or self.right_pad)
+
+
+def extract_terminus_flank(
+    source: SequenceSource,
+    hit: Any,
+    is_left: bool,
+    model_len: Optional[int],
+    hmm_start: Optional[int],
+    hmm_end: Optional[int],
+    flank_len: int,
+    flank_max_offset: Optional[int] = None,
+    pad: bool = True,
+) -> Optional[FlankResult]:
+    """
+    Extract the external flanking region of a single terminus hit.
+
+    Parameters
+    ----------
+    source : FastaSource or BlastDBSource
+        Sequence source to read from.
+    hit : namedtuple
+        Hit record with target, hitStart, hitEnd, strand, idx.
+    is_left : bool
+        True if the hit is a left terminus; False for a right terminus.
+    model_len : int or None
+        Length of the terminus model. None skips the hit with a warning.
+    hmm_start, hmm_end : int or None
+        Alignment coordinates on the model. None skips the hit.
+    flank_len : int
+        Number of flanking bases to extract.
+    flank_max_offset : int, optional
+        Reject hits whose model-coverage deficit exceeds this.
+    pad : bool, default True
+        Pad with N when the flank runs past a contig boundary, so every flank
+        is ``flank_len`` bases. When False the flank is truncated instead.
+
+    Returns
+    -------
+    FlankResult or None
+        None when the flank cannot be extracted: missing model length or HMM
+        coordinates, offset above ``flank_max_offset``, or a region that does
+        not overlap the contig at all.
+
+    Notes
+    -----
+    Flanks are always taken on the plus strand for genomic orientation; the
+    hit's own strand only affects which side of the hit the flank is on, via
+    :func:`compute_flank_coordinates`.
+
+    This is the single implementation used by both ``writeFlanks`` and
+    ``writeTargetSites``. They previously carried near-identical private copies
+    that had already drifted in their logging.
+    """
+    if model_len is None:
+        logging.warning(
+            f'Model length not found for {hit.model}, skipping flank for hit {hit.idx}'
+        )
+        return None
+
+    if hmm_start is None or hmm_end is None:
+        logging.warning(
+            f'HMM coordinates unavailable for hit {hit.idx}, skipping flank'
+        )
+        return None
+
+    flank_start, flank_end, offset = compute_flank_coordinates(
+        hit_start=int(hit.hitStart),
+        hit_end=int(hit.hitEnd),
+        strand=hit.strand,
+        is_left_terminus=is_left,
+        hmm_start=hmm_start,
+        hmm_end=hmm_end,
+        model_len=model_len,
+        flank_len=flank_len,
+    )
+
+    if flank_max_offset is not None and offset > flank_max_offset:
+        logging.debug(
+            f'Skipping flank for hit {hit.idx}: offset {offset} > max {flank_max_offset}'
+        )
+        return None
+
+    # A flank entirely before the contig start is reported distinctly from one
+    # that merely overhangs, since it means the element sits at the very edge of
+    # the assembly and no flanking context exists at all.
+    if flank_end < 1:
+        logging.warning(
+            f'Flank for hit {hit.idx} on {hit.target} falls entirely before '
+            f'contig start (computed coords {flank_start}–{flank_end}), skipping'
+        )
+        return None
+
+    if pad:
+        region = fetch_region_padded(source, hit.target, flank_start, flank_end)
+        if region is None:
+            logging.debug(f'Empty flank region for hit {hit.idx}, skipping')
+            return None
+        return FlankResult(
+            seq=region.seq,
+            start=region.start,
+            end=region.end,
+            offset=offset,
+            left_pad=region.left_pad,
+            right_pad=region.right_pad,
+        )
+
+    clamped = clamp_region(source, hit.target, flank_start, flank_end)
+    if clamped is None:
+        logging.debug(f'Empty flank region for hit {hit.idx}, skipping')
+        return None
+    flank_start, flank_end = clamped
+
+    seq_str = fetch_sequence(source, hit.target, flank_start, flank_end)
+    if seq_str is None:
+        logging.warning(f'Failed to extract flank sequence for hit {hit.idx}, skipping')
+        return None
+
+    if len(seq_str) < flank_len:
+        logging.warning(
+            f'Flank for hit {hit.idx} on {hit.target} is truncated at '
+            f'contig boundary: expected {flank_len}bp, '
+            f'extracted {len(seq_str)}bp (coords {flank_start}–{flank_end})'
+        )
+
+    return FlankResult(
+        seq=seq_str,
+        start=flank_start,
+        end=flank_end,
+        offset=offset,
+        left_pad=0,
+        right_pad=0,
+    )
 
 
 def _determine_terminus_type(hit: Any, config: Any) -> Optional[str]:
@@ -2167,6 +2306,139 @@ def _determine_terminus_type(hit: Any, config: Any) -> Optional[str]:
         return None
 
 
+class TerminusAssignment(NamedTuple):
+    """
+    Which terminus of an element a hit represents, and which way it faces.
+
+    Attributes
+    ----------
+    role : str
+        'left' or 'right' - which end of the *element* this hit is, in the
+        element's own 5'->3' frame. For asymmetric elements this follows the
+        model that produced the hit; for symmetric elements it follows strand.
+    is_lower : bool
+        True when this terminus' external edge faces the lower genomic
+        coordinate. This is what :func:`compute_flank_coordinates` means by
+        ``is_left_terminus``.
+
+    Notes
+    -----
+    ``role`` and ``is_lower`` coincide only for forward-inserted elements. When
+    an element is inserted in reverse, the model that defines its left terminus
+    sits at the higher genomic coordinate, so ``role='left'`` pairs with
+    ``is_lower=False``. Conflating the two is what caused flanks to be taken
+    from inside reverse-inserted elements.
+    """
+
+    role: str
+    is_lower: bool
+
+
+def _pair_roles(left_hit: Any, right_hit: Any, config: Any) -> Tuple[str, str]:
+    """
+    Assign terminus roles to the two hits of a pair.
+
+    Parameters
+    ----------
+    left_hit, right_hit : namedtuple
+        The pair's hits in genomic order, as returned by :func:`flipTIRs`.
+    config : PairingConfig or None
+        Pairing configuration. Roles follow model identity when it describes an
+        asymmetric element.
+
+    Returns
+    -------
+    tuple of (str, str)
+        ``(role_of_left_hit, role_of_right_hit)``, each 'left' or 'right'.
+
+    Notes
+    -----
+    For a symmetric element, or when no asymmetric config is available, role
+    follows genomic order - there is nothing else to distinguish the ends.
+
+    For an asymmetric element the role follows the model that produced each
+    hit, so a reverse-inserted element correctly reports its left-terminus
+    model as the left terminus even though that hit lies at the higher
+    coordinate. Only labelling and output routing use this; the extracted
+    sequence is governed by genomic position.
+    """
+    if config is None or not config.is_asymmetric:
+        return 'left', 'right'
+
+    if left_hit.model == config.left_model and right_hit.model == config.right_model:
+        return 'left', 'right'
+    if left_hit.model == config.right_model and right_hit.model == config.left_model:
+        # Reverse-inserted element: genomic order is the mirror of model order.
+        return 'right', 'left'
+
+    # Models do not match the config (e.g. a pair carried over from another
+    # pairing-map row). Fall back to genomic order rather than guessing.
+    return 'left', 'right'
+
+
+def resolve_terminus(hit: Any, config: Any) -> Optional[TerminusAssignment]:
+    """
+    Determine a hit's terminus role and which genomic side its outer edge faces.
+
+    Parameters
+    ----------
+    hit : namedtuple
+        Hit record with at least ``model`` and ``strand``.
+    config : PairingConfig
+        Pairing configuration supplying the models and expected strands.
+
+    Returns
+    -------
+    TerminusAssignment or None
+        None when the terminus cannot be determined from a single hit: an
+        unrecognised model, or a symmetric same-strand orientation (F,F / R,R)
+        where one hit alone carries no information about which end it is.
+
+    Notes
+    -----
+    For asymmetric configurations the role comes from the model name, and the
+    insertion direction is inferred by comparing the hit's strand with the
+    strand the configuration expects for that role. A match means a forward
+    insertion, where role and genomic side agree; a mismatch means the element
+    is inserted in reverse and the sides swap.
+
+    For symmetric configurations with differing strands (F,R / R,F) the strand
+    alone gives both role and side, and is invariant to insertion direction.
+    """
+    if config is None:
+        return None
+
+    if config.is_asymmetric:
+        if hit.model == config.left_model:
+            role = 'left'
+            expected_strand = config.left_strand
+        elif hit.model == config.right_model:
+            role = 'right'
+            expected_strand = config.right_strand
+        else:
+            return None
+
+        forward_insertion = hit.strand == expected_strand
+        if forward_insertion:
+            is_lower = role == 'left'
+        else:
+            # Element inserted in reverse: the left terminus is now at the
+            # higher coordinate and vice versa.
+            is_lower = role == 'right'
+        return TerminusAssignment(role=role, is_lower=is_lower)
+
+    # Symmetric model - distinguish by strand when the strands differ
+    if config.left_strand != config.right_strand:
+        if hit.strand == config.left_strand:
+            return TerminusAssignment(role='left', is_lower=True)
+        elif hit.strand == config.right_strand:
+            return TerminusAssignment(role='right', is_lower=False)
+        return None
+
+    # Same-strand symmetric pairing (F,F or R,R) - can't determine without pair
+    return None
+
+
 def writeFlanks(
     outDir: Optional[str] = None,
     hitTable: Optional[pd.DataFrame] = None,
@@ -2182,6 +2454,7 @@ def writeFlanks(
     write_paired: bool = False,
     genome_descriptions: Optional[Dict[str, str]] = None,
     blastdb: Optional[str] = None,
+    pad_flanks: bool = True,
 ) -> None:
     """
     Extract and write external flanking sequences for terminus hits to FASTA files.
@@ -2225,6 +2498,10 @@ def writeFlanks(
         Dictionary mapping sequence IDs to their descriptions.
     blastdb : str, optional
         Path to BLAST database. Alternative to genome.
+    pad_flanks : bool, default True
+        Pad flanks with N where they run past a contig boundary, so every
+        record is ``flank_len`` bases. Padded records carry a ``padded:L,R``
+        field in their description. When False, such flanks are truncated.
 
     Returns
     -------
@@ -2255,8 +2532,8 @@ def writeFlanks(
     assert model_lengths is not None, 'model_lengths cannot be None'
     assert paired is not None, 'paired cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
-    assert genome is not None or blastdb is not None, (
-        'Either genome or blastdb must be provided'
+    source = make_source(
+        genome=genome, blastdb=blastdb, descriptions=genome_descriptions
     )
 
     # When config is None (e.g. pairing-map mode with multiple configs) unpaired
@@ -2338,6 +2615,7 @@ def writeFlanks(
         hit: Any,
         is_left: bool,
         record_id: str,
+        role: Optional[str] = None,
     ) -> Optional[SeqRecord]:
         """
         Build a SeqRecord for the external flank of a single terminus hit.
@@ -2351,119 +2629,54 @@ def writeFlanks(
         record_id : str
             Identifier to assign to the resulting SeqRecord.
 
+        role : str, optional
+            Terminus role, 'left' or 'right', used for the _L/_R suffix.
+            Defaults to the genomic side given by ``is_left``, which is the
+            same thing except for reverse-inserted asymmetric elements.
+
         Returns
         -------
         SeqRecord or None
             The flank SeqRecord, or None if the flank cannot be extracted
             (missing model length, missing HMM coords, offset exceeds max,
-            or sequence extraction failure).
+            or a region that does not overlap the contig).
         """
-        model = hit.model
-        model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
-        if model_len is None:
-            logging.warning(f'Model length not found for {model}, skipping flank')
-            return None
-
         hmm_start, hmm_end = get_hmm_coords(hit.idx)
-        if hmm_start is None or hmm_end is None:
-            logging.debug(f'HMM coordinates unavailable for hit {hit.idx}, skipping')
-            return None
-
-        flank_start, flank_end, offset = compute_flank_coordinates(
-            hit_start=int(hit.hitStart),
-            hit_end=int(hit.hitEnd),
-            strand=hit.strand,
-            is_left_terminus=is_left,
+        flank = extract_terminus_flank(
+            source=source,
+            hit=hit,
+            is_left=is_left,
+            model_len=model_lengths.get(hit.model) if model_lengths else None,  # type: ignore[union-attr]
             hmm_start=hmm_start,
             hmm_end=hmm_end,
-            model_len=model_len,
             flank_len=flank_len,
+            flank_max_offset=flank_max_offset,
+            pad=pad_flanks,
         )
-
-        if flank_max_offset is not None and offset > flank_max_offset:
-            logging.debug(
-                f'Skipping flank for hit {hit.idx}: offset {offset} > max {flank_max_offset}'
-            )
+        if flank is None:
             return None
 
-        # Check if the flank region falls entirely before the contig start.
-        # When flank_end < 1 both coords would be clamped to 1, producing a
-        # spurious 1 bp extraction rather than the expected empty result.
-        if flank_end < 1:
-            logging.warning(
-                f'Flank for hit {hit.idx} on {hit.target} falls entirely before '
-                f'contig start (computed coords {flank_start}–{flank_end}), skipping'
-            )
-            return None
-
-        # Clamp to valid 1-based range
-        flank_start = max(1, flank_start)
-        flank_end = max(1, flank_end)
-
-        if flank_start > flank_end:
-            logging.debug(f'Empty flank region for hit {hit.idx}, skipping')
-            return None
-
-        # Extract sequence (always on + strand for genomic orientation)
-        if blastdb:
-            seq_str = extract_from_blastdb(
-                blastdb, hit.target, flank_start, flank_end, '+'
-            )
-        else:
-            chrom = genome[hit.target]
-            # Clamp end to chromosome length
-            chrom_len = len(chrom)
-            if flank_start > chrom_len:
-                logging.warning(
-                    f'Flank for hit {hit.idx} on {hit.target} falls entirely after '
-                    f'contig end (coords {flank_start}–{flank_end}, '
-                    f'contig length {chrom_len}), skipping'
-                )
-                return None
-            flank_end = min(flank_end, chrom_len)
-            seq_str = str(chrom[flank_start - 1 : flank_end])
-
-        if seq_str is None:
-            logging.warning(
-                f'Failed to extract flank sequence for hit {hit.idx}, skipping'
-            )
-            return None
-
-        # Warn if the extracted flank is shorter than the requested length.
-        # This happens when the flank region is partially outside the contig.
-        # When using blastdb, an extraction longer than the requested window
-        # indicates that blastdbcmd received an invalid (out-of-bounds) range
-        # and returned an unexpected amount of sequence; reject it.
-        actual_len = len(seq_str)
-        if actual_len > flank_len:
-            logging.warning(
-                f'Flank extraction for hit {hit.idx} on {hit.target} returned '
-                f'{actual_len}bp but expected {flank_len}bp '
-                f'(coords {flank_start}–{flank_end}). '
-                f'Contig may be shorter than the requested flank region, skipping'
-            )
-            return None
-        if actual_len < flank_len:
-            logging.warning(
-                f'Flank for hit {hit.idx} on {hit.target} is truncated at '
-                f'contig boundary: expected {flank_len}bp, '
-                f'extracted {actual_len}bp (coords {flank_start}–{flank_end})'
-            )
-
-        record = SeqRecord(Seq.Seq(seq_str))
-        side = 'L' if is_left else 'R'
+        record = SeqRecord(Seq.Seq(flank.seq))
+        # The _L/_R suffix names the terminus ROLE. It defaults to the genomic
+        # side, which is the same thing for symmetric elements and for forward
+        # insertions; callers pass an explicit role where the two can differ.
+        effective_role = role if role is not None else ('left' if is_left else 'right')
+        side = 'L' if effective_role == 'left' else 'R'
         record.id = f'{record_id}_{side}'
         record.name = record.id
 
         coord_info = (
-            f'[{hit.target}:+ {flank_start}_{flank_end}'
+            f'[{hit.target}:+ {flank.start}_{flank.end}'
             f' hit:{hit.strand}:{hit.hitStart}_{hit.hitEnd}'
-            f' offset:{offset}]'
+            f' offset:{flank.offset}'
         )
-        if genome_descriptions and hit.target in genome_descriptions:
-            record.description = f'{coord_info} {genome_descriptions[hit.target]}'
-        else:
-            record.description = coord_info
+        if flank.is_padded:
+            coord_info += f' padded:{flank.left_pad},{flank.right_pad}'
+        coord_info += ']'
+
+        record.description = annotate(
+            source, hit.target, coord_info, genome_descriptions
+        )
 
         return record
 
@@ -2479,7 +2692,25 @@ def writeFlanks(
     def _make_paired_flank_record(
         source_rec: SeqRecord, element_id: str, pair_id: str, suffix: str
     ) -> SeqRecord:
-        """Create a paired-only flank record with element ID in the header."""
+        """
+        Create a paired-only flank record with element ID in the header.
+
+        Parameters
+        ----------
+        source_rec : SeqRecord
+            Record to copy the sequence and description from.
+        element_id : str
+            Element identifier for the new record ID.
+        pair_id : str
+            Pair identifier for the new record ID.
+        suffix : str
+            Trailing component of the new record ID, e.g. 'L' or 'R'.
+
+        Returns
+        -------
+        SeqRecord
+            A new record carrying the element ID in its header.
+        """
         rec = SeqRecord(source_rec.seq)
         rec.id = f'{element_id}_{pair_id}_{suffix}'
         rec.name = rec.id
@@ -2498,34 +2729,45 @@ def writeFlanks(
             pair_id = f'{model}_{model_counter}'
             element_id = f'Element_{model_counter}'
 
-            left_rec = build_flank_record(leftHit, is_left=True, record_id=pair_id)
-            right_rec = build_flank_record(rightHit, is_left=False, record_id=pair_id)
-
-            # Use canonical model names for grouping when config specifies an
-            # asymmetric pairing.  This prevents creating spurious extra flank
-            # files when the genomic position order differs from the config's
-            # left/right model assignment.
-            left_model_key = (
-                config.left_model
-                if config is not None and config.is_asymmetric
-                else leftHit.model
+            # Geometry is positional: the lower-coordinate hit's outer edge
+            # faces lower coordinates. That stays true whichever way the
+            # element is inserted, so the extracted sequence is unaffected by
+            # the routing decision below.
+            left_role, right_role = _pair_roles(leftHit, rightHit, config)
+            left_rec = build_flank_record(
+                leftHit, is_left=True, record_id=pair_id, role=left_role
             )
-            right_model_key = (
-                config.right_model
-                if config is not None and config.is_asymmetric
-                else rightHit.model
+            right_rec = build_flank_record(
+                rightHit, is_left=False, record_id=pair_id, role=right_role
             )
 
-            if left_rec:
-                left_flanks.setdefault(left_model_key, []).append(left_rec)
-                paired_left_flanks.setdefault(left_model_key, []).append(
-                    _make_paired_flank_record(left_rec, element_id, pair_id, 'L')
+            # Routing is by terminus ROLE, so each model's termini always land
+            # in that model's file. For a reverse-inserted asymmetric element
+            # the roles are swapped relative to genomic order; grouping by
+            # position would put the right model's terminus in the left
+            # model's file, mixing the two models' sequences in one output.
+            for rec, hit, role in (
+                (left_rec, leftHit, left_role),
+                (right_rec, rightHit, right_role),
+            ):
+                if not rec:
+                    continue
+                model_key = (
+                    (config.left_model if role == 'left' else config.right_model)
+                    if config is not None and config.is_asymmetric
+                    else hit.model
                 )
-            if right_rec:
-                right_flanks.setdefault(right_model_key, []).append(right_rec)
-                paired_right_flanks.setdefault(right_model_key, []).append(
-                    _make_paired_flank_record(right_rec, element_id, pair_id, 'R')
-                )
+                suffix = 'L' if role == 'left' else 'R'
+                if role == 'left':
+                    left_flanks.setdefault(model_key, []).append(rec)
+                    paired_left_flanks.setdefault(model_key, []).append(
+                        _make_paired_flank_record(rec, element_id, pair_id, suffix)
+                    )
+                else:
+                    right_flanks.setdefault(model_key, []).append(rec)
+                    paired_right_flanks.setdefault(model_key, []).append(
+                        _make_paired_flank_record(rec, element_id, pair_id, suffix)
+                    )
 
             paired_hit_ids.add(leftHit.idx)
             paired_hit_ids.add(rightHit.idx)
@@ -2584,19 +2826,24 @@ def writeFlanks(
                     )
                     continue
                 else:
-                    terminus_type = _determine_terminus_type(hit, config)
-                    if terminus_type is None:
+                    terminus = resolve_terminus(hit, config)
+                    if terminus is None:
                         logging.debug(
                             f'Cannot determine terminus type for unpaired hit {hit.idx} '
                             f'(model={hit.model}, strand={hit.strand}), skipping'
                         )
                         continue
 
-                    is_left = terminus_type == 'left'
+                    # Geometry follows the genomic side the outer edge faces;
+                    # grouping follows the terminus role. These differ for a
+                    # reverse-inserted asymmetric element, where the left
+                    # model's hit lies at the higher coordinate.
                     record_id = f'{model}_{hit_id}_unpaired'
-                    rec = build_flank_record(hit, is_left=is_left, record_id=record_id)
+                    rec = build_flank_record(
+                        hit, is_left=terminus.is_lower, record_id=record_id
+                    )
                     if rec:
-                        if is_left:
+                        if terminus.role == 'left':
                             left_flanks.setdefault(hit.model, []).append(rec)
                         else:
                             right_flanks.setdefault(hit.model, []).append(rec)
@@ -2699,7 +2946,7 @@ def load_tsd_length_map(tsd_map_file: str) -> Dict[str, int]:
     ----------
     tsd_map_file : str
         Path to tab-delimited file mapping model pair keys to TSD lengths.
-        Format: left_model<TAB>right_model<TAB>tsd_length
+        Format: left_model<TAB>right_model<TAB>tsd_length.
 
     Returns
     -------
@@ -2768,7 +3015,7 @@ def reconstruct_target_site(
     right_flank_seq: str,
     tsd_length: int = 0,
     tsd_in_model: bool = False,
-) -> Tuple[str, str, str, int]:
+) -> Tuple[str, str, str, Optional[int]]:
     """
     Reconstruct a target site by joining left and right flanking sequences.
 
@@ -2818,9 +3065,12 @@ def reconstruct_target_site(
     right_tsd : str
         TSD sequence extracted from the right side (empty string if
         ``tsd_length`` is 0).
-    tsd_hamming : int
-        Hamming distance between the left and right TSD sequences
-        (0 if ``tsd_length`` is 0).
+    tsd_hamming : int or None
+        Hamming distance between the left and right TSD sequences over
+        informative (non-padded) positions. ``0`` when ``tsd_length`` is 0.
+        ``None`` when the TSDs cannot be compared — unequal lengths, or every
+        position padded at a contig boundary — which callers must render as
+        "unverified" rather than as a distance of 0.
 
     Notes
     -----
@@ -2851,13 +3101,23 @@ def reconstruct_target_site(
             if len(right_flank_seq) >= tsd_length
             else right_flank_seq
         )
-        # Trim TSD from right flank to de-duplicate
-        trimmed_right = right_flank_seq[tsd_length:]
+        # Trim one TSD copy from the right flank to de-duplicate. The min() is
+        # for clarity only - slicing past the end of a shorter flank already
+        # yields '' - but it makes the intent explicit: never trim more than is
+        # there.
+        trimmed_right = right_flank_seq[min(tsd_length, len(right_flank_seq)) :]
         target_site = left_flank_seq + trimmed_right
 
-        if len(left_tsd) == len(right_tsd) and len(left_tsd) > 0:
-            tsd_hamming = hamming_distance(left_tsd.upper(), right_tsd.upper())
-        if tsd_hamming > 0:
+        # None means the TSDs could not be compared (unequal length, or every
+        # position padded). It must stay None rather than collapse to 0, which
+        # would report an unverifiable TSD as a perfect duplication.
+        tsd_hamming, _compared = compare_tsds(left_tsd, right_tsd)
+        if tsd_hamming is None:
+            logging.warning(
+                f'TSD could not be verified: left={left_tsd or "-"} '
+                f'right={right_tsd or "-"}'
+            )
+        elif tsd_hamming > 0:
             logging.warning(
                 f'TSD mismatch (hamming={tsd_hamming}): '
                 f'left={left_tsd} right={right_tsd}'
@@ -2866,6 +3126,53 @@ def reconstruct_target_site(
         target_site = left_flank_seq + right_flank_seq
 
     return target_site, left_tsd, right_tsd, tsd_hamming
+
+
+def compare_tsds(
+    left_tsd: str,
+    right_tsd: str,
+    pad_char: str = 'N',
+) -> Tuple[Optional[int], int]:
+    """
+    Compare two TSD sequences, ignoring positions that were padded.
+
+    Parameters
+    ----------
+    left_tsd, right_tsd : str
+        TSD sequences of equal length, possibly containing pad characters where
+        the region ran past a contig boundary.
+    pad_char : str, default 'N'
+        Character marking synthesised positions.
+
+    Returns
+    -------
+    hamming : int or None
+        Hamming distance over informative positions, or None if the TSDs cannot
+        be compared at all (different lengths, or no informative position).
+    compared : int
+        Number of positions actually compared.
+
+    Notes
+    -----
+    A padded position is not a mismatch and is not a match — no base was
+    observed there. Counting it either way misreports the evidence: scoring it
+    as a match inflates confidence in a duplication that was never seen, and
+    scoring it as a mismatch invents a discrepancy. Both are excluded, and a
+    ``None`` result means the comparison could not be made and must not be
+    rendered as a distance.
+    """
+    if not left_tsd or not right_tsd or len(left_tsd) != len(right_tsd):
+        return None, 0
+
+    pairs = [
+        (a, b)
+        for a, b in zip(left_tsd.upper(), right_tsd.upper())
+        if a != pad_char and b != pad_char
+    ]
+    if not pairs:
+        return None, 0
+
+    return sum(1 for a, b in pairs if a != b), len(pairs)
 
 
 def format_interleaved_flanks(
@@ -2929,6 +3236,7 @@ def writeTargetSites(
     tsd_length_map: Optional[Dict[str, int]] = None,
     genome_descriptions: Optional[Dict[str, str]] = None,
     blastdb: Optional[str] = None,
+    pad_flanks: bool = True,
 ) -> None:
     """
     Reconstruct and write target sites for paired terminus hits.
@@ -2971,6 +3279,11 @@ def writeTargetSites(
         Dictionary mapping sequence IDs to descriptions.
     blastdb : str, optional
         Path to BLAST database.
+    pad_flanks : bool, default True
+        Pad flanks and in-model TSDs with N where they run past a contig
+        boundary. Reconstructed sites built from padded sequence are marked
+        with a ``padded=`` field, and a TSD that cannot be verified reports
+        ``tsd_hamming=NA`` rather than 0.
 
     Returns
     -------
@@ -2979,17 +3292,17 @@ def writeTargetSites(
 
     Notes
     -----
-    Output files:
-      {prefix}target_sites.fasta – reconstructed target sites
-      {prefix}interleaved_flanks.fasta – interleaved left/right flanks
+    Output files, written per model pair:
+      {prefix}{pair_label}_target_sites_{N}.fasta – reconstructed target sites
+      {prefix}{pair_label}_interleaved_flanks_{N}.fasta – interleaved flanks
     """
     assert outDir is not None, 'outDir cannot be None'
     assert hitTable is not None, 'hitTable cannot be None'
     assert model_lengths is not None, 'model_lengths cannot be None'
     assert paired is not None, 'paired cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
-    assert genome is not None or blastdb is not None, (
-        'Either genome or blastdb must be provided'
+    source = make_source(
+        genome=genome, blastdb=blastdb, descriptions=genome_descriptions
     )
 
     if prefix:
@@ -3004,6 +3317,19 @@ def writeTargetSites(
     # Helper: look up hmmStart / hmmEnd for a hit by its DataFrame index
     # ------------------------------------------------------------------
     def get_hmm_coords(hit_idx: int) -> Tuple[Optional[int], Optional[int]]:
+        """
+        Retrieve HMM alignment coordinates for a hit.
+
+        Parameters
+        ----------
+        hit_idx : int
+            DataFrame row index for the hit.
+
+        Returns
+        -------
+        tuple of (int or None, int or None)
+            (hmmStart, hmmEnd), or (None, None) if unavailable.
+        """
         if hit_idx not in hitTable.index:  # type: ignore[union-attr]
             return None, None
         row = hitTable.loc[hit_idx]  # type: ignore[union-attr]
@@ -3020,6 +3346,24 @@ def writeTargetSites(
     is_nested = bool(hitIndex) and isinstance(next(iter(hitIndex.values())), dict)
 
     def get_hit_record(hit_id: int) -> Any:
+        """
+        Retrieve a hit record from a nested or flat hitIndex.
+
+        Parameters
+        ----------
+        hit_id : int
+            Index of the hit record.
+
+        Returns
+        -------
+        namedtuple
+            Hit record with model, target, hitStart, hitEnd, strand, idx, evalue.
+
+        Raises
+        ------
+        KeyError
+            If hit_id is not present in a nested hitIndex.
+        """
         if is_nested:
             for _m, model_hits in hitIndex.items():
                 if hit_id in model_hits:
@@ -3030,86 +3374,52 @@ def writeTargetSites(
     # ------------------------------------------------------------------
     # Helper: extract flank sequence for one hit
     # ------------------------------------------------------------------
-    def extract_flank(hit: Any, is_left: bool) -> Optional[str]:
-        model = hit.model
-        model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
-        if model_len is None:
-            return None
+    def extract_flank(hit: Any, is_left: bool) -> Optional[FlankResult]:
+        """
+        Extract the external flank for one terminus hit of a pair.
 
+        Parameters
+        ----------
+        hit : namedtuple
+            Hit record with target, hitStart, hitEnd, strand, idx.
+        is_left : bool
+            True if the hit is the left terminus of the pair.
+
+        Returns
+        -------
+        FlankResult or None
+            The flank, or None if it could not be extracted.
+        """
         hmm_start, hmm_end = get_hmm_coords(hit.idx)
-        if hmm_start is None or hmm_end is None:
-            return None
-
-        flank_start, flank_end, offset = compute_flank_coordinates(
-            hit_start=int(hit.hitStart),
-            hit_end=int(hit.hitEnd),
-            strand=hit.strand,
-            is_left_terminus=is_left,
+        return extract_terminus_flank(
+            source=source,
+            hit=hit,
+            is_left=is_left,
+            model_len=model_lengths.get(hit.model) if model_lengths else None,  # type: ignore[union-attr]
             hmm_start=hmm_start,
             hmm_end=hmm_end,
-            model_len=model_len,
             flank_len=flank_len,
+            flank_max_offset=flank_max_offset,
+            pad=pad_flanks,
         )
-
-        if flank_max_offset is not None and offset > flank_max_offset:
-            return None
-
-        # Check if the flank region falls entirely before the contig start.
-        # When flank_end < 1 both coords would be clamped to 1, producing a
-        # spurious 1 bp extraction rather than the expected empty result.
-        if flank_end < 1:
-            logging.warning(
-                f'Flank for hit {hit.idx} on {hit.target} falls entirely before '
-                f'contig start (computed coords {flank_start}–{flank_end}), skipping'
-            )
-            return None
-
-        flank_start = max(1, flank_start)
-        flank_end = max(1, flank_end)
-
-        if flank_start > flank_end:
-            return None
-
-        if blastdb:
-            seq_str = extract_from_blastdb(
-                blastdb, hit.target, flank_start, flank_end, '+'
-            )
-        else:
-            chrom = genome[hit.target]
-            chrom_len = len(chrom)
-            if flank_start > chrom_len:
-                logging.warning(
-                    f'Flank for hit {hit.idx} on {hit.target} falls entirely after '
-                    f'contig end (coords {flank_start}–{flank_end}, '
-                    f'contig length {chrom_len}), skipping'
-                )
-                return None
-            flank_end = min(flank_end, chrom_len)
-            seq_str = str(chrom[flank_start - 1 : flank_end])
-
-        if seq_str is not None:
-            actual_len = len(seq_str)
-            if actual_len > flank_len:
-                logging.warning(
-                    f'Flank extraction for hit {hit.idx} on {hit.target} returned '
-                    f'{actual_len}bp but expected {flank_len}bp '
-                    f'(coords {flank_start}–{flank_end}). '
-                    f'Contig may be shorter than the requested flank region, skipping'
-                )
-                return None
-            if actual_len < flank_len:
-                logging.warning(
-                    f'Flank for hit {hit.idx} on {hit.target} is truncated at '
-                    f'contig boundary: expected {flank_len}bp, '
-                    f'extracted {actual_len}bp (coords {flank_start}–{flank_end})'
-                )
-
-        return seq_str
 
     # ------------------------------------------------------------------
     # Helper: resolve TSD length for a pair of models
     # ------------------------------------------------------------------
     def get_tsd_length_for_pair(left_model: str, right_model: str) -> int:
+        """
+        Resolve the TSD length to use for a pair of models.
+
+        Parameters
+        ----------
+        left_model, right_model : str
+            Model names of the paired termini.
+
+        Returns
+        -------
+        int
+            TSD length from the map, falling back to the default tsd_length.
+        """
         if tsd_length_map:
             key = f'{left_model}\t{right_model}'
             if key in tsd_length_map:
@@ -3149,10 +3459,17 @@ def writeTargetSites(
 
         Returns
         -------
-        str or None
-            The TSD sequence (always on the forward/+ strand), or None if
-            the coordinates cannot be determined or the sequence cannot be
-            extracted.
+        PaddedRegion or None
+            The TSD region (always on the forward/+ strand), or None if the
+            coordinates cannot be determined or the region does not overlap the
+            contig.
+
+        Notes
+        -----
+        The region is padded to ``tsd_len`` when it runs past a contig
+        boundary. A padded TSD is not evidence of a duplication and callers
+        must exclude the padded positions from any comparison — see
+        ``_compare_tsds``.
         """
         model = hit.model
         model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
@@ -3180,22 +3497,18 @@ def writeTargetSites(
             tsd_length=tsd_len,
         )
 
-        if tsd_start < 1 or tsd_end < tsd_start:
+        if tsd_end < tsd_start:
             logging.debug(
                 f'Invalid TSD coordinates for hit {hit.idx}: {tsd_start}-{tsd_end}'
             )
             return None
 
-        if blastdb:
-            return extract_from_blastdb(blastdb, hit.target, tsd_start, tsd_end, '+')
-        else:
-            chrom = genome[hit.target]
-            chrom_len = len(chrom)
-            tsd_start = max(1, tsd_start)
-            tsd_end = min(tsd_end, chrom_len)
-            if tsd_start > tsd_end:
-                return None
-            return str(chrom[tsd_start - 1 : tsd_end])
+        # Pad rather than clamp. A TSD silently returned short at a contig
+        # boundary used to be compared against a full-length partner, and the
+        # length mismatch made the comparison be skipped entirely and reported
+        # as hamming 0 - a truncated, unverifiable TSD was indistinguishable
+        # from a perfect match.
+        return fetch_region_padded(source, hit.target, tsd_start, tsd_end)
 
     # ------------------------------------------------------------------
     # Determine canonical pair key for file naming
@@ -3226,14 +3539,20 @@ def writeTargetSites(
             leftHit, rightHit = flipTIRs(x, y)
             pair_id = f'{prefix_str}{model}_{model_counter}'
 
-            left_seq = extract_flank(leftHit, is_left=True)
-            right_seq = extract_flank(rightHit, is_left=False)
+            left_flank = extract_flank(leftHit, is_left=True)
+            right_flank = extract_flank(rightHit, is_left=False)
 
-            if left_seq is None or right_seq is None:
+            if left_flank is None or right_flank is None:
                 logging.debug(
                     f'Could not extract flanks for pair {pair_id}, skipping target site'
                 )
                 continue
+
+            left_seq = left_flank.seq
+            right_seq = right_flank.seq
+            # Any padded base in the flanks, or in an in-model TSD below, makes
+            # the reconstructed target site partly synthetic.
+            padded = left_flank.is_padded or right_flank.is_padded
 
             pair_tsd_len = get_tsd_length_for_pair(leftHit.model, rightHit.model)
 
@@ -3241,27 +3560,37 @@ def writeTargetSites(
                 # TSD is inside the terminus model – extract from the inner boundary
                 # of each hit, not from the external flank.
                 # Reconstruction: left_flank + TSD + right_flank
-                left_tsd = (
-                    extract_inner_tsd(leftHit, is_left=True, tsd_len=pair_tsd_len) or ''
+                left_region = extract_inner_tsd(
+                    leftHit, is_left=True, tsd_len=pair_tsd_len
                 )
-                right_tsd = (
-                    extract_inner_tsd(rightHit, is_left=False, tsd_len=pair_tsd_len)
-                    or ''
+                right_region = extract_inner_tsd(
+                    rightHit, is_left=False, tsd_len=pair_tsd_len
                 )
+                left_tsd = left_region.seq if left_region else ''
+                right_tsd = right_region.seq if right_region else ''
+                tsd_padded = bool(
+                    (left_region and left_region.is_padded)
+                    or (right_region and right_region.is_padded)
+                )
+                padded = padded or tsd_padded
 
                 # Use left TSD (arbitrarily) to fill the gap; warn if mismatched
                 tsd_seq = left_tsd if left_tsd else right_tsd
                 target_site = left_seq + tsd_seq + right_seq
 
-                if left_tsd and right_tsd and len(left_tsd) == len(right_tsd):
-                    tsd_hamming = hamming_distance(left_tsd.upper(), right_tsd.upper())
-                    if tsd_hamming > 0:
-                        logging.warning(
-                            f'TSD mismatch for pair {pair_id} '
-                            f'(hamming={tsd_hamming}): left={left_tsd} right={right_tsd}'
-                        )
-                else:
-                    tsd_hamming = 0
+                tsd_hamming, tsd_compared = compare_tsds(left_tsd, right_tsd)
+                if tsd_hamming is None:
+                    logging.warning(
+                        f'TSD for pair {pair_id} could not be verified '
+                        f'(left={left_tsd or "-"} right={right_tsd or "-"}); '
+                        'reporting as unverified rather than as a match'
+                    )
+                elif tsd_hamming > 0:
+                    logging.warning(
+                        f'TSD mismatch for pair {pair_id} '
+                        f'(hamming={tsd_hamming} over {tsd_compared}bp): '
+                        f'left={left_tsd} right={right_tsd}'
+                    )
             else:
                 # TSD is outside the model – it is the innermost n bases of each flank.
                 # reconstruct_target_site() trims one copy and joins.
@@ -3272,18 +3601,35 @@ def writeTargetSites(
                     tsd_in_model=False,
                 )
 
-            # Build metadata for FASTA header
+            # Report the header in terms of terminus ROLE, so left_model and
+            # left_flank_hit always describe the same terminus. For a
+            # reverse-inserted asymmetric element that is the hit at the higher
+            # coordinate, which element_orientation records explicitly.
+            left_role, _right_role = _pair_roles(leftHit, rightHit, config)
+            reversed_insertion = left_role == 'right'
+            role_left_hit = rightHit if reversed_insertion else leftHit
+            role_right_hit = leftHit if reversed_insertion else rightHit
+
+            # Build metadata for FASTA header. A TSD that could not be compared
+            # is reported as 'NA', never as 0 - a padded or absent TSD must not
+            # read as a confirmed perfect duplication.
             meta_parts = [
                 f'flank_len={flank_len}',
                 f'tsd_len={pair_tsd_len}',
                 f'tsd_in_model={tsd_in_model}',
-                f'left_model={leftHit.model}',
-                f'right_model={rightHit.model}',
+                f'left_model={role_left_hit.model}',
+                f'right_model={role_right_hit.model}',
                 f'contig={leftHit.target}',
-                f'left_flank_hit={leftHit.strand}:{leftHit.hitStart}_{leftHit.hitEnd}',
-                f'right_flank_hit={rightHit.strand}:{rightHit.hitStart}_{rightHit.hitEnd}',
-                f'tsd_hamming={tsd_hamming}',
+                f'element_orientation={"reverse" if reversed_insertion else "forward"}',
+                f'left_flank_hit={role_left_hit.strand}:{role_left_hit.hitStart}_{role_left_hit.hitEnd}',
+                f'right_flank_hit={role_right_hit.strand}:{role_right_hit.hitStart}_{role_right_hit.hitEnd}',
+                f'tsd_hamming={"NA" if tsd_hamming is None else tsd_hamming}',
             ]
+            if padded:
+                meta_parts.append(
+                    f'padded=left:{left_flank.left_pad},{left_flank.right_pad};'
+                    f'right:{right_flank.left_pad},{right_flank.right_pad}'
+                )
             if left_tsd:
                 meta_parts.append(f'left_tsd={left_tsd}')
             if right_tsd:
@@ -3336,7 +3682,21 @@ def writeTargetSites(
     # Helper: write single-line non-wrapped FASTA
     # ------------------------------------------------------------------
     def _write_single_line_fasta(records: List[Any], filepath: str) -> None:
-        """Write SeqRecords as single-line non-wrapped FASTA."""
+        """
+        Write SeqRecords as single-line non-wrapped FASTA.
+
+        Parameters
+        ----------
+        records : list
+            SeqRecords to write.
+        filepath : str
+            Destination path.
+
+        Returns
+        -------
+        None
+            Writes to disk.
+        """
         with open(filepath, 'w') as handle:
             for rec in records:
                 handle.write(f'>{rec.id} {rec.description}\n')
@@ -3623,6 +3983,54 @@ def gffWrite(
 """
 
 
+VALID_ORIENTATION_CODES = ('F', 'R')
+
+
+def parse_orientation(orientation: str) -> List[str]:
+    """
+    Parse and validate an orientation string such as 'F,R'.
+
+    Parameters
+    ----------
+    orientation : str
+        Two comma-separated codes, each 'F' (forward, + strand) or 'R'
+        (reverse, - strand). Case-insensitive and whitespace-tolerant.
+
+    Returns
+    -------
+    list of str
+        Upper-cased ``[left_code, right_code]``.
+
+    Raises
+    ------
+    ValueError
+        If the value is not exactly two valid codes.
+
+    Notes
+    -----
+    Validating here means a malformed orientation fails loudly at
+    configuration time. Previously the string was split without upper-casing,
+    so 'f,r' silently produced two '-' strands, and any unrecognised value left
+    the strand-combination table empty in
+    :func:`parseHitsGeneral`, yielding zero pairs with no explanation.
+    """
+    if not isinstance(orientation, str):
+        raise ValueError(
+            f'Orientation must be a string like "F,R", got {type(orientation).__name__}'
+        )
+
+    codes = [part.strip().upper() for part in orientation.split(',')]
+
+    if len(codes) != 2 or any(c not in VALID_ORIENTATION_CODES for c in codes):
+        raise ValueError(
+            f'Invalid orientation {orientation!r}. Expected two comma-separated '
+            "codes, each 'F' (forward/+) or 'R' (reverse/-), "
+            "e.g. 'F,R' for TIRs or 'F,F' for LTRs."
+        )
+
+    return codes
+
+
 # New configuration class to manage pairing rules
 class PairingConfig:
     """
@@ -3681,7 +4089,7 @@ class PairingConfig:
             right_model: Model name for right terminus (None for symmetric)
             single_model: Model name when using same model for both ends
         """
-        self.orientation = orientation.split(',')
+        self.orientation = parse_orientation(orientation)
         self.left_strand = '+' if self.orientation[0] == 'F' else '-'
         self.right_strand = '+' if self.orientation[1] == 'F' else '-'
 
@@ -3780,28 +4188,33 @@ def parseHitsGeneral(
                     # For symmetric pairing, a hit can act as either left or right terminus
                     # depending on its strand and the config orientation
 
-                    if ref.strand == config.left_strand:
-                        # This hit matches the left terminus strand requirement
-                        # It should look for right terminus partners
+                    # A hit may satisfy the left role, the right role, or - when
+                    # the orientation is same-strand (F,F / R,R) - both. These
+                    # must be independent tests: an if/elif would let only the
+                    # left search run for F,F and R,R, so no hit would ever
+                    # collect an upstream candidate and reciprocity could never
+                    # be established.
+                    can_be_left = ref.strand == config.left_strand
+                    can_be_right = ref.strand == config.right_strand
 
-                        # Determine search direction based on orientation and strand
-                        if config.left_strand == '+' and config.right_strand == '+':
-                            # F,F on positive strand: left looks downstream (higher coords)
-                            search_direction = 'left_to_right'
-                        elif config.left_strand == '+' and config.right_strand == '-':
-                            # F,R: left(+) looks for right(-), still downstream
-                            search_direction = 'left_to_right'
-                        elif config.left_strand == '-' and config.right_strand == '+':
-                            # R,F: left(-) looks for right(+), upstream in genomic coords
-                            search_direction = 'right_to_left'
-                        elif config.left_strand == '-' and config.right_strand == '-':
-                            # R,R on negative strand: left(-) looks upstream (lower coords)
-                            search_direction = 'right_to_left'
+                    # The left terminus searches away from its own 5' end: on
+                    # '+' that is downstream, on '-' upstream. The right
+                    # terminus searches the opposite way.
+                    left_direction = (
+                        'left_to_right'
+                        if config.left_strand == '+'
+                        else 'right_to_left'
+                    )
+                    right_direction = (
+                        'right_to_left'
+                        if left_direction == 'left_to_right'
+                        else 'left_to_right'
+                    )
 
+                    if can_be_left:
                         logging.debug(
-                            f'Hit {UID} acting as LEFT terminus, searching {search_direction} for RIGHT partners on {config.right_strand} strand'
+                            f'Hit {UID} acting as LEFT terminus, searching {left_direction} for RIGHT partners on {config.right_strand} strand'
                         )
-
                         _find_candidates(
                             ref,
                             right_model,
@@ -3809,31 +4222,13 @@ def parseHitsGeneral(
                             hitsDict,
                             hitIndex,
                             maxDist_value,
-                            search_direction,
+                            left_direction,
                         )
 
-                    elif ref.strand == config.right_strand:
-                        # This hit matches the right terminus strand requirement
-                        # It should look for left terminus partners
-
-                        # Determine search direction (opposite of left terminus search)
-                        if config.left_strand == '+' and config.right_strand == '+':
-                            # F,F: right(+) looks upstream for left(+)
-                            search_direction = 'right_to_left'
-                        elif config.left_strand == '+' and config.right_strand == '-':
-                            # F,R: right(-) looks upstream for left(+)
-                            search_direction = 'right_to_left'
-                        elif config.left_strand == '-' and config.right_strand == '+':
-                            # R,F: right(+) looks downstream for left(-)
-                            search_direction = 'left_to_right'
-                        elif config.left_strand == '-' and config.right_strand == '-':
-                            # R,R: right(-) looks downstream for left(-)
-                            search_direction = 'left_to_right'
-
+                    if can_be_right:
                         logging.debug(
-                            f'Hit {UID} acting as RIGHT terminus, searching {search_direction} for LEFT partners on {config.left_strand} strand'
+                            f'Hit {UID} acting as RIGHT terminus, searching {right_direction} for LEFT partners on {config.left_strand} strand'
                         )
-
                         _find_candidates(
                             ref,
                             left_model,
@@ -3841,9 +4236,10 @@ def parseHitsGeneral(
                             hitsDict,
                             hitIndex,
                             maxDist_value,
-                            search_direction,
+                            right_direction,
                         )
-                    else:
+
+                    if not (can_be_left or can_be_right):
                         logging.debug(
                             f'Hit {UID} on strand {ref.strand} does not match required orientations ({config.left_strand}, {config.right_strand})'
                         )
@@ -3937,6 +4333,49 @@ def parseHitsGeneral(
     return hitIndex
 
 
+def inter_hit_distance(ref_hit: Any, candidate: Any, direction: str) -> int:
+    """
+    Genomic distance between the facing inner edges of two terminus hits.
+
+    Parameters
+    ----------
+    ref_hit : namedtuple
+        Reference hit with hitStart and hitEnd attributes.
+    candidate : namedtuple
+        Candidate partner hit with hitStart and hitEnd attributes.
+    direction : str
+        'left_to_right' when the candidate lies downstream of the reference,
+        'right_to_left' when it lies upstream.
+
+    Returns
+    -------
+    int
+        Separation between the two hits, i.e. the span of the element interior
+        between them. Negative when the hits overlap or are in the wrong order
+        for ``direction``.
+
+    Notes
+    -----
+    This is the quantity ``--maxdist`` limits: the gap between the termini, not
+    including the termini themselves. It is measured between the inner edge of
+    the upstream hit (its ``hitEnd``) and the inner edge of the downstream hit
+    (its ``hitStart``), which makes it independent of strand - the importers
+    already normalise every hit so that ``hitStart < hitEnd``.
+
+    The previous implementation measured from the upstream hit's inner edge to
+    the *downstream* hit's strand-relative 5' end, which for a minus-strand
+    partner is its far edge. That added the whole length of the partner
+    terminus to the measured distance, so the same element needed a larger
+    ``--maxdist`` purely because its terminus model was longer.
+    """
+    if direction == 'left_to_right':
+        upstream, downstream = ref_hit, candidate
+    else:  # 'right_to_left'
+        upstream, downstream = candidate, ref_hit
+
+    return int(downstream.hitStart) - int(upstream.hitEnd)
+
+
 def _check_distance(
     ref_hit: Any, candidate: Any, direction: str, maxDist: float
 ) -> bool:
@@ -3962,58 +4401,13 @@ def _check_distance(
 
     Notes
     -----
-    Handles strand-aware distance calculation. For negative strand hits, coordinates
-    are inverted in nhmmer output (hitStart > hitEnd). Calculates biological distance
-    from terminus 3' end to partner 5' end based on strand orientations.
+    Distance is the gap between the two hits, as computed by
+    :func:`inter_hit_distance`. A negative value means the candidate is on the
+    wrong side of the reference for the search direction, or the two hits
+    overlap, and the candidate is rejected.
     """
+    distance = inter_hit_distance(ref_hit, candidate, direction)
 
-    def get_terminus_position(hit: Any) -> Dict[str, int]:
-        """
-        Extract terminus positions based on strand orientation and biological direction.
-
-        Parameters
-        ----------
-        hit : namedtuple
-            Hit record with strand, hitStart, and hitEnd attributes.
-
-        Returns
-        -------
-        dict
-            Dictionary with keys: 'start', 'end', '5_prime', '3_prime' containing
-            genomic coordinates adjusted for strand orientation.
-
-        Notes
-        -----
-        For positive strand (+): hitStart < hitEnd, 5' = hitStart, 3' = hitEnd.
-        For negative strand (-): hitStart > hitEnd (flipped), 5' = hitEnd, 3' = hitStart.
-        The 5' and 3' positions represent biological directionality.
-        """
-        if hit.strand == '+':
-            # Positive strand: hitStart < hitEnd
-            # For left terminus: use 3' end (hitEnd)
-            # For right terminus: use 5' end (hitStart)
-            return {
-                'start': hit.hitStart,
-                'end': hit.hitEnd,
-                '5_prime': hit.hitStart,
-                '3_prime': hit.hitEnd,
-            }
-        else:
-            # Negative strand: hitStart > hitEnd (coordinates flipped)
-            # For left terminus: use 3' end (hitStart)
-            # For right terminus: use 5' end (hitEnd)
-            return {
-                'start': hit.hitEnd,
-                'end': hit.hitStart,
-                '5_prime': hit.hitEnd,
-                '3_prime': hit.hitStart,
-            }
-
-    # Get terminus positions for both hits
-    ref_pos = get_terminus_position(ref_hit)
-    cand_pos = get_terminus_position(candidate)
-
-    # Debug logging
     logging.debug('=== DISTANCE CHECK DEBUG ===')
     logging.debug(f'Direction: {direction}')
     logging.debug(
@@ -4022,52 +4416,6 @@ def _check_distance(
     logging.debug(
         f'Candidate: {candidate.model} strand={candidate.strand} coords=({candidate.hitStart}, {candidate.hitEnd})'
     )
-    logging.debug(f'Ref positions: {ref_pos}')
-    logging.debug(f'Candidate positions: {cand_pos}')
-
-    # Calculate distance based on biological relationship
-    if direction == 'left_to_right':
-        # Left terminus looking for right terminus downstream
-        # Distance from left terminus 3' end to right terminus 5' end
-        if ref_hit.strand == '+' and candidate.strand == '+':
-            # F,F orientation on + strand: left_end -> right_start
-            distance = cand_pos['5_prime'] - ref_pos['3_prime']
-        elif ref_hit.strand == '+' and candidate.strand == '-':
-            # F,R orientation: left_end -> right_start (right is on - strand)
-            distance = cand_pos['5_prime'] - ref_pos['3_prime']
-        elif ref_hit.strand == '-' and candidate.strand == '+':
-            # R,F orientation: left_end -> right_start (left is on - strand)
-            distance = cand_pos['5_prime'] - ref_pos['3_prime']
-        elif ref_hit.strand == '-' and candidate.strand == '-':
-            # R,R orientation on - strand: left_end -> right_start
-            distance = cand_pos['5_prime'] - ref_pos['3_prime']
-        else:
-            logging.error(
-                f'Unexpected strand combination: {ref_hit.strand}, {candidate.strand}'
-            )
-            return False
-
-    else:  # 'right_to_left'
-        # Right terminus looking for left terminus upstream
-        # Distance from right terminus 5' end to left terminus 3' end (should be negative, so we flip)
-        if ref_hit.strand == '+' and candidate.strand == '+':
-            # F,F orientation: right_start -> left_end (upstream)
-            distance = ref_pos['5_prime'] - cand_pos['3_prime']
-        elif ref_hit.strand == '-' and candidate.strand == '+':
-            # R,F orientation: right_start -> left_end
-            distance = ref_pos['5_prime'] - cand_pos['3_prime']
-        elif ref_hit.strand == '+' and candidate.strand == '-':
-            # F,R orientation: right_start -> left_end
-            distance = ref_pos['5_prime'] - cand_pos['3_prime']
-        elif ref_hit.strand == '-' and candidate.strand == '-':
-            # R,R orientation: right_start -> left_end
-            distance = ref_pos['5_prime'] - cand_pos['3_prime']
-        else:
-            logging.error(
-                f'Unexpected strand combination: {ref_hit.strand}, {candidate.strand}'
-            )
-            return False
-
     logging.debug(f'Calculated distance: {distance}')
 
     # Check for negative distances (invalid pairing)
@@ -4126,6 +4474,11 @@ def _find_candidates(
     -----
     Candidates are sorted by calculated biological distance with closest partners first.
     Only hits on target chromosome matching target_strand and within maxDist are added.
+
+    The reference hit is never its own candidate. For symmetric same-strand
+    orientations (F,F and R,R) the reference and the candidates come from the
+    same model on the same strand, so without this the hit would be offered as
+    its own partner and could be "paired" with itself.
     """
     import logging
 
@@ -4151,6 +4504,13 @@ def _find_candidates(
     candidates_found = 0
 
     for candidate in hitsDict[target_model][ref_hit.target]:
+        # A hit can never be its own partner. This only bites for symmetric
+        # same-strand orientations, where ref and candidate share a model and a
+        # strand; on '-' the 5'/3' swap makes the self-distance positive, so the
+        # hit would otherwise pass the distance test against itself.
+        if candidate.model == ref_hit.model and candidate.idx == ref_hit.idx:
+            continue
+
         if candidate.strand == target_strand:
             logging.debug(
                 f'Checking candidate: {candidate.model} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
@@ -4172,67 +4532,12 @@ def _find_candidates(
 
     # Sort candidates by distance using the same logic as _check_distance
     # This ensures closest valid partners are prioritized
-    def get_distance_for_sorting(ref: Any, cand: Any, direction: str) -> int:
-        """
-        Calculate biological distance between hits for sorting candidates.
-
-        Parameters
-        ----------
-        ref : namedtuple
-            Reference hit with strand, hitStart, hitEnd attributes.
-        cand : namedtuple
-            Candidate partner hit with strand, hitStart, hitEnd attributes.
-        direction : str
-            Search direction: 'left_to_right' or 'right_to_left'.
-
-        Returns
-        -------
-        int
-            Calculated distance in base pairs from reference to candidate based
-            on terminus positions and biological orientation.
-
-        Notes
-        -----
-        Matches the distance calculation logic in _check_distance function.
-        For left_to_right: distance from left terminus 3' end to right terminus 5' end.
-        For right_to_left: distance from right terminus 5' end to left terminus 3' end.
-        """
-
-        def get_terminus_position(hit: Any) -> Dict[str, int]:
-            """
-            Extract 5' and 3' terminus positions accounting for strand orientation.
-
-            Parameters
-            ----------
-            hit : namedtuple
-                Hit record with strand, hitStart, and hitEnd attributes.
-
-            Returns
-            -------
-            dict
-                Dictionary with '5_prime' and '3_prime' keys containing genomic coordinates
-                adjusted for strand directionality.
-            """
-            if hit.strand == '+':
-                return {'5_prime': hit.hitStart, '3_prime': hit.hitEnd}
-            else:
-                return {'5_prime': hit.hitEnd, '3_prime': hit.hitStart}
-
-        ref_pos = get_terminus_position(ref)
-        cand_pos = get_terminus_position(cand)
-
-        if direction == 'left_to_right':
-            # Distance from left terminus 3' end to right terminus 5' end
-            return int(cand_pos['5_prime'] - ref_pos['3_prime'])
-        else:
-            # Distance from right terminus 5' end to left terminus 3' end
-            return int(ref_pos['5_prime'] - cand_pos['3_prime'])
-
     if hitIndex[model_key][uid_key]['candidates']:
-        # Sort by calculated distance (closest first)
+        # Sort by the same measure the distance filter uses, so "closest" means
+        # the same thing when ranking candidates as when accepting them.
         hitIndex[model_key][uid_key]['candidates'] = sorted(
             hitIndex[model_key][uid_key]['candidates'],
-            key=lambda x: get_distance_for_sorting(ref_hit, x, direction),
+            key=lambda x: inter_hit_distance(ref_hit, x, direction),
         )
 
         logging.debug(

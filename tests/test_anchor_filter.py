@@ -350,3 +350,170 @@ class TestAnchorFilterCLI:
         parser = create_pair_parser()
         args = parser.parse_args(['--nhmmer-file', 'test.tbl'])
         assert args.max_offset is None
+
+
+# ---------------------------------------------------------------------------
+# Reverse-inserted asymmetric elements, and symmetric pairing-map rows
+# ---------------------------------------------------------------------------
+
+
+def _asym_hit(model, strand, hmm_start, hmm_end):
+    """One asymmetric hit with the given model-space alignment."""
+    return {
+        'model': model,
+        'target': 'chr1',
+        'hitStart': '100',
+        'hitEnd': '200',
+        'strand': strand,
+        'evalue': '1e-10',
+        'hmmStart': str(hmm_start),
+        'hmmEnd': str(hmm_end),
+    }
+
+
+LENGTHS = {'L': 100, 'R': 100}
+PMAP = [('L', 'R')]
+
+
+class TestAnchorFilterReverseInsertion:
+    """
+    --max-offset must measure the same model edge in both insertion directions.
+
+    The pairing map gives a terminus ROLE, but the offset is computed from the
+    genomic side the outer edge faces. Those diverge for a reverse insertion,
+    where the left model's hit is on the opposite strand. Measuring the wrong
+    edge silently discarded valid reverse-oriented hits before pairing.
+    """
+
+    def test_left_model_at_outer_edge_kept_on_both_strands(self):
+        """hmmStart=1 reaches the left model's outer edge either way."""
+        for strand in ('+', '-'):
+            df = _make_hit_table([_asym_hit('L', strand, 1, 90)])
+            result = filter_hits_by_anchor(
+                df, LENGTHS, max_offset=5, orientation='F,R', pairing_map=PMAP
+            )
+            assert len(result) == 1, f'left model on {strand} strand was dropped'
+
+    def test_left_model_short_of_outer_edge_dropped_on_both_strands(self):
+        """hmmStart=20 misses it by 19 either way."""
+        for strand in ('+', '-'):
+            df = _make_hit_table([_asym_hit('L', strand, 20, 100)])
+            result = filter_hits_by_anchor(
+                df, LENGTHS, max_offset=5, orientation='F,R', pairing_map=PMAP
+            )
+            assert len(result) == 0, f'left model on {strand} strand was kept'
+
+    def test_right_model_at_outer_edge_kept_on_both_strands(self):
+        for strand in ('+', '-'):
+            df = _make_hit_table([_asym_hit('R', strand, 1, 90)])
+            result = filter_hits_by_anchor(
+                df, LENGTHS, max_offset=5, orientation='F,R', pairing_map=PMAP
+            )
+            assert len(result) == 1, f'right model on {strand} strand was dropped'
+
+    def test_right_model_short_of_outer_edge_dropped_on_both_strands(self):
+        for strand in ('+', '-'):
+            df = _make_hit_table([_asym_hit('R', strand, 11, 100)])
+            result = filter_hits_by_anchor(
+                df, LENGTHS, max_offset=5, orientation='F,R', pairing_map=PMAP
+            )
+            assert len(result) == 0, f'right model on {strand} strand was kept'
+
+    def test_forward_and_reverse_agree_in_every_orientation(self):
+        """Insertion direction must never change the verdict."""
+        for orientation in ('F,R', 'R,F', 'F,F', 'R,R'):
+            for model in ('L', 'R'):
+                verdicts = set()
+                for strand in ('+', '-'):
+                    df = _make_hit_table([_asym_hit(model, strand, 1, 90)])
+                    result = filter_hits_by_anchor(
+                        df,
+                        LENGTHS,
+                        max_offset=5,
+                        orientation=orientation,
+                        pairing_map=PMAP,
+                    )
+                    verdicts.add(len(result))
+                assert len(verdicts) == 1, (
+                    f'{orientation} {model}: verdict depends on strand ({verdicts})'
+                )
+
+
+class TestAnchorFilterSymmetricMapRow:
+    """
+    A pairing-map row naming the same feature twice describes a symmetric
+    element, so it has no fixed terminus role and must get the both-ends test.
+    Previously the second assignment overwrote the first and such models were
+    always treated as right termini.
+    """
+
+    def test_symmetric_row_uses_both_ends_test(self):
+        """
+        Under a same-strand orientation both model ends must be reached.
+
+        A model listed symmetrically has no fixed terminus role, so it must
+        fall through to the both-ends rule. Assigning it a role instead lets a
+        hit through on the strength of one edge alone.
+        """
+        keep = _make_hit_table([_asym_hit('LTR', '+', 1, 100)])
+        assert (
+            len(
+                filter_hits_by_anchor(
+                    keep,
+                    {'LTR': 100},
+                    max_offset=5,
+                    orientation='F,F',
+                    pairing_map=[('LTR', 'LTR')],
+                )
+            )
+            == 1
+        )
+
+        # Reaches the model END but misses the START by 19. A model forced to
+        # the 'right' role would measure only model_len - hmmEnd = 0 and keep
+        # this hit.
+        drop_start = _make_hit_table([_asym_hit('LTR', '+', 20, 100)])
+        assert (
+            len(
+                filter_hits_by_anchor(
+                    drop_start,
+                    {'LTR': 100},
+                    max_offset=5,
+                    orientation='F,F',
+                    pairing_map=[('LTR', 'LTR')],
+                )
+            )
+            == 0
+        )
+
+        # Mirror: reaches the START but misses the END by 20.
+        drop_end = _make_hit_table([_asym_hit('LTR', '+', 1, 80)])
+        assert (
+            len(
+                filter_hits_by_anchor(
+                    drop_end,
+                    {'LTR': 100},
+                    max_offset=5,
+                    orientation='F,F',
+                    pairing_map=[('LTR', 'LTR')],
+                )
+            )
+            == 0
+        )
+
+    def test_symmetric_row_alongside_asymmetric_rows(self):
+        """A symmetric row does not disturb asymmetric rows in the same map."""
+        df = _make_hit_table(
+            [
+                _asym_hit('LTR', '+', 20, 100),  # symmetric: fails both-ends
+                _asym_hit('L', '+', 1, 90),  # asymmetric: reaches outer edge
+            ]
+        )
+        result = filter_hits_by_anchor(
+            df,
+            {'LTR': 100, 'L': 100, 'R': 100},
+            max_offset=5,
+            orientation='F,F',
+            pairing_map=[('LTR', 'LTR'), ('L', 'R')],
+        )
+        assert list(result['model']) == ['L']

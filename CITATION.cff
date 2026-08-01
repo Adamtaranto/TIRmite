@@ -1,31 +1,42 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://citation-file-format.github.io/cff-initializer-javascript
+
 cff-version: 1.2.0
-message: "If you use this software, please cite it as below."
-title: "TIRmite: Annotation of cryptic transposon variants using Hidden Markov Models to detect conserved terminal features."
-version: 1.4.0
-date-released: 2026-04-20
-repository-code: "https://github.com/Adamtaranto/TIRmite"
-license: GPL-3.0-only
+title: >-
+  TIRmite: Annotation of cryptic transposon variants using
+  Hidden Markov Models to detect conserved terminal
+  features.
+message: 'If you use this software, please cite it as below.'
+type: software
+authors:
+  - family-names: Taranto
+    given-names: Adam
+    orcid: 'https://orcid.org/0000-0003-4759-3475'
+    affiliation: The University of Melbourne
+repository-code: 'https://github.com/Adamtaranto/TIRmite'
+url: 'https://adamtaranto.github.io/TIRmite/'
 abstract: >-
-  TIRmite enables the annotation of cryptic transposon variants by using profile Hidden Markov Models
-  of conserved termini to identify highly divergent family members.
+  TIRmite enables the annotation of cryptic transposon
+  variants by using profile Hidden Markov Models of
+  conserved termini to identify highly divergent family
+  members.
 keywords:
   - genomics
   - transposons
   - bioinformatics
-authors:
-  - family-names: Taranto
-    given-names: Adam
-    orcid: https://orcid.org/0000-0003-4759-3475
-    affiliation: "The University of Melbourne"
-
+license: GPL-3.0-or-later
+version: 1.4.0
+date-released: '2026-04-20'
 preferred-citation:
   type: software
   authors:
     - family-names: Taranto
       given-names: Adam
-      orcid: https://orcid.org/0000-0003-4759-3475
-      affiliation: "The University of Melbourne"
-  title: "TIRmite: Annotation of cryptic transposon variants using Hidden Markov Models to detect conserved terminal features."
+      orcid: 'https://orcid.org/0000-0003-4759-3475'
+      affiliation: The University of Melbourne
+  title: >-
+    TIRmite: Annotation of cryptic transposon variants using Hidden Markov
+    Models to detect conserved terminal features.
   year: 2026
-  url: "https://github.com/Adamtaranto/TIRmite"
-  repository-code: "https://github.com/Adamtaranto/TIRmite"
+  url: 'https://github.com/Adamtaranto/TIRmite'
+  repository-code: 'https://github.com/Adamtaranto/TIRmite'

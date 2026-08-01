@@ -9,6 +9,7 @@ Validates that:
    F,F (both forward), F,R (canonical), R,F, and R,R.
 """
 
+from collections import namedtuple
 import os
 import tempfile
 
@@ -619,3 +620,319 @@ class TestModelAssignment:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ---------------------------------------------------------------------------
+# Symmetric same-strand pairing (F,F / R,R)
+# ---------------------------------------------------------------------------
+
+
+def _run_symmetric_pairing(hit_rows, orientation, model, maxdist=None):
+    """Set up and run the full SYMMETRIC pairing pipeline (one model, both ends)."""
+    hitTable = _make_hit_table(hit_rows)
+    hitsDict, hitIndex = tirmite.table2dict(hitTable)
+
+    config = tirmite.PairingConfig(orientation=orientation, single_model=model)
+
+    hitIndex = tirmite.parseHitsGeneral(
+        hitsDict=hitsDict,
+        hitIndex=hitIndex,
+        maxDist=maxdist,
+        config=config,
+    )
+
+    _, paired, unpaired = tirmite.iterateGetPairsCustom(hitIndex, config, stableReps=5)
+    return paired, unpaired
+
+
+class TestSymmetricSameStrandPairing:
+    """
+    F,F (LTR) and R,R use one model on one strand for both termini.
+
+    A hit must therefore be able to act as either terminus. Testing this
+    matters because the existing F,F/R,R tests above drive the *asymmetric*
+    code path via two distinct model names.
+    """
+
+    def test_ff_symmetric_pairs(self):
+        """Two same-strand hits from one model form one LTR-style pair."""
+        rows = [
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': 4000,
+                'hit_end': 4100,
+                'strand': '+',
+            },
+        ]
+        paired, unpaired = _run_symmetric_pairing(rows, 'F,F', 'LTR')
+        assert len(paired.get('LTR', [])) == 1
+        assert paired['LTR'][0] == {0, 1}
+        assert unpaired == []
+
+    def test_rr_symmetric_pairs(self):
+        """Same, on the minus strand."""
+        rows = [
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '-',
+            },
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': 4000,
+                'hit_end': 4100,
+                'strand': '-',
+            },
+        ]
+        paired, unpaired = _run_symmetric_pairing(rows, 'R,R', 'LTR')
+        assert len(paired.get('LTR', [])) == 1
+        assert paired['LTR'][0] == {0, 1}
+
+    def test_ff_two_elements_give_two_pairs(self):
+        """Four hits resolve into two adjacent pairs, not a tangle."""
+        rows = [
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': s,
+                'hit_end': s + 100,
+                'strand': '+',
+            }
+            for s in (100, 4000, 9000, 12000)
+        ]
+        paired, unpaired = _run_symmetric_pairing(rows, 'F,F', 'LTR')
+        assert len(paired.get('LTR', [])) == 2
+        assert {frozenset(p) for p in paired['LTR']} == {
+            frozenset({0, 1}),
+            frozenset({2, 3}),
+        }
+        assert unpaired == []
+
+    def test_lone_hit_does_not_pair_with_itself(self):
+        """
+        A single hit has no partner.
+
+        On the minus strand the 5'/3' ends swap, so a hit measured against
+        itself yields a positive distance and would satisfy the range test.
+        Without excluding the reference hit this produced a 'pair' containing
+        one hit.
+        """
+        rows = [
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '-',
+            },
+        ]
+        paired, unpaired = _run_symmetric_pairing(rows, 'R,R', 'LTR')
+        assert paired.get('LTR', []) == []
+        assert unpaired == [0]
+
+    def test_rr_pairs_are_never_single_hits(self):
+        """Every emitted pair contains exactly two distinct hits."""
+        rows = [
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': s,
+                'hit_end': s + 100,
+                'strand': '-',
+            }
+            for s in (100, 4000, 9000)
+        ]
+        paired, _ = _run_symmetric_pairing(rows, 'R,R', 'LTR')
+        for pair in paired.get('LTR', []):
+            assert len(pair) == 2, f'degenerate pair {pair}'
+
+    def test_fr_symmetric_still_pairs(self):
+        """Control: the canonical TIR case is unaffected."""
+        rows = [
+            {
+                'model': 'TIR',
+                'target': 'chr1',
+                'hit_start': 100,
+                'hit_end': 200,
+                'strand': '+',
+            },
+            {
+                'model': 'TIR',
+                'target': 'chr1',
+                'hit_start': 4000,
+                'hit_end': 4100,
+                'strand': '-',
+            },
+        ]
+        paired, unpaired = _run_symmetric_pairing(rows, 'F,R', 'TIR')
+        assert len(paired.get('TIR', [])) == 1
+        assert unpaired == []
+
+
+# ---------------------------------------------------------------------------
+# --maxdist semantics
+# ---------------------------------------------------------------------------
+
+
+def _hit(model, start, end, strand):
+    """Positional helper for distance tests."""
+    return {
+        'model': model,
+        'target': 'chr1',
+        'hit_start': start,
+        'hit_end': end,
+        'strand': strand,
+    }
+
+
+class TestMaxDistSemantics:
+    """
+    --maxdist is the gap between the facing inner edges of the two hits.
+
+    That is the length of the element interior. It deliberately excludes the
+    termini themselves, so the threshold does not shift when a terminus model
+    gets longer, and it is identical on both strands.
+    """
+
+    # left 100-200, right 4000-4100 -> interior spans 201..3999, gap = 3800
+    GAP = 3800
+
+    def _run_symmetric(self, maxdist):
+        rows = [_hit('TIR', 100, 200, '+'), _hit('TIR', 4000, 4100, '-')]
+        paired, _ = _run_symmetric_pairing(rows, 'F,R', 'TIR', maxdist=maxdist)
+        return len(paired.get('TIR', []))
+
+    def test_gap_exactly_at_threshold_pairs(self):
+        assert self._run_symmetric(self.GAP) == 1
+
+    def test_gap_one_below_threshold_does_not_pair(self):
+        assert self._run_symmetric(self.GAP - 1) == 0
+
+    def test_threshold_is_independent_of_terminus_length(self):
+        """
+        Lengthening a terminus must not change the distance threshold.
+
+        The old measure ran to the partner's far edge, so a longer terminus
+        inflated the measured distance and the same element needed a larger
+        --maxdist.
+        """
+        short = [_hit('TIR', 100, 200, '+'), _hit('TIR', 4000, 4100, '-')]
+        long_ = [_hit('TIR', 100, 200, '+'), _hit('TIR', 4000, 4900, '-')]
+        for rows in (short, long_):
+            paired, _ = _run_symmetric_pairing(rows, 'F,R', 'TIR', maxdist=self.GAP)
+            assert len(paired.get('TIR', [])) == 1
+            paired, _ = _run_symmetric_pairing(rows, 'F,R', 'TIR', maxdist=self.GAP - 1)
+            assert len(paired.get('TIR', [])) == 0
+
+    def test_threshold_identical_in_both_insertion_directions(self):
+        """
+        An asymmetric element gives the same threshold either way round.
+
+        A left-model hit on '+' sits at the lower coordinate; on '-' it sits at
+        the higher one. Both are valid insertions of the same element, and the
+        gap between the termini is 3800 in each.
+        """
+        flip = {'+': '-', '-': '+'}
+        checked = 0
+
+        for orientation in ('F,R', 'R,F', 'F,F', 'R,R'):
+            cfg = tirmite.PairingConfig(
+                orientation=orientation, left_model='L', right_model='R'
+            )
+            # The two accepted strand combinations for this orientation.
+            for left_strand, right_strand in (
+                (cfg.left_strand, cfg.right_strand),
+                (flip[cfg.left_strand], flip[cfg.right_strand]),
+            ):
+                if left_strand == '+':
+                    rows = [
+                        _hit('L', 100, 200, left_strand),
+                        _hit('R', 4000, 4100, right_strand),
+                    ]
+                else:
+                    rows = [
+                        _hit('L', 4000, 4100, left_strand),
+                        _hit('R', 100, 200, right_strand),
+                    ]
+
+                at = _run_asymmetric_pairing(
+                    rows, orientation, 'L', 'R', maxdist=self.GAP
+                )[0]
+                below = _run_asymmetric_pairing(
+                    rows, orientation, 'L', 'R', maxdist=self.GAP - 1
+                )[0]
+                assert len(at.get('L', [])) == 1, (orientation, left_strand)
+                assert len(below.get('L', [])) == 0, (orientation, left_strand)
+                checked += 1
+
+        assert checked == 8, 'expected both directions of all four orientations'
+
+    def test_legacy_and_current_paths_agree(self):
+        """
+        The legacy workflow and the current one measure the same thing.
+
+        These were previously off by the length of one terminus, so a run
+        migrated from `tirmite legacy` to `tirmite pair` silently needed a
+        different --maxdist to reproduce its pairs.
+        """
+        rows = [_hit('TIR', 100, 200, '+'), _hit('TIR', 4000, 4100, '-')]
+        hitTable = _make_hit_table(rows)
+
+        for maxdist in (self.GAP - 2, self.GAP - 1, self.GAP, self.GAP + 1):
+            hitsDict, hitIndex = tirmite.table2dict(hitTable)
+            legacy_index = tirmite.parseHits(
+                hitsDict=hitsDict, hitIndex=hitIndex, maxDist=maxdist
+            )
+            _, legacy_paired, _ = tirmite.iterateGetPairs(legacy_index, stableReps=5)
+
+            current_paired, _ = _run_symmetric_pairing(
+                rows, 'F,R', 'TIR', maxdist=maxdist
+            )
+
+            assert len(legacy_paired.get('TIR', [])) == len(
+                current_paired.get('TIR', [])
+            ), f'paths disagree at maxdist={maxdist}'
+
+    def test_overlapping_hits_are_rejected(self):
+        """A negative gap means the hits overlap; that is not a valid pair."""
+        rows = [_hit('TIR', 100, 500, '+'), _hit('TIR', 400, 800, '-')]
+        paired, _ = _run_symmetric_pairing(rows, 'F,R', 'TIR', maxdist=10000)
+        assert len(paired.get('TIR', [])) == 0
+
+
+class TestInterHitDistance:
+    """Unit tests for the shared distance measure."""
+
+    Hit = namedtuple('Hit', ['hitStart', 'hitEnd'])
+
+    def test_downstream_gap(self):
+        ref = self.Hit(100, 200)
+        cand = self.Hit(4000, 4100)
+        assert tirmite.inter_hit_distance(ref, cand, 'left_to_right') == 3800
+
+    def test_upstream_gap_is_symmetric(self):
+        """Measuring from either end gives the same separation."""
+        ref = self.Hit(4000, 4100)
+        cand = self.Hit(100, 200)
+        assert tirmite.inter_hit_distance(ref, cand, 'right_to_left') == 3800
+
+    def test_adjacent_hits_have_zero_gap(self):
+        ref = self.Hit(100, 200)
+        cand = self.Hit(200, 300)
+        assert tirmite.inter_hit_distance(ref, cand, 'left_to_right') == 0
+
+    def test_wrong_side_is_negative(self):
+        ref = self.Hit(4000, 4100)
+        cand = self.Hit(100, 200)
+        assert tirmite.inter_hit_distance(ref, cand, 'left_to_right') < 0

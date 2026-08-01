@@ -18,12 +18,13 @@ import os
 from pathlib import Path
 import shutil
 import sys
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Set, cast
 
 import pandas as pd  # type: ignore[import-untyped]
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
 import tirmite.tirmitetools as tirmite
+from tirmite.utils.extract import check_ids, make_source
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
@@ -295,25 +296,36 @@ def filter_hits_by_anchor(
     if hit_table.empty:
         return hit_table
 
-    # Parse orientation
-    orientation_parts = orientation.upper().split(',')
-    if len(orientation_parts) != 2:
-        logging.warning(
-            f'Invalid orientation "{orientation}"; expected two comma-separated codes. '
-            'Skipping anchor filter.'
-        )
+    # Parse orientation with the same validator PairingConfig uses, so the two
+    # can never disagree about what a given orientation string means.
+    try:
+        orientation_parts = tirmite.parse_orientation(orientation)
+    except ValueError as e:
+        logging.warning(f'{e} Skipping anchor filter.')
         return hit_table
 
     left_strand = '+' if orientation_parts[0] == 'F' else '-'
     right_strand = '+' if orientation_parts[1] == 'F' else '-'
     strands_differ = left_strand != right_strand
 
-    # Build model-to-terminus map from pairing map
+    # Build model-to-terminus map from pairing map. A row that names the same
+    # feature on both sides describes a symmetric element; such models have no
+    # fixed terminus role, so they must fall through to the strand-based or
+    # both-ends test rather than being labelled (and previously overwritten to
+    # 'right' by the second assignment below).
     model_terminus: Dict[str, str] = {}
+    symmetric_models: Set[str] = set()
     if pairing_map:
         for left_feature, right_feature in pairing_map:
+            if left_feature == right_feature:
+                symmetric_models.add(left_feature)
+                continue
             model_terminus[left_feature] = 'left'
             model_terminus[right_feature] = 'right'
+
+    # A model listed symmetrically anywhere is symmetric everywhere.
+    for model_name in symmetric_models:
+        model_terminus.pop(model_name, None)
 
     kept: List[bool] = []
     skipped_no_terminus = 0
@@ -341,8 +353,20 @@ def filter_hits_by_anchor(
 
         # Determine terminus type
         if model in model_terminus:
-            # Asymmetric: model name determines terminus type
-            terminus_type: Optional[str] = model_terminus[model]
+            # Asymmetric: the model name gives the terminus ROLE, but
+            # compute_outer_edge_offset wants to know which genomic side the
+            # outer edge faces. Those agree only for a forward insertion. When
+            # the hit's strand is not the one the orientation expects for this
+            # role, the element is inserted in reverse and the sides swap;
+            # without this the offset was measured against the hit's INNER edge
+            # and valid reverse-oriented hits were discarded.
+            role = model_terminus[model]
+            expected_strand = left_strand if role == 'left' else right_strand
+            forward_insertion = strand == expected_strand
+            if forward_insertion:
+                terminus_type: Optional[str] = role
+            else:
+                terminus_type = 'right' if role == 'left' else 'left'
         elif strands_differ:
             # Symmetric with different strands: use strand to distinguish
             if strand == left_strand:
@@ -775,7 +799,13 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         '--maxdist',
         type=int,
         default=None,
-        help='Maximum distance allowed between termini for pairing.',
+        help=(
+            'Maximum distance allowed between termini for pairing, measured '
+            'between the facing inner edges of the two terminus hits. This is '
+            'the length of the element interior and excludes the termini '
+            'themselves, so it does not depend on model length or strand. '
+            'Default: no limit.'
+        ),
     )
 
     parser.add_argument(
@@ -942,6 +972,37 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
             'of the query, the flank start is corrected by this offset. '
             'Hits with offset greater than this value are skipped. '
             'Default: no limit.'
+        ),
+    )
+
+    parser.add_argument(
+        '--no-pad-flanks',
+        action='store_true',
+        default=False,
+        dest='no_pad_flanks',
+        help=(
+            'Do not pad flanking and target-site sequences that extend past a '
+            'contig boundary. By default such regions are padded with N so that '
+            'every flank is --flank-len bases and records remain comparable '
+            'position by position; padded records are marked in their FASTA '
+            'description. With this flag they are truncated instead, so record '
+            'lengths vary near contig ends. Regions that fall entirely outside '
+            'a contig are skipped either way.'
+        ),
+    )
+
+    parser.add_argument(
+        '--extend-hits-to-model',
+        action='store_true',
+        default=False,
+        dest='extend_hits_to_model',
+        help=(
+            'Extend extracted terminus sequences outward by the offset between '
+            'the hit alignment and the external end of the model, so that hits '
+            'which only partially cover the model are emitted at full model '
+            'length and are directly comparable. Affects the hit and paired '
+            'terminus FASTA output only, not flanks or pairing. '
+            'Default: extract only the aligned region.'
         ),
     )
 
@@ -1707,6 +1768,19 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         logging.info(f'Total remaining hits: {len(hitTable)}')
 
+        # Verify that every target sequence can be resolved in the chosen
+        # sequence source before extraction begins. On the BLAST side the usual
+        # cause of failure is a database built without -parse_seqids, or an
+        # accession that differs from the FASTA header token.
+        if len(hitTable):
+            extraction_source = make_source(genome=genome, blastdb=args.blastdb)
+            missing_targets = check_ids(extraction_source, hitTable['target'])
+            if missing_targets:
+                logging.warning(
+                    f'{len(missing_targets)} target sequence(s) could not be '
+                    'resolved; hits on those sequences will be skipped.'
+                )
+
         # Apply anchor filter if --max-offset is set
         if args.max_offset is not None:
             logging.info(
@@ -1838,6 +1912,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 padlen=args.padlen,
                 genome_descriptions=genome_descriptions,
                 blastdb=args.blastdb if args.blastdb else None,
+                model_lengths=model_lengths,
+                extend_hits_to_model=args.extend_hits_to_model,
+                pad=not args.no_pad_flanks,
             )
 
         # Skip pairing if requested
@@ -1943,6 +2020,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         padlen=args.padlen,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
+                        model_lengths=model_lengths,
+                        extend_hits_to_model=args.extend_hits_to_model,
+                        pad=not args.no_pad_flanks,
                     )
 
                 # Write paired TIRs
@@ -1956,6 +2036,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         padlen=args.padlen,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
+                        config=pair_config,
                     )
 
                 # Extract and write elements for this pair
@@ -1990,6 +2071,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         write_paired=args.flanks_paired,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
+                        pad_flanks=not args.no_pad_flanks,
                     )
 
                     # Reconstruct target sites for this pair
@@ -2016,6 +2098,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             tsd_length_map=tsd_length_map_data,
                             genome_descriptions=genome_descriptions,
                             blastdb=args.blastdb if args.blastdb else None,
+                            pad_flanks=not args.no_pad_flanks,
                         )
 
                 # Write summary report for this pair
@@ -2150,6 +2233,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     padlen=args.padlen,
                     genome_descriptions=genome_descriptions,
                     blastdb=args.blastdb if args.blastdb else None,
+                    config=config,
                 )
 
             # Extract and write elements
@@ -2204,6 +2288,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     write_paired=args.flanks_paired,
                     genome_descriptions=genome_descriptions,
                     blastdb=args.blastdb if args.blastdb else None,
+                    pad_flanks=not args.no_pad_flanks,
                 )
 
                 # Reconstruct target sites if explicitly requested
@@ -2233,6 +2318,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         tsd_length_map=tsd_length_map,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
+                        pad_flanks=not args.no_pad_flanks,
                     )
 
             # Write GFF if requested

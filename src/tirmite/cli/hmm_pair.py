@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Set, cast
 
 import pandas as pd  # type: ignore[import-untyped]
 
@@ -296,25 +296,36 @@ def filter_hits_by_anchor(
     if hit_table.empty:
         return hit_table
 
-    # Parse orientation
-    orientation_parts = orientation.upper().split(',')
-    if len(orientation_parts) != 2:
-        logging.warning(
-            f'Invalid orientation "{orientation}"; expected two comma-separated codes. '
-            'Skipping anchor filter.'
-        )
+    # Parse orientation with the same validator PairingConfig uses, so the two
+    # can never disagree about what a given orientation string means.
+    try:
+        orientation_parts = tirmite.parse_orientation(orientation)
+    except ValueError as e:
+        logging.warning(f'{e} Skipping anchor filter.')
         return hit_table
 
     left_strand = '+' if orientation_parts[0] == 'F' else '-'
     right_strand = '+' if orientation_parts[1] == 'F' else '-'
     strands_differ = left_strand != right_strand
 
-    # Build model-to-terminus map from pairing map
+    # Build model-to-terminus map from pairing map. A row that names the same
+    # feature on both sides describes a symmetric element; such models have no
+    # fixed terminus role, so they must fall through to the strand-based or
+    # both-ends test rather than being labelled (and previously overwritten to
+    # 'right' by the second assignment below).
     model_terminus: Dict[str, str] = {}
+    symmetric_models: Set[str] = set()
     if pairing_map:
         for left_feature, right_feature in pairing_map:
+            if left_feature == right_feature:
+                symmetric_models.add(left_feature)
+                continue
             model_terminus[left_feature] = 'left'
             model_terminus[right_feature] = 'right'
+
+    # A model listed symmetrically anywhere is symmetric everywhere.
+    for model_name in symmetric_models:
+        model_terminus.pop(model_name, None)
 
     kept: List[bool] = []
     skipped_no_terminus = 0
@@ -342,8 +353,20 @@ def filter_hits_by_anchor(
 
         # Determine terminus type
         if model in model_terminus:
-            # Asymmetric: model name determines terminus type
-            terminus_type: Optional[str] = model_terminus[model]
+            # Asymmetric: the model name gives the terminus ROLE, but
+            # compute_outer_edge_offset wants to know which genomic side the
+            # outer edge faces. Those agree only for a forward insertion. When
+            # the hit's strand is not the one the orientation expects for this
+            # role, the element is inserted in reverse and the sides swap;
+            # without this the offset was measured against the hit's INNER edge
+            # and valid reverse-oriented hits were discarded.
+            role = model_terminus[model]
+            expected_strand = left_strand if role == 'left' else right_strand
+            forward_insertion = strand == expected_strand
+            if forward_insertion:
+                terminus_type: Optional[str] = role
+            else:
+                terminus_type = 'right' if role == 'left' else 'left'
         elif strands_differ:
             # Symmetric with different strands: use strand to distinguish
             if strand == left_strand:
@@ -776,7 +799,13 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         '--maxdist',
         type=int,
         default=None,
-        help='Maximum distance allowed between termini for pairing.',
+        help=(
+            'Maximum distance allowed between termini for pairing, measured '
+            'between the facing inner edges of the two terminus hits. This is '
+            'the length of the element interior and excludes the termini '
+            'themselves, so it does not depend on model length or strand. '
+            'Default: no limit.'
+        ),
     )
 
     parser.add_argument(
@@ -2007,6 +2036,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         padlen=args.padlen,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
+                        config=pair_config,
                     )
 
                 # Extract and write elements for this pair
@@ -2203,6 +2233,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     padlen=args.padlen,
                     genome_descriptions=genome_descriptions,
                     blastdb=args.blastdb if args.blastdb else None,
+                    config=config,
                 )
 
             # Extract and write elements

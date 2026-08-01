@@ -1609,6 +1609,7 @@ def writePairedTIRs(
     padlen: Optional[int] = None,
     genome_descriptions: Optional[Dict[str, str]] = None,
     blastdb: Optional[str] = None,
+    config: Any = None,
 ) -> None:
     """
     Extract and write left and right TIR sequences from paired hits to FASTA.
@@ -1632,6 +1633,11 @@ def writePairedTIRs(
         Dictionary mapping sequence IDs to their descriptions.
     blastdb : str, optional
         Path to BLAST database for sequence extraction. Alternative to genome.
+
+    config : PairingConfig, optional
+        Pairing configuration. When it describes an asymmetric element, the
+        _L/_R labels and output files follow the terminus role rather than
+        genomic order, so each model's termini stay together.
 
     Returns
     -------
@@ -1753,8 +1759,16 @@ def writePairedTIRs(
                 eleSeqRight = SeqRecord(Seq.Seq(right_seq_str))
                 eleSeqRight = eleSeqRight.reverse_complement()
 
-                eleSeqLeft.id = eleID + '_L'
-                eleSeqLeft.name = eleID + '_L'
+                # Sequence orientation is positional (the higher-coordinate
+                # terminus is reverse complemented so both read inward), but
+                # the _L/_R label and the output file follow terminus role, so
+                # each model's termini stay together for downstream alignment.
+                left_role, right_role = _pair_roles(leftHit, rightHit, config)
+                left_label = 'L' if left_role == 'left' else 'R'
+                right_label = 'L' if right_role == 'left' else 'R'
+
+                eleSeqLeft.id = eleID + '_' + left_label
+                eleSeqLeft.name = eleSeqLeft.id
 
                 # Build left description with genome description
                 left_coord = (
@@ -1771,8 +1785,8 @@ def writePairedTIRs(
                     source, leftHit.target, left_coord, genome_descriptions
                 )
 
-                eleSeqRight.id = eleID + '_R'
-                eleSeqRight.name = eleID + '_R'
+                eleSeqRight.id = eleID + '_' + right_label
+                eleSeqRight.name = eleSeqRight.id
 
                 # Build right description with genome description
                 right_coord = (
@@ -1789,9 +1803,15 @@ def writePairedTIRs(
                     source, leftHit.target, right_coord, genome_descriptions
                 )
 
-                # Add to left/right sequence lists for separate FASTA output
-                left_seqList.append(eleSeqLeft)
-                right_seqList.append(eleSeqRight)
+                # File routing follows the same role labels.
+                for rec, label in (
+                    (eleSeqLeft, left_label),
+                    (eleSeqRight, right_label),
+                ):
+                    if label == 'L':
+                        left_seqList.append(rec)
+                    else:
+                        right_seqList.append(rec)
 
             # Write separate FASTA files for left and right terminus hits
             if left_seqList:
@@ -2286,6 +2306,139 @@ def _determine_terminus_type(hit: Any, config: Any) -> Optional[str]:
         return None
 
 
+class TerminusAssignment(NamedTuple):
+    """
+    Which terminus of an element a hit represents, and which way it faces.
+
+    Attributes
+    ----------
+    role : str
+        'left' or 'right' - which end of the *element* this hit is, in the
+        element's own 5'->3' frame. For asymmetric elements this follows the
+        model that produced the hit; for symmetric elements it follows strand.
+    is_lower : bool
+        True when this terminus' external edge faces the lower genomic
+        coordinate. This is what :func:`compute_flank_coordinates` means by
+        ``is_left_terminus``.
+
+    Notes
+    -----
+    ``role`` and ``is_lower`` coincide only for forward-inserted elements. When
+    an element is inserted in reverse, the model that defines its left terminus
+    sits at the higher genomic coordinate, so ``role='left'`` pairs with
+    ``is_lower=False``. Conflating the two is what caused flanks to be taken
+    from inside reverse-inserted elements.
+    """
+
+    role: str
+    is_lower: bool
+
+
+def _pair_roles(left_hit: Any, right_hit: Any, config: Any) -> Tuple[str, str]:
+    """
+    Assign terminus roles to the two hits of a pair.
+
+    Parameters
+    ----------
+    left_hit, right_hit : namedtuple
+        The pair's hits in genomic order, as returned by :func:`flipTIRs`.
+    config : PairingConfig or None
+        Pairing configuration. Roles follow model identity when it describes an
+        asymmetric element.
+
+    Returns
+    -------
+    tuple of (str, str)
+        ``(role_of_left_hit, role_of_right_hit)``, each 'left' or 'right'.
+
+    Notes
+    -----
+    For a symmetric element, or when no asymmetric config is available, role
+    follows genomic order - there is nothing else to distinguish the ends.
+
+    For an asymmetric element the role follows the model that produced each
+    hit, so a reverse-inserted element correctly reports its left-terminus
+    model as the left terminus even though that hit lies at the higher
+    coordinate. Only labelling and output routing use this; the extracted
+    sequence is governed by genomic position.
+    """
+    if config is None or not config.is_asymmetric:
+        return 'left', 'right'
+
+    if left_hit.model == config.left_model and right_hit.model == config.right_model:
+        return 'left', 'right'
+    if left_hit.model == config.right_model and right_hit.model == config.left_model:
+        # Reverse-inserted element: genomic order is the mirror of model order.
+        return 'right', 'left'
+
+    # Models do not match the config (e.g. a pair carried over from another
+    # pairing-map row). Fall back to genomic order rather than guessing.
+    return 'left', 'right'
+
+
+def resolve_terminus(hit: Any, config: Any) -> Optional[TerminusAssignment]:
+    """
+    Determine a hit's terminus role and which genomic side its outer edge faces.
+
+    Parameters
+    ----------
+    hit : namedtuple
+        Hit record with at least ``model`` and ``strand``.
+    config : PairingConfig
+        Pairing configuration supplying the models and expected strands.
+
+    Returns
+    -------
+    TerminusAssignment or None
+        None when the terminus cannot be determined from a single hit: an
+        unrecognised model, or a symmetric same-strand orientation (F,F / R,R)
+        where one hit alone carries no information about which end it is.
+
+    Notes
+    -----
+    For asymmetric configurations the role comes from the model name, and the
+    insertion direction is inferred by comparing the hit's strand with the
+    strand the configuration expects for that role. A match means a forward
+    insertion, where role and genomic side agree; a mismatch means the element
+    is inserted in reverse and the sides swap.
+
+    For symmetric configurations with differing strands (F,R / R,F) the strand
+    alone gives both role and side, and is invariant to insertion direction.
+    """
+    if config is None:
+        return None
+
+    if config.is_asymmetric:
+        if hit.model == config.left_model:
+            role = 'left'
+            expected_strand = config.left_strand
+        elif hit.model == config.right_model:
+            role = 'right'
+            expected_strand = config.right_strand
+        else:
+            return None
+
+        forward_insertion = hit.strand == expected_strand
+        if forward_insertion:
+            is_lower = role == 'left'
+        else:
+            # Element inserted in reverse: the left terminus is now at the
+            # higher coordinate and vice versa.
+            is_lower = role == 'right'
+        return TerminusAssignment(role=role, is_lower=is_lower)
+
+    # Symmetric model - distinguish by strand when the strands differ
+    if config.left_strand != config.right_strand:
+        if hit.strand == config.left_strand:
+            return TerminusAssignment(role='left', is_lower=True)
+        elif hit.strand == config.right_strand:
+            return TerminusAssignment(role='right', is_lower=False)
+        return None
+
+    # Same-strand symmetric pairing (F,F or R,R) - can't determine without pair
+    return None
+
+
 def writeFlanks(
     outDir: Optional[str] = None,
     hitTable: Optional[pd.DataFrame] = None,
@@ -2462,6 +2615,7 @@ def writeFlanks(
         hit: Any,
         is_left: bool,
         record_id: str,
+        role: Optional[str] = None,
     ) -> Optional[SeqRecord]:
         """
         Build a SeqRecord for the external flank of a single terminus hit.
@@ -2474,6 +2628,11 @@ def writeFlanks(
             True if the hit is a left terminus; False for right terminus.
         record_id : str
             Identifier to assign to the resulting SeqRecord.
+
+        role : str, optional
+            Terminus role, 'left' or 'right', used for the _L/_R suffix.
+            Defaults to the genomic side given by ``is_left``, which is the
+            same thing except for reverse-inserted asymmetric elements.
 
         Returns
         -------
@@ -2498,7 +2657,11 @@ def writeFlanks(
             return None
 
         record = SeqRecord(Seq.Seq(flank.seq))
-        side = 'L' if is_left else 'R'
+        # The _L/_R suffix names the terminus ROLE. It defaults to the genomic
+        # side, which is the same thing for symmetric elements and for forward
+        # insertions; callers pass an explicit role where the two can differ.
+        effective_role = role if role is not None else ('left' if is_left else 'right')
+        side = 'L' if effective_role == 'left' else 'R'
         record.id = f'{record_id}_{side}'
         record.name = record.id
 
@@ -2566,34 +2729,45 @@ def writeFlanks(
             pair_id = f'{model}_{model_counter}'
             element_id = f'Element_{model_counter}'
 
-            left_rec = build_flank_record(leftHit, is_left=True, record_id=pair_id)
-            right_rec = build_flank_record(rightHit, is_left=False, record_id=pair_id)
-
-            # Use canonical model names for grouping when config specifies an
-            # asymmetric pairing.  This prevents creating spurious extra flank
-            # files when the genomic position order differs from the config's
-            # left/right model assignment.
-            left_model_key = (
-                config.left_model
-                if config is not None and config.is_asymmetric
-                else leftHit.model
+            # Geometry is positional: the lower-coordinate hit's outer edge
+            # faces lower coordinates. That stays true whichever way the
+            # element is inserted, so the extracted sequence is unaffected by
+            # the routing decision below.
+            left_role, right_role = _pair_roles(leftHit, rightHit, config)
+            left_rec = build_flank_record(
+                leftHit, is_left=True, record_id=pair_id, role=left_role
             )
-            right_model_key = (
-                config.right_model
-                if config is not None and config.is_asymmetric
-                else rightHit.model
+            right_rec = build_flank_record(
+                rightHit, is_left=False, record_id=pair_id, role=right_role
             )
 
-            if left_rec:
-                left_flanks.setdefault(left_model_key, []).append(left_rec)
-                paired_left_flanks.setdefault(left_model_key, []).append(
-                    _make_paired_flank_record(left_rec, element_id, pair_id, 'L')
+            # Routing is by terminus ROLE, so each model's termini always land
+            # in that model's file. For a reverse-inserted asymmetric element
+            # the roles are swapped relative to genomic order; grouping by
+            # position would put the right model's terminus in the left
+            # model's file, mixing the two models' sequences in one output.
+            for rec, hit, role in (
+                (left_rec, leftHit, left_role),
+                (right_rec, rightHit, right_role),
+            ):
+                if not rec:
+                    continue
+                model_key = (
+                    (config.left_model if role == 'left' else config.right_model)
+                    if config is not None and config.is_asymmetric
+                    else hit.model
                 )
-            if right_rec:
-                right_flanks.setdefault(right_model_key, []).append(right_rec)
-                paired_right_flanks.setdefault(right_model_key, []).append(
-                    _make_paired_flank_record(right_rec, element_id, pair_id, 'R')
-                )
+                suffix = 'L' if role == 'left' else 'R'
+                if role == 'left':
+                    left_flanks.setdefault(model_key, []).append(rec)
+                    paired_left_flanks.setdefault(model_key, []).append(
+                        _make_paired_flank_record(rec, element_id, pair_id, suffix)
+                    )
+                else:
+                    right_flanks.setdefault(model_key, []).append(rec)
+                    paired_right_flanks.setdefault(model_key, []).append(
+                        _make_paired_flank_record(rec, element_id, pair_id, suffix)
+                    )
 
             paired_hit_ids.add(leftHit.idx)
             paired_hit_ids.add(rightHit.idx)
@@ -2652,19 +2826,24 @@ def writeFlanks(
                     )
                     continue
                 else:
-                    terminus_type = _determine_terminus_type(hit, config)
-                    if terminus_type is None:
+                    terminus = resolve_terminus(hit, config)
+                    if terminus is None:
                         logging.debug(
                             f'Cannot determine terminus type for unpaired hit {hit.idx} '
                             f'(model={hit.model}, strand={hit.strand}), skipping'
                         )
                         continue
 
-                    is_left = terminus_type == 'left'
+                    # Geometry follows the genomic side the outer edge faces;
+                    # grouping follows the terminus role. These differ for a
+                    # reverse-inserted asymmetric element, where the left
+                    # model's hit lies at the higher coordinate.
                     record_id = f'{model}_{hit_id}_unpaired'
-                    rec = build_flank_record(hit, is_left=is_left, record_id=record_id)
+                    rec = build_flank_record(
+                        hit, is_left=terminus.is_lower, record_id=record_id
+                    )
                     if rec:
-                        if is_left:
+                        if terminus.role == 'left':
                             left_flanks.setdefault(hit.model, []).append(rec)
                         else:
                             right_flanks.setdefault(hit.model, []).append(rec)
@@ -3113,9 +3292,9 @@ def writeTargetSites(
 
     Notes
     -----
-    Output files:
-      {prefix}target_sites.fasta – reconstructed target sites
-      {prefix}interleaved_flanks.fasta – interleaved left/right flanks
+    Output files, written per model pair:
+      {prefix}{pair_label}_target_sites_{N}.fasta – reconstructed target sites
+      {prefix}{pair_label}_interleaved_flanks_{N}.fasta – interleaved flanks
     """
     assert outDir is not None, 'outDir cannot be None'
     assert hitTable is not None, 'hitTable cannot be None'
@@ -3422,6 +3601,15 @@ def writeTargetSites(
                     tsd_in_model=False,
                 )
 
+            # Report the header in terms of terminus ROLE, so left_model and
+            # left_flank_hit always describe the same terminus. For a
+            # reverse-inserted asymmetric element that is the hit at the higher
+            # coordinate, which element_orientation records explicitly.
+            left_role, _right_role = _pair_roles(leftHit, rightHit, config)
+            reversed_insertion = left_role == 'right'
+            role_left_hit = rightHit if reversed_insertion else leftHit
+            role_right_hit = leftHit if reversed_insertion else rightHit
+
             # Build metadata for FASTA header. A TSD that could not be compared
             # is reported as 'NA', never as 0 - a padded or absent TSD must not
             # read as a confirmed perfect duplication.
@@ -3429,11 +3617,12 @@ def writeTargetSites(
                 f'flank_len={flank_len}',
                 f'tsd_len={pair_tsd_len}',
                 f'tsd_in_model={tsd_in_model}',
-                f'left_model={leftHit.model}',
-                f'right_model={rightHit.model}',
+                f'left_model={role_left_hit.model}',
+                f'right_model={role_right_hit.model}',
                 f'contig={leftHit.target}',
-                f'left_flank_hit={leftHit.strand}:{leftHit.hitStart}_{leftHit.hitEnd}',
-                f'right_flank_hit={rightHit.strand}:{rightHit.hitStart}_{rightHit.hitEnd}',
+                f'element_orientation={"reverse" if reversed_insertion else "forward"}',
+                f'left_flank_hit={role_left_hit.strand}:{role_left_hit.hitStart}_{role_left_hit.hitEnd}',
+                f'right_flank_hit={role_right_hit.strand}:{role_right_hit.hitStart}_{role_right_hit.hitEnd}',
                 f'tsd_hamming={"NA" if tsd_hamming is None else tsd_hamming}',
             ]
             if padded:
@@ -3794,6 +3983,54 @@ def gffWrite(
 """
 
 
+VALID_ORIENTATION_CODES = ('F', 'R')
+
+
+def parse_orientation(orientation: str) -> List[str]:
+    """
+    Parse and validate an orientation string such as 'F,R'.
+
+    Parameters
+    ----------
+    orientation : str
+        Two comma-separated codes, each 'F' (forward, + strand) or 'R'
+        (reverse, - strand). Case-insensitive and whitespace-tolerant.
+
+    Returns
+    -------
+    list of str
+        Upper-cased ``[left_code, right_code]``.
+
+    Raises
+    ------
+    ValueError
+        If the value is not exactly two valid codes.
+
+    Notes
+    -----
+    Validating here means a malformed orientation fails loudly at
+    configuration time. Previously the string was split without upper-casing,
+    so 'f,r' silently produced two '-' strands, and any unrecognised value left
+    the strand-combination table empty in
+    :func:`parseHitsGeneral`, yielding zero pairs with no explanation.
+    """
+    if not isinstance(orientation, str):
+        raise ValueError(
+            f'Orientation must be a string like "F,R", got {type(orientation).__name__}'
+        )
+
+    codes = [part.strip().upper() for part in orientation.split(',')]
+
+    if len(codes) != 2 or any(c not in VALID_ORIENTATION_CODES for c in codes):
+        raise ValueError(
+            f'Invalid orientation {orientation!r}. Expected two comma-separated '
+            "codes, each 'F' (forward/+) or 'R' (reverse/-), "
+            "e.g. 'F,R' for TIRs or 'F,F' for LTRs."
+        )
+
+    return codes
+
+
 # New configuration class to manage pairing rules
 class PairingConfig:
     """
@@ -3852,7 +4089,7 @@ class PairingConfig:
             right_model: Model name for right terminus (None for symmetric)
             single_model: Model name when using same model for both ends
         """
-        self.orientation = orientation.split(',')
+        self.orientation = parse_orientation(orientation)
         self.left_strand = '+' if self.orientation[0] == 'F' else '-'
         self.right_strand = '+' if self.orientation[1] == 'F' else '-'
 
@@ -3951,28 +4188,33 @@ def parseHitsGeneral(
                     # For symmetric pairing, a hit can act as either left or right terminus
                     # depending on its strand and the config orientation
 
-                    if ref.strand == config.left_strand:
-                        # This hit matches the left terminus strand requirement
-                        # It should look for right terminus partners
+                    # A hit may satisfy the left role, the right role, or - when
+                    # the orientation is same-strand (F,F / R,R) - both. These
+                    # must be independent tests: an if/elif would let only the
+                    # left search run for F,F and R,R, so no hit would ever
+                    # collect an upstream candidate and reciprocity could never
+                    # be established.
+                    can_be_left = ref.strand == config.left_strand
+                    can_be_right = ref.strand == config.right_strand
 
-                        # Determine search direction based on orientation and strand
-                        if config.left_strand == '+' and config.right_strand == '+':
-                            # F,F on positive strand: left looks downstream (higher coords)
-                            search_direction = 'left_to_right'
-                        elif config.left_strand == '+' and config.right_strand == '-':
-                            # F,R: left(+) looks for right(-), still downstream
-                            search_direction = 'left_to_right'
-                        elif config.left_strand == '-' and config.right_strand == '+':
-                            # R,F: left(-) looks for right(+), upstream in genomic coords
-                            search_direction = 'right_to_left'
-                        elif config.left_strand == '-' and config.right_strand == '-':
-                            # R,R on negative strand: left(-) looks upstream (lower coords)
-                            search_direction = 'right_to_left'
+                    # The left terminus searches away from its own 5' end: on
+                    # '+' that is downstream, on '-' upstream. The right
+                    # terminus searches the opposite way.
+                    left_direction = (
+                        'left_to_right'
+                        if config.left_strand == '+'
+                        else 'right_to_left'
+                    )
+                    right_direction = (
+                        'right_to_left'
+                        if left_direction == 'left_to_right'
+                        else 'left_to_right'
+                    )
 
+                    if can_be_left:
                         logging.debug(
-                            f'Hit {UID} acting as LEFT terminus, searching {search_direction} for RIGHT partners on {config.right_strand} strand'
+                            f'Hit {UID} acting as LEFT terminus, searching {left_direction} for RIGHT partners on {config.right_strand} strand'
                         )
-
                         _find_candidates(
                             ref,
                             right_model,
@@ -3980,31 +4222,13 @@ def parseHitsGeneral(
                             hitsDict,
                             hitIndex,
                             maxDist_value,
-                            search_direction,
+                            left_direction,
                         )
 
-                    elif ref.strand == config.right_strand:
-                        # This hit matches the right terminus strand requirement
-                        # It should look for left terminus partners
-
-                        # Determine search direction (opposite of left terminus search)
-                        if config.left_strand == '+' and config.right_strand == '+':
-                            # F,F: right(+) looks upstream for left(+)
-                            search_direction = 'right_to_left'
-                        elif config.left_strand == '+' and config.right_strand == '-':
-                            # F,R: right(-) looks upstream for left(+)
-                            search_direction = 'right_to_left'
-                        elif config.left_strand == '-' and config.right_strand == '+':
-                            # R,F: right(+) looks downstream for left(-)
-                            search_direction = 'left_to_right'
-                        elif config.left_strand == '-' and config.right_strand == '-':
-                            # R,R: right(-) looks downstream for left(-)
-                            search_direction = 'left_to_right'
-
+                    if can_be_right:
                         logging.debug(
-                            f'Hit {UID} acting as RIGHT terminus, searching {search_direction} for LEFT partners on {config.left_strand} strand'
+                            f'Hit {UID} acting as RIGHT terminus, searching {right_direction} for LEFT partners on {config.left_strand} strand'
                         )
-
                         _find_candidates(
                             ref,
                             left_model,
@@ -4012,9 +4236,10 @@ def parseHitsGeneral(
                             hitsDict,
                             hitIndex,
                             maxDist_value,
-                            search_direction,
+                            right_direction,
                         )
-                    else:
+
+                    if not (can_be_left or can_be_right):
                         logging.debug(
                             f'Hit {UID} on strand {ref.strand} does not match required orientations ({config.left_strand}, {config.right_strand})'
                         )
@@ -4108,6 +4333,49 @@ def parseHitsGeneral(
     return hitIndex
 
 
+def inter_hit_distance(ref_hit: Any, candidate: Any, direction: str) -> int:
+    """
+    Genomic distance between the facing inner edges of two terminus hits.
+
+    Parameters
+    ----------
+    ref_hit : namedtuple
+        Reference hit with hitStart and hitEnd attributes.
+    candidate : namedtuple
+        Candidate partner hit with hitStart and hitEnd attributes.
+    direction : str
+        'left_to_right' when the candidate lies downstream of the reference,
+        'right_to_left' when it lies upstream.
+
+    Returns
+    -------
+    int
+        Separation between the two hits, i.e. the span of the element interior
+        between them. Negative when the hits overlap or are in the wrong order
+        for ``direction``.
+
+    Notes
+    -----
+    This is the quantity ``--maxdist`` limits: the gap between the termini, not
+    including the termini themselves. It is measured between the inner edge of
+    the upstream hit (its ``hitEnd``) and the inner edge of the downstream hit
+    (its ``hitStart``), which makes it independent of strand - the importers
+    already normalise every hit so that ``hitStart < hitEnd``.
+
+    The previous implementation measured from the upstream hit's inner edge to
+    the *downstream* hit's strand-relative 5' end, which for a minus-strand
+    partner is its far edge. That added the whole length of the partner
+    terminus to the measured distance, so the same element needed a larger
+    ``--maxdist`` purely because its terminus model was longer.
+    """
+    if direction == 'left_to_right':
+        upstream, downstream = ref_hit, candidate
+    else:  # 'right_to_left'
+        upstream, downstream = candidate, ref_hit
+
+    return int(downstream.hitStart) - int(upstream.hitEnd)
+
+
 def _check_distance(
     ref_hit: Any, candidate: Any, direction: str, maxDist: float
 ) -> bool:
@@ -4133,58 +4401,13 @@ def _check_distance(
 
     Notes
     -----
-    Handles strand-aware distance calculation. For negative strand hits, coordinates
-    are inverted in nhmmer output (hitStart > hitEnd). Calculates biological distance
-    from terminus 3' end to partner 5' end based on strand orientations.
+    Distance is the gap between the two hits, as computed by
+    :func:`inter_hit_distance`. A negative value means the candidate is on the
+    wrong side of the reference for the search direction, or the two hits
+    overlap, and the candidate is rejected.
     """
+    distance = inter_hit_distance(ref_hit, candidate, direction)
 
-    def get_terminus_position(hit: Any) -> Dict[str, int]:
-        """
-        Extract terminus positions based on strand orientation and biological direction.
-
-        Parameters
-        ----------
-        hit : namedtuple
-            Hit record with strand, hitStart, and hitEnd attributes.
-
-        Returns
-        -------
-        dict
-            Dictionary with keys: 'start', 'end', '5_prime', '3_prime' containing
-            genomic coordinates adjusted for strand orientation.
-
-        Notes
-        -----
-        For positive strand (+): hitStart < hitEnd, 5' = hitStart, 3' = hitEnd.
-        For negative strand (-): hitStart > hitEnd (flipped), 5' = hitEnd, 3' = hitStart.
-        The 5' and 3' positions represent biological directionality.
-        """
-        if hit.strand == '+':
-            # Positive strand: hitStart < hitEnd
-            # For left terminus: use 3' end (hitEnd)
-            # For right terminus: use 5' end (hitStart)
-            return {
-                'start': hit.hitStart,
-                'end': hit.hitEnd,
-                '5_prime': hit.hitStart,
-                '3_prime': hit.hitEnd,
-            }
-        else:
-            # Negative strand: hitStart > hitEnd (coordinates flipped)
-            # For left terminus: use 3' end (hitStart)
-            # For right terminus: use 5' end (hitEnd)
-            return {
-                'start': hit.hitEnd,
-                'end': hit.hitStart,
-                '5_prime': hit.hitEnd,
-                '3_prime': hit.hitStart,
-            }
-
-    # Get terminus positions for both hits
-    ref_pos = get_terminus_position(ref_hit)
-    cand_pos = get_terminus_position(candidate)
-
-    # Debug logging
     logging.debug('=== DISTANCE CHECK DEBUG ===')
     logging.debug(f'Direction: {direction}')
     logging.debug(
@@ -4193,52 +4416,6 @@ def _check_distance(
     logging.debug(
         f'Candidate: {candidate.model} strand={candidate.strand} coords=({candidate.hitStart}, {candidate.hitEnd})'
     )
-    logging.debug(f'Ref positions: {ref_pos}')
-    logging.debug(f'Candidate positions: {cand_pos}')
-
-    # Calculate distance based on biological relationship
-    if direction == 'left_to_right':
-        # Left terminus looking for right terminus downstream
-        # Distance from left terminus 3' end to right terminus 5' end
-        if ref_hit.strand == '+' and candidate.strand == '+':
-            # F,F orientation on + strand: left_end -> right_start
-            distance = cand_pos['5_prime'] - ref_pos['3_prime']
-        elif ref_hit.strand == '+' and candidate.strand == '-':
-            # F,R orientation: left_end -> right_start (right is on - strand)
-            distance = cand_pos['5_prime'] - ref_pos['3_prime']
-        elif ref_hit.strand == '-' and candidate.strand == '+':
-            # R,F orientation: left_end -> right_start (left is on - strand)
-            distance = cand_pos['5_prime'] - ref_pos['3_prime']
-        elif ref_hit.strand == '-' and candidate.strand == '-':
-            # R,R orientation on - strand: left_end -> right_start
-            distance = cand_pos['5_prime'] - ref_pos['3_prime']
-        else:
-            logging.error(
-                f'Unexpected strand combination: {ref_hit.strand}, {candidate.strand}'
-            )
-            return False
-
-    else:  # 'right_to_left'
-        # Right terminus looking for left terminus upstream
-        # Distance from right terminus 5' end to left terminus 3' end (should be negative, so we flip)
-        if ref_hit.strand == '+' and candidate.strand == '+':
-            # F,F orientation: right_start -> left_end (upstream)
-            distance = ref_pos['5_prime'] - cand_pos['3_prime']
-        elif ref_hit.strand == '-' and candidate.strand == '+':
-            # R,F orientation: right_start -> left_end
-            distance = ref_pos['5_prime'] - cand_pos['3_prime']
-        elif ref_hit.strand == '+' and candidate.strand == '-':
-            # F,R orientation: right_start -> left_end
-            distance = ref_pos['5_prime'] - cand_pos['3_prime']
-        elif ref_hit.strand == '-' and candidate.strand == '-':
-            # R,R orientation: right_start -> left_end
-            distance = ref_pos['5_prime'] - cand_pos['3_prime']
-        else:
-            logging.error(
-                f'Unexpected strand combination: {ref_hit.strand}, {candidate.strand}'
-            )
-            return False
-
     logging.debug(f'Calculated distance: {distance}')
 
     # Check for negative distances (invalid pairing)
@@ -4297,6 +4474,11 @@ def _find_candidates(
     -----
     Candidates are sorted by calculated biological distance with closest partners first.
     Only hits on target chromosome matching target_strand and within maxDist are added.
+
+    The reference hit is never its own candidate. For symmetric same-strand
+    orientations (F,F and R,R) the reference and the candidates come from the
+    same model on the same strand, so without this the hit would be offered as
+    its own partner and could be "paired" with itself.
     """
     import logging
 
@@ -4322,6 +4504,13 @@ def _find_candidates(
     candidates_found = 0
 
     for candidate in hitsDict[target_model][ref_hit.target]:
+        # A hit can never be its own partner. This only bites for symmetric
+        # same-strand orientations, where ref and candidate share a model and a
+        # strand; on '-' the 5'/3' swap makes the self-distance positive, so the
+        # hit would otherwise pass the distance test against itself.
+        if candidate.model == ref_hit.model and candidate.idx == ref_hit.idx:
+            continue
+
         if candidate.strand == target_strand:
             logging.debug(
                 f'Checking candidate: {candidate.model} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
@@ -4343,67 +4532,12 @@ def _find_candidates(
 
     # Sort candidates by distance using the same logic as _check_distance
     # This ensures closest valid partners are prioritized
-    def get_distance_for_sorting(ref: Any, cand: Any, direction: str) -> int:
-        """
-        Calculate biological distance between hits for sorting candidates.
-
-        Parameters
-        ----------
-        ref : namedtuple
-            Reference hit with strand, hitStart, hitEnd attributes.
-        cand : namedtuple
-            Candidate partner hit with strand, hitStart, hitEnd attributes.
-        direction : str
-            Search direction: 'left_to_right' or 'right_to_left'.
-
-        Returns
-        -------
-        int
-            Calculated distance in base pairs from reference to candidate based
-            on terminus positions and biological orientation.
-
-        Notes
-        -----
-        Matches the distance calculation logic in _check_distance function.
-        For left_to_right: distance from left terminus 3' end to right terminus 5' end.
-        For right_to_left: distance from right terminus 5' end to left terminus 3' end.
-        """
-
-        def get_terminus_position(hit: Any) -> Dict[str, int]:
-            """
-            Extract 5' and 3' terminus positions accounting for strand orientation.
-
-            Parameters
-            ----------
-            hit : namedtuple
-                Hit record with strand, hitStart, and hitEnd attributes.
-
-            Returns
-            -------
-            dict
-                Dictionary with '5_prime' and '3_prime' keys containing genomic coordinates
-                adjusted for strand directionality.
-            """
-            if hit.strand == '+':
-                return {'5_prime': hit.hitStart, '3_prime': hit.hitEnd}
-            else:
-                return {'5_prime': hit.hitEnd, '3_prime': hit.hitStart}
-
-        ref_pos = get_terminus_position(ref)
-        cand_pos = get_terminus_position(cand)
-
-        if direction == 'left_to_right':
-            # Distance from left terminus 3' end to right terminus 5' end
-            return int(cand_pos['5_prime'] - ref_pos['3_prime'])
-        else:
-            # Distance from right terminus 5' end to left terminus 3' end
-            return int(ref_pos['5_prime'] - cand_pos['3_prime'])
-
     if hitIndex[model_key][uid_key]['candidates']:
-        # Sort by calculated distance (closest first)
+        # Sort by the same measure the distance filter uses, so "closest" means
+        # the same thing when ranking candidates as when accepting them.
         hitIndex[model_key][uid_key]['candidates'] = sorted(
             hitIndex[model_key][uid_key]['candidates'],
-            key=lambda x: get_distance_for_sorting(ref_hit, x, direction),
+            key=lambda x: inter_hit_distance(ref_hit, x, direction),
         )
 
         logging.debug(

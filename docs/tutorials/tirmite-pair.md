@@ -94,9 +94,11 @@ flowchart TD
 3. For each significant terminus match, identify candidate partners, where:
    - Hit is on the same sequence
    - Hit is in correct relative orientation
-   - Distance is ≤ `--maxdist`
+   - Distance is ≤ `--maxdist`, measured between the facing inner edges of the
+     two hits (i.e. the length of the element interior, excluding the termini
+     themselves)
    - Hit length is ≥ (model/query length × `--mincov`)
-4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
+4. Rank candidate partners by that same inter-terminus distance, closest first.
 5. Pair reciprocal top candidate hits.
 6. For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.
 7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is the outbound top-candidate of the current candidate reciprocal?).
@@ -109,11 +111,27 @@ The `--orientation` flag controls which strand combinations are considered valid
 | Setting | Meaning | Use case |
 |---------|---------|----------|
 | `F,R` | Forward hit paired with Reverse hit | TIR elements (same model) |
-| `F,F` | Forward hit paired with Forward hit | LTR retrotransposons |
-| `R,F` | Reverse hit paired with Forward hit | Rarely used |
-| `R,R` | Reverse hit paired with Reverse hit | Rarely used |
+| `F,F` | Forward hit paired with Forward hit | LTR retrotransposons; asymmetric elements whose termini are direct repeats |
+| `R,F` | Reverse hit paired with Forward hit | Asymmetric elements whose seeds are supplied in the opposite orientations |
+| `R,R` | Reverse hit paired with Reverse hit | As `F,F`, with both seeds supplied reverse-complemented |
+
+The setting describes the strand relationship *between the two termini*, which
+is a property of the element's architecture — not of which way round any
+individual copy happens to be inserted. Each orientation therefore accepts both
+strand combinations, so a single run finds elements inserted in either
+direction. Values are case-insensitive; anything other than two `F`/`R` codes
+is rejected with an error rather than silently matching nothing.
 
 For **asymmetric elements** using a pairing map, the orientation is applied independently for each left/right model pair defined in the pairing map.
+
+!!! note "Reverse-inserted elements"
+    When an element is inserted in reverse, the model that defines its **left**
+    terminus produces a hit at the **higher** genomic coordinate. Flank
+    extraction handles this: the outer edge is always the side facing away from
+    the element body. Output files and the `_L`/`_R` suffixes follow the
+    terminus role, so each model's termini stay together regardless of
+    insertion direction, and reconstructed target sites record which case
+    applies in `element_orientation`.
 
 ```mermaid
 flowchart LR
@@ -451,6 +469,7 @@ tirmite pair \
   --mincov 0.4 \
   --maxdist 20000 \
   --flank-len 30 \
+  --flanks-paired \
   --insertion-site \
   --tsd-length-map tsd_lengths.tsv \
   --outdir OUTPUT \

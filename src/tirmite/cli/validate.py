@@ -26,7 +26,7 @@ from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
-from tirmite.runners.mafft import align_in_memory
+from tirmite.runners.mafft import align_in_memory, mafft_available
 from tirmite.utils.extract import (
     BlastDBSource,
     blastdbcmd_available,
@@ -35,6 +35,15 @@ from tirmite.utils.extract import (
 from tirmite.utils.logs import init_logging
 
 logger = logging.getLogger(__name__)
+
+
+class ValidationError(Exception):
+    """Raised when validation cannot be performed as requested.
+
+    Used for conditions that must not be mistaken for "nothing to validate":
+    a missing or unparseable BLAST file, a missing external tool, or a run in
+    which no site could be checked at all.
+    """
 
 
 def add_validate_parser(subparsers: Any) -> argparse.ArgumentParser:
@@ -319,34 +328,72 @@ def parse_blast_results(
     hits: List[Dict[str, Any]] = []
 
     if not os.path.exists(blast_file):
-        logger.warning(f'BLAST results file not found: {blast_file}')
-        return hits
+        # An unreadable results file must not look like "no empty sites found".
+        raise ValidationError(f'BLAST results file not found: {blast_file}')
+
+    skipped_short = 0
+    skipped_malformed = 0
+    data_rows = 0
 
     with open(blast_file, 'r') as f:
         reader = csv.reader(f, delimiter='\t')
         for row in reader:
-            if len(row) < len(columns):
+            # Comment and blank lines are legitimate in BLAST output.
+            if not row or row[0].startswith('#'):
                 continue
+            data_rows += 1
+
+            if len(row) < len(columns):
+                skipped_short += 1
+                continue
+
             hit: Dict[str, Any] = {}
-            for i, col in enumerate(columns):
-                val = row[i]
-                if col in (
-                    'qstart',
-                    'qend',
-                    'sstart',
-                    'send',
-                    'length',
-                    'mismatch',
-                    'gapopen',
-                    'qlen',
-                    'slen',
-                ):
-                    hit[col] = int(val)
-                elif col in ('pident', 'evalue', 'bitscore'):
-                    hit[col] = float(val)
-                else:
-                    hit[col] = val
+            try:
+                for i, col in enumerate(columns):
+                    val = row[i]
+                    if col in (
+                        'qstart',
+                        'qend',
+                        'sstart',
+                        'send',
+                        'length',
+                        'mismatch',
+                        'gapopen',
+                        'qlen',
+                        'slen',
+                    ):
+                        hit[col] = int(val)
+                    elif col in ('pident', 'evalue', 'bitscore'):
+                        hit[col] = float(val)
+                    else:
+                        hit[col] = val
+            except ValueError:
+                # A non-numeric value in a numeric column: report rather than
+                # crashing with a traceback from deep inside the parser.
+                skipped_malformed += 1
+                continue
+
             hits.append(hit)
+
+    # A file whose every row was discarded is a format mismatch, not an empty
+    # result. The overwhelmingly common cause is a standard 12-column
+    # `-outfmt 6` file: TIRmite needs the 15-column form that adds
+    # qlen, slen and sstrand. Silently returning [] made that indistinguishable
+    # from "the genome contains no empty sites", and the run exited 0.
+    if data_rows and not hits:
+        raise ValidationError(
+            f'None of the {data_rows} data row(s) in {blast_file} could be parsed. '
+            f'{skipped_short} row(s) had fewer than {len(columns)} columns and '
+            f'{skipped_malformed} had unparseable values. TIRmite requires the '
+            "extended format: -outfmt '6 qseqid sseqid pident length mismatch "
+            "gapopen qstart qend sstart send evalue bitscore qlen slen sstrand'."
+        )
+
+    if skipped_short or skipped_malformed:
+        logger.warning(
+            f'Skipped {skipped_short} short and {skipped_malformed} malformed '
+            f'row(s) in {blast_file}'
+        )
 
     logger.info(f'Parsed {len(hits)} hits from {blast_file}')
     return hits
@@ -457,7 +504,7 @@ def check_tsd_gaps(
     target_aligned: str,
     tsd_length: int,
     query_len: int,
-) -> Tuple[int, str]:
+) -> Tuple[Optional[int], str]:
     """
     Check for gaps around the alignment midpoint indicating TSD length errors.
 
@@ -474,11 +521,25 @@ def check_tsd_gaps(
 
     Returns
     -------
-    predicted_error : int
-        Predicted error in TSD length. Positive means user specified too long,
-        negative means too short, 0 means consistent.
+    predicted_error : int or None
+        Predicted error in TSD length. Positive means the declared TSD is too
+        long, negative too short, and ``0`` that it agrees with the data.
+        **None means the comparison was inconclusive** and carries no evidence
+        either way.
     message : str
         Human-readable message about the validation result.
+
+    Notes
+    -----
+    The None return is load-bearing. This previously returned ``0`` both when
+    the alignment confirmed the declared length and when gaps on *both*
+    sequences made the comparison meaningless, so an inconclusive result was
+    averaged in as agreement and reported as "TSD length appears consistent".
+
+    That is the same failure mode fixed elsewhere in 1.5.0, where
+    :func:`tirmite.core.tsd.compare_tsds` was given an ``Optional[int]`` return
+    for exactly this reason: an unverifiable TSD must never be indistinguishable
+    from a verified one.
     """
     # Find the midpoint of the query in the aligned coordinates
     query_pos = 0
@@ -518,9 +579,51 @@ def check_tsd_gaps(
     elif query_gaps == 0 and target_gaps == 0:
         return 0, 'TSD length appears consistent with validation data'
     else:
-        return 0, (
+        # Gaps on both sides carry no directional information. Returning None
+        # rather than 0 keeps this out of the average entirely.
+        return None, (
             f'Both query ({query_gaps}) and target ({target_gaps}) have gaps '
             f'near midpoint; validation inconclusive'
+        )
+
+
+def _check_required_tools(args: argparse.Namespace) -> None:
+    """
+    Verify the external tools this run will need are installed.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments, used to decide whether blastn is needed.
+
+    Raises
+    ------
+    ValidationError
+        If a required executable is not on PATH.
+
+    Notes
+    -----
+    Checked up front rather than per hit. Both downstream helpers report a
+    missing tool by returning None -- ``align_in_memory`` per alignment and
+    ``extract_hit_sequence`` per hit -- and neither was aggregated, so a run
+    without MAFFT or without blastdbcmd wrote a full summary reporting
+    ``predicted_tsd_error 0.0`` for every site and exited 0.
+    """
+    missing = []
+
+    if not blastdbcmd_available():
+        missing.append('blastdbcmd (NCBI BLAST+) - needed to extract hit regions')
+
+    if not mafft_available():
+        missing.append('mafft - needed to align hits against the target site')
+
+    # blastn is only needed when we are running the search ourselves.
+    if not args.blast_results and not shutil.which('blastn'):
+        missing.append('blastn (NCBI BLAST+) - needed to search for empty sites')
+
+    if missing:
+        raise ValidationError(
+            'Required tool(s) not found on PATH:\n  ' + '\n  '.join(missing)
         )
 
 
@@ -562,6 +665,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         logger.info(f'TIRmite-validate version {__version__}')
         logger.info(f'Output directory: {outdir}')
+
+        # Pre-flight the external tools. Without these checks a missing tool
+        # produced a complete report full of 0.0 errors and exit 0: MAFFT
+        # failures return None per alignment, and blastdbcmd failures return
+        # None per hit, and neither was ever aggregated into a run-level
+        # failure.
+        _check_required_tools(args)
 
         # Validate inputs
         if not Path(args.target_sites).exists():
@@ -609,6 +719,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             prefix_str = f'{args.prefix}_' if args.prefix else ''
             summary_rows: List[Dict[str, Any]] = []
             all_alignments: Dict[str, List[SeqRecord]] = {}
+            # How many queries yielded at least one usable comparison. A run
+            # where this stays zero validated nothing and must not exit 0.
+            validated_queries = 0
 
             for query in queries:
                 qid = query.id
@@ -643,8 +756,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             'right_model': right_model,
                             'query_length': query_len,
                             'tsd_length': query_tsd_length,
-                            'num_valid_hits': 0,
-                            'predicted_tsd_error': 'N/A',
+                            'num_filtered_hits': 0,
+                            'num_compared_hits': 0,
+                            'predicted_tsd_error': 'NA',
                             'validation_message': 'No valid empty site hits found',
                         }
                     )
@@ -654,6 +768,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 alignment_seqs = [query]
                 tsd_errors: List[int] = []
                 tsd_messages: List[str] = []
+                inconclusive = 0
 
                 for hit in query_hits:
                     sstart = hit['sstart']
@@ -699,7 +814,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                                 query_tsd_length,
                                 query_len,
                             )
-                            tsd_errors.append(error)
+                            # None means inconclusive; count it separately so
+                            # it cannot be averaged in as agreement.
+                            if error is None:
+                                inconclusive += 1
+                            else:
+                                tsd_errors.append(error)
                             tsd_messages.append(msg)
 
                 # Determine consensus TSD error
@@ -716,12 +836,28 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             f'TSD may be ~{abs(round(avg_error))}bp too short'
                         )
 
+                    if inconclusive:
+                        consensus_msg += (
+                            f' (from {len(tsd_errors)} comparison(s); '
+                            f'{inconclusive} inconclusive)'
+                        )
+
                     if abs(avg_error) >= 1:
                         logger.warning(
                             f'TSD length validation warning for {qid}: {consensus_msg}'
                         )
+                    reported_error: Any = round(avg_error, 1)
+                    validated_queries += 1
+                elif inconclusive:
+                    # Every comparison was inconclusive. Reporting 0.0 here is
+                    # what made an unverifiable result look like a confirmed one.
+                    reported_error = 'NA'
+                    consensus_msg = (
+                        f'All {inconclusive} comparison(s) inconclusive: '
+                        'gaps on both sequences near the junction'
+                    )
                 else:
-                    avg_error = 0
+                    reported_error = 'NA'
                     consensus_msg = 'No alignments available for validation'
 
                 summary_rows.append(
@@ -731,8 +867,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         'right_model': right_model,
                         'query_length': query_len,
                         'tsd_length': query_tsd_length,
-                        'num_valid_hits': len(query_hits),
-                        'predicted_tsd_error': round(avg_error, 1),
+                        # Hits that survived BLAST filtering, and hits that were
+                        # actually extracted and compared. These differ whenever
+                        # extraction fails, and only the second says how much
+                        # evidence the verdict rests on.
+                        'num_filtered_hits': len(query_hits),
+                        'num_compared_hits': len(tsd_errors) + inconclusive,
+                        'predicted_tsd_error': reported_error,
                         'validation_message': consensus_msg,
                     }
                 )
@@ -756,8 +897,24 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     SeqIO.write(aligned_records, handle, 'fasta')
                 logger.info(f'Alignment written to {aln_file}')
 
-        logger.info('TIRmite-validate analysis completed successfully')
+        # A run that could not validate a single site is a failure, however
+        # many rows the summary has. Previously this reported success and
+        # exited 0 whether it validated 500 sites or none of them.
+        if validated_queries == 0:
+            logger.error(
+                f'No target site could be validated ({len(summary_rows)} '
+                'queries processed). See the summary for per-query reasons.'
+            )
+            return 1
 
+        logger.info(
+            f'TIRmite-validate completed: {validated_queries} of '
+            f'{len(summary_rows)} target site(s) validated'
+        )
+
+    except ValidationError as e:
+        logger.error(f'Validation cannot proceed: {e}')
+        return 1
     except KeyboardInterrupt:
         logger.info('Analysis interrupted by user')
         sys.exit(130)

@@ -1896,6 +1896,20 @@ def process_seed_sequences(
     except Exception as e:
         raise HMMBuildError(f'Failed to extract sequences: {e}') from e
 
+    # extract_sequences_from_chains logs and skips each per-hit failure, so a
+    # wholesale failure -- a BLAST database built without -parse_seqids, or a
+    # genome whose contig names do not match the hits -- returned an empty list
+    # here. The seed records were then appended and, for a multi-record seed
+    # file, len(unique_sequences) >= 2 passed: the run exited 0 having built an
+    # "HMM" from the seeds aligned to each other, with no genomic evidence.
+    if resolved_hits and not sequences:
+        raise HMMBuildError(
+            f'None of the {len(resolved_hits)} hit(s) for {model_name} could be '
+            'extracted. Check that the sequence source contains the hit target '
+            'names; a BLAST database must be built with -parse_seqids for '
+            'blastdbcmd to retrieve by sequence ID.'
+        )
+
     # Add original seed sequence(s) - convert to uppercase and add BEFORE deduplication
     seed_records = list(SeqIO.parse(seed_file, 'fasta'))
     logger.info(f'Adding {len(seed_records)} seed sequence(s) to extracted sequences')
@@ -2214,6 +2228,15 @@ def process_asymmetric_seeds(
     except Exception as e:
         raise HMMBuildError(f'Failed to extract left sequences: {e}') from e
 
+    # See the equivalent guard in process_seed_sequences: a wholesale
+    # extraction failure must not be papered over by the seed records.
+    if resolved_left and not left_sequences:
+        raise HMMBuildError(
+            f'None of the {len(resolved_left)} left hit(s) for {model_name} '
+            'could be extracted. Check that the sequence source contains the hit '
+            'target names; a BLAST database must be built with -parse_seqids.'
+        )
+
     left_seed_records = list(SeqIO.parse(left_seed, 'fasta'))
     for seed_record in left_seed_records:
         left_sequences.append(
@@ -2250,6 +2273,15 @@ def process_asymmetric_seeds(
         raise
     except Exception as e:
         raise HMMBuildError(f'Failed to extract right sequences: {e}') from e
+
+    # See the equivalent guard in process_seed_sequences: a wholesale
+    # extraction failure must not be papered over by the seed records.
+    if resolved_right and not right_sequences:
+        raise HMMBuildError(
+            f'None of the {len(resolved_right)} right hit(s) for {model_name} '
+            'could be extracted. Check that the sequence source contains the hit '
+            'target names; a BLAST database must be built with -parse_seqids.'
+        )
 
     right_seed_records = list(SeqIO.parse(right_seed, 'fasta'))
     for seed_record in right_seed_records:

@@ -20,6 +20,7 @@ from tirmite.core.flanks import (
 )
 from tirmite.core.termini import _pair_roles, flipTIRs
 from tirmite.utils.extract import (
+    PaddedRegion,
     fetch_region_padded,
     make_source,
 )
@@ -205,7 +206,9 @@ def reconstruct_target_site(
     """
     left_tsd = ''
     right_tsd = ''
-    tsd_hamming = 0
+    # Optional, not int: compare_tsds returns None when the duplication cannot
+    # be verified, and that must not collapse to 0 (a perfect match).
+    tsd_hamming: Optional[int] = 0
 
     if tsd_length > 0:
         # For both tsd_in_model modes, the TSD appears at the inner boundary
@@ -560,7 +563,9 @@ def writeTargetSites(
     # Helper: extract TSD sequence from the inner boundary of a terminus hit
     # Used when tsd_in_model=True (TSD is part of the termini model, not in flank)
     # ------------------------------------------------------------------
-    def extract_inner_tsd(hit: Any, is_left: bool, tsd_len: int) -> Optional[str]:
+    def extract_inner_tsd(
+        hit: Any, is_left: bool, tsd_len: int
+    ) -> Optional[PaddedRegion]:
         """
         Extract the TSD sequence from the inner (element-facing) boundary of a hit.
 

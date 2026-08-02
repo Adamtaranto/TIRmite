@@ -19,7 +19,7 @@ import shutil
 import tempfile
 from typing import Any, Generator, Optional, Tuple, Union
 
-from pyfaidx import Fasta  # type: ignore[import-not-found]
+from pyfaidx import Fasta  # type: ignore[import-untyped]
 
 # Library modules acquire a named logger and attach a NullHandler, so that
 # importing TIRmite as a library emits nothing until the host application

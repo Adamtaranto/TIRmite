@@ -36,6 +36,10 @@ jobs:
       # skip, so the FASTA-vs-BLAST-database guarantee goes unchecked. Only
       # installed for the version that reports coverage, to keep the other
       # matrix jobs fast.
+      #
+      # Note the trade-off this accepts: BLAST-dependent behaviour is verified
+      # on Python 3.14 alone. A regression that only manifests on an older
+      # interpreter in a BLAST code path would not be caught here.
       - name: Install BLAST+
         if: matrix.python-version == '3.14'
         run: |

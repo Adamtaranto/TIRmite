@@ -1491,11 +1491,20 @@ def build_hmm_from_alignment_pyhmmer(
                     f'No sequences found in alignment file: {alignment_file}'
                 ) from None  # Add 'from None' since this is a new logical error, not chained from seq_error
 
-            # Create MSA from sequences
-            msa = DigitalMSA(alphabet, sequences)
-            logger.debug(f'Created MSA manually with {len(msa)} sequences')
+            # Every argument must be passed by keyword. `sequences` given
+            # positionally lands in `name`, which expects bytes, so this
+            # fallback raised "TypeError: Expected bytes, got list" every time
+            # it was reached. pyhmmer also warns that `alphabet` will stop
+            # accepting a positional argument after v0.12.0.
+            msa = DigitalMSA(alphabet=alphabet, sequences=sequences)
+            logger.debug(f'Created MSA manually with {len(msa.sequences)} sequences')
 
-        logger.info(f'Building HMM for {model_name} from {len(msa)} sequences')
+        # len(msa) is the alignment WIDTH in columns, not the number of
+        # sequences; msa.sequences is the sequence list.
+        logger.info(
+            f'Building HMM for {model_name} from {len(msa.sequences)} sequences '
+            f'({len(msa)} alignment columns)'
+        )
 
         # Try to set MSA name before building (this might help)
         try:
@@ -3137,7 +3146,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             f'Found {len(seed_comparisons)} significant similarities between seeds:'
                         )
 
-                        for i, (hit, alignment) in enumerate(
+                        # Named seed_alignment, not alignment: the --update
+                        # branch above uses `alignment` for an output Path.
+                        for i, (hit, seed_alignment) in enumerate(
                             seed_comparisons[:3], 1
                         ):  # Show top 3
                             logger.info(
@@ -3149,12 +3160,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             logger.info(
                                 f'    Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}] ({hit.strand} strand)'
                             )
-                            logger.info(f'    Alignment score: {alignment.score}')
+                            logger.info(f'    Alignment score: {seed_alignment.score}')
 
                             # Optionally print the alignment for the best hit
                             if i == 1 and args.loglevel == 'DEBUG':
                                 logger.debug('Best seed alignment:')
-                                for line in str(alignment).split('\n'):
+                                for line in str(seed_alignment).split('\n'):
                                     logger.debug(f'    {line}')
 
                         # Save detailed seed comparison results
@@ -3171,7 +3182,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                                 f'Total similarities found: {len(seed_comparisons)}\n\n'
                             )
 
-                            for i, (hit, alignment) in enumerate(seed_comparisons, 1):
+                            # The alignment object is not written to the report,
+                            # only the hit's coordinates and scores.
+                            for i, (hit, _seed_alignment) in enumerate(
+                                seed_comparisons, 1
+                            ):
                                 f.write(f'Similarity {i}:\n')
                                 f.write(f'  Length: {hit.length}bp\n')
                                 f.write(f'  Identity: {hit.identity:.1f}%\n')

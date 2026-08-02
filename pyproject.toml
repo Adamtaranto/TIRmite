@@ -175,12 +175,28 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
-# Disable specific error codes for false positives and external library type issues
-# arg-type: Path vs str conversions for functions expecting str in other modules
-# attr-defined: Attribute access on objects from external libraries (pandas, pyhmmer)
-# union-attr: Pandas DataFrame operations that mypy can't fully type check
-# index: Indexing operations on Union types from pandas
-disable_error_code = ["arg-type", "attr-defined", "union-attr", "index"]
+# arg-type, attr-defined, union-attr and index were previously disabled for the
+# whole package. Measurement showed all 21 resulting errors are confined to
+# three CLI modules, so the codes are now enabled everywhere and suppressed only
+# there. That restores real checking across 27 of the 30 source modules,
+# including all of tirmite.core, tirmite.utils and tirmite.runners.
+
+# Per-module suppressions. Each entry is a backlog to burn down, not a
+# permanent exemption.
+[[tool.mypy.overrides]]
+# 7 arg-type (Path vs str at call boundaries), 1 union-attr.
+module = "tirmite.cli.legacy"
+disable_error_code = ["arg-type", "union-attr"]
+
+[[tool.mypy.overrides]]
+# 6 arg-type, 4 union-attr, mostly pandas DataFrame operations.
+module = "tirmite.cli.hmm_pair"
+disable_error_code = ["arg-type", "union-attr"]
+
+[[tool.mypy.overrides]]
+# 2 attr-defined and 1 index, from pyhmmer objects mypy cannot fully model.
+module = "tirmite.cli.hmm_build"
+disable_error_code = ["attr-defined", "index"]
 
 [tool.pydocstyle]
 convention = "numpy"

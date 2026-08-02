@@ -18,7 +18,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Set, cast
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
 from tirmite.core.extraction import (
@@ -279,8 +279,9 @@ def load_pairing_map(pairing_map_file: str) -> list[tuple[str, str]]:
     For symmetric pairing, both columns have the same value.
     Skips comment lines (starting with #) and blank lines.
     """
-    pairings = []
-    seen_features = {}  # Track occurrences of each feature
+    pairings: list[tuple[str, str]] = []
+    # Feature name -> line numbers it appeared on, for the duplicate warning.
+    seen_features: dict[str, list[int]] = {}
 
     try:
         with open(pairing_map_file, 'r') as f:
@@ -346,7 +347,9 @@ def check_multiple_models(hitTable: Any) -> list[str]:
     list of str
         List of unique model names found in hitTable.
     """
-    unique_models = hitTable['model'].unique().tolist()
+    # .tolist() is untyped in pandas, so state the element type explicitly
+    # rather than leaking Any out of a function declared to return list[str].
+    unique_models: list[str] = list(hitTable['model'].unique())
     return unique_models
 
 
@@ -1731,8 +1734,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 f'Running {len(pairing_map)} independent pairing procedures based on pairing map'
             )
 
-            all_paired = {}  # Accumulate all paired results by model
-            all_paired_hits = set()  # Track which hit indices have been paired
+            # Accumulate all paired results by model.
+            all_paired: Dict[str, List[Set[int]]] = {}
+            # Track which hit indices have been paired.
+            all_paired_hits: Set[int] = set()
             original_hitIndex = hitIndex  # Preserve original for unpaired hit tracking
 
             for pair_idx, (left_feature, right_feature) in enumerate(pairing_map, 1):

@@ -28,6 +28,16 @@ from tirmite.cli._argtypes import (
     validate_threads,
     validate_word_size,
 )
+
+# Re-exported rather than imported for use only: tests and downstream code
+# import these names from this module, and they were defined here before the
+# two diverged copies were unified into tirmite.core.hit_filters.
+from tirmite.core.hit_filters import (  # noqa: F401
+    AnchorFilterError,
+    compute_outer_edge_offset,
+    expand_pairing_map_to_components,
+    filter_hits_by_anchor,
+)
 from tirmite.runners.hmmer_wrappers import build_nhmmer_command
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
@@ -571,239 +581,6 @@ def filter_hits_by_evalue(hit_table: pd.DataFrame, max_evalue: float) -> pd.Data
         f'E-value filter (max={max_evalue}): {len(hit_table)} -> {len(filtered)} hits'
     )
     return filtered
-
-
-def compute_outer_edge_offset(
-    hmm_start: int,
-    hmm_end: int,
-    model_len: int,
-    strand: str,
-    terminus_type: str,
-) -> int:
-    """
-    Compute the offset (in bases) between the hit alignment and the outer edge of the query model.
-
-    The "outer edge" is the external end of the terminus model:
-    - For a left terminus the outer edge faces the upstream/left genomic direction.
-    - For a right terminus the outer edge faces the downstream/right genomic direction.
-
-    The offset represents how many model positions are not covered between the
-    alignment boundary and the outer edge.  A value of 0 means the alignment
-    reaches the outer tip of the model; larger values mean the alignment stops
-    progressively further from the outer edge.
-
-    Parameters
-    ----------
-    hmm_start : int
-        1-based start position of the alignment in the query/HMM model.
-    hmm_end : int
-        1-based end position of the alignment in the query/HMM model.
-    model_len : int
-        Total length of the query/HMM model.
-    strand : str
-        Strand of the hit on the target sequence: '+' or '-'.
-    terminus_type : str
-        Whether this is a 'left' or 'right' terminus.
-
-    Returns
-    -------
-    int
-        Number of unaligned model positions between the hit and the outer edge.
-        Zero means the hit reaches the outer edge exactly.
-
-    Notes
-    -----
-    Offset rules (matching ``compute_flank_coordinates`` in tirmitetools.py):
-
-    Left terminus:
-      - ``+`` strand: outer edge = model position 1  → offset = ``hmm_start - 1``
-      - ``-`` strand: outer edge = model position ``model_len`` → offset = ``model_len - hmm_end``
-
-    Right terminus:
-      - ``+`` strand: outer edge = model position ``model_len`` → offset = ``model_len - hmm_end``
-      - ``-`` strand: outer edge = model position 1 → offset = ``hmm_start - 1``
-    """
-    if terminus_type == 'left':
-        if strand == '+':
-            return hmm_start - 1
-        else:  # '-'
-            return model_len - hmm_end
-    else:  # 'right'
-        if strand == '+':
-            return model_len - hmm_end
-        else:  # '-'
-            return hmm_start - 1
-
-
-def filter_hits_by_anchor(
-    hit_table: pd.DataFrame,
-    query_lengths: Dict[str, int],
-    max_offset: int,
-    orientation: str = 'F,R',
-    pairing_map: Optional[Dict[str, str]] = None,
-) -> pd.DataFrame:
-    """
-    Filter hits to only those anchored within ``max_offset`` bases of the outer edge of the query model.
-
-    For each hit the terminus type (left/right) is determined from the pairing map
-    (asymmetric case) or from the hit strand combined with the orientation setting
-    (symmetric F,R or R,F case).  The offset from the outer edge is then computed
-    using :func:`compute_outer_edge_offset` and hits whose offset exceeds
-    ``max_offset`` are removed.
-
-    Hits are kept unchanged when:
-    - The model length is not available in ``query_lengths``.
-    - The terminus type cannot be determined (e.g. same-strand F,F or R,R symmetric
-      pairing without a pairing map).
-
-    Parameters
-    ----------
-    hit_table : pandas.DataFrame
-        Hit table with columns: model, strand, hmmStart, hmmEnd.
-    query_lengths : dict
-        Mapping of model name to model length (number of positions).
-    max_offset : int
-        Maximum allowed offset (bases) from the outer edge of the model.
-        Hits with offset > max_offset are removed.
-    orientation : str, default 'F,R'
-        Comma-separated orientation codes used to assign left/right terminus by
-        strand for symmetric (single-model) cases.
-        F = Forward (+), R = Reverse (-).  Examples: 'F,R', 'F,F', 'R,F', 'R,R'.
-    pairing_map : dict, optional
-        Mapping of left model name to right model name.  When provided, terminus
-        type is determined by model name rather than strand.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Filtered hit table containing only anchored hits.
-    """
-    if hit_table.empty:
-        return hit_table
-
-    # Parse orientation
-    orientation_parts = orientation.upper().split(',')
-    if len(orientation_parts) != 2:
-        logging.warning(
-            f'Invalid orientation "{orientation}"; expected two comma-separated codes. '
-            'Skipping anchor filter.'
-        )
-        return hit_table
-
-    left_strand = '+' if orientation_parts[0] == 'F' else '-'
-    right_strand = '+' if orientation_parts[1] == 'F' else '-'
-    strands_differ = left_strand != right_strand
-
-    # Build reverse map: model_name -> 'left' or 'right'
-    model_terminus: Dict[str, str] = {}
-    if pairing_map:
-        for left_model, right_model in pairing_map.items():
-            model_terminus[left_model] = 'left'
-            model_terminus[right_model] = 'right'
-
-    kept: List[bool] = []
-    skipped_no_terminus = 0
-    removed = 0
-    removed_per_model: Dict[str, int] = {}
-    missing_lengths: Set[str] = set()
-
-    for _, row in hit_table.iterrows():
-        model = row['model']
-        strand = row['strand']
-
-        # Determine terminus type
-        if model in model_terminus:
-            terminus_type: Optional[str] = model_terminus[model]
-        elif strands_differ:
-            # Use strand to distinguish left from right
-            if strand == left_strand:
-                terminus_type = 'left'
-            elif strand == right_strand:
-                terminus_type = 'right'
-            else:
-                terminus_type = None
-        else:
-            # Same-strand orientation (F,F or R,R) without a pairing map –
-            # cannot determine which end is "outer", check both ends
-            terminus_type = None
-
-        if terminus_type is None:
-            # Same-strand symmetric (F,F or R,R) without a pairing map:
-            # check both ends of the query model
-            model_len = query_lengths.get(model)
-            if model_len is None:
-                missing_lengths.add(model)
-                kept.append(True)
-                continue
-
-            try:
-                hmm_start = int(row['hmmStart'])
-                hmm_end = int(row['hmmEnd'])
-            except (ValueError, TypeError):
-                kept.append(True)
-                continue
-
-            offset_start = hmm_start - 1
-            offset_end = model_len - hmm_end
-            if offset_start <= max_offset and offset_end <= max_offset:
-                kept.append(True)
-            else:
-                kept.append(False)
-                removed += 1
-                removed_per_model[model] = removed_per_model.get(model, 0) + 1
-            continue
-
-        model_len = query_lengths.get(model)
-        if model_len is None:
-            # Length required but not available – collect and report as error
-            missing_lengths.add(model)
-            kept.append(True)
-            continue
-
-        try:
-            hmm_start = int(row['hmmStart'])
-            hmm_end = int(row['hmmEnd'])
-        except (ValueError, TypeError):
-            kept.append(True)
-            continue
-
-        offset = compute_outer_edge_offset(
-            hmm_start, hmm_end, model_len, strand, terminus_type
-        )
-
-        if offset <= max_offset:
-            kept.append(True)
-        else:
-            kept.append(False)
-            removed += 1
-            removed_per_model[model] = removed_per_model.get(model, 0) + 1
-
-    # Raise immediately if any model lengths were needed but missing
-    if missing_lengths:
-        missing_list = ', '.join(sorted(missing_lengths))
-        raise EnsembleSearchError(
-            f'Anchor filter requires model lengths for {len(missing_lengths)} model(s) '
-            f'that are not available: {missing_list}. '
-            'Provide lengths via --fasta, --hmm, or --lengths-file.'
-        )
-
-    if skipped_no_terminus:
-        logging.debug(
-            f'Anchor filter: {skipped_no_terminus} hit(s) kept without checking – '
-            'terminus type could not be determined (same-strand symmetric pairing requires '
-            '--pairing-map to identify left/right models).'
-        )
-
-    result = hit_table[kept].copy()
-
-    logging.info(
-        f'Anchor filter (max_offset={max_offset}): {len(hit_table)} -> {len(result)} hits '
-        f'({removed} removed)'
-    )
-    if removed_per_model:
-        for model_name, count in sorted(removed_per_model.items()):
-            logging.info(f'  {model_name}: {count} hit(s) excluded by anchor filter')
-    return result
 
 
 def report_hit_statistics(hit_table: pd.DataFrame, stage: str = '') -> None:
@@ -2398,13 +2175,23 @@ def _process_hits(
                 )
             anchor_pairing_map = parse_pairing_map(args.pairing_map)
 
-        hit_table = filter_hits_by_anchor(
-            hit_table,
-            query_lengths=query_lengths if query_lengths else {},
-            max_offset=max_offset,
-            orientation=orientation,
-            pairing_map=anchor_pairing_map,
-        )
+        try:
+            hit_table = filter_hits_by_anchor(
+                hit_table,
+                model_lengths=query_lengths if query_lengths else {},
+                max_offset=max_offset,
+                orientation=orientation,
+                pairing_map=anchor_pairing_map,
+                # search treats a missing model length as a hard error: the
+                # user asked for anchor filtering and would otherwise get a
+                # silently unfiltered result. tirmite pair warns and keeps.
+                on_missing_length='raise',
+            )
+        except AnchorFilterError as e:
+            # core.hit_filters cannot import from cli, so it raises its own
+            # type. Translate here so the search workflow keeps raising a
+            # single exception type, exactly as it did before unification.
+            raise EnsembleSearchError(str(e)) from e
 
         # Report post-anchor statistics
         report_hit_statistics(hit_table, stage='(after anchor filtering)')

@@ -6,6 +6,15 @@ The format is based on [Common Changelog](https://common-changelog.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`tirmite search --max-offset` silently discarded every valid reverse-inserted asymmetric hit.** The anchor filter existed as two independent copies, one in `tirmite pair` and one in `tirmite search`. The reverse-insertion strand-swap correction shipped in 1.5.0 was applied only to the `pair` copy. Without it, the `search` copy measured the offset against each hit's *inner* model edge whenever an element was inserted in reverse, so genuine termini were filtered out. Both subcommands now share one implementation in `tirmite.core.hit_filters`.
+- **`tirmite search --max-offset` mishandled symmetric models named in a pairing map.** A pairing map row naming the same feature on both sides (`SymTIR<TAB>SymTIR`) describes a symmetric element whose model has no fixed terminus role. The `search` copy labelled such a model `left` and then immediately overwrote it with `right`, so every hit was tested against one model end instead of both. Hits covering only the model's second half were wrongly retained.
+
+### Changed
+
+- `compute_outer_edge_offset` and `filter_hits_by_anchor` now live in `tirmite.core.hit_filters` and are re-exported from `tirmite.cli.hmm_pair` and `tirmite.cli.ensemble_search`, so existing imports keep working. The filter gained an `on_missing_length` parameter: `tirmite search` passes `'raise'` (asking for anchor filtering without the required model lengths is an error) while `tirmite pair` keeps the previous `'warn'` behaviour. Calling `filter_hits_by_anchor` directly now defaults to `'warn'`; the `search` workflow's behaviour is unchanged, as `_process_hits` translates the new `AnchorFilterError` into `EnsembleSearchError`.
+
 ### Removed
 
 - 15 functions that were never called from anywhere in the package or its test suite, totalling ~630 lines. Six had carried a `DeprecationWarning` since 1.4; the other nine were silently dead. None were part of a documented API.

@@ -1,7 +1,14 @@
-"""Tests for the --max-offset anchor filter in tirmite pair."""
+"""Tests for the --max-offset anchor filter.
+
+Covers both `tirmite pair` and `tirmite search`, which share a single
+implementation in tirmite.core.hit_filters.
+"""
 
 import pandas as pd
+import pytest
 
+from tirmite.cli import ensemble_search as _search_mod
+from tirmite.cli import hmm_pair as _pair_mod
 from tirmite.cli.hmm_pair import compute_outer_edge_offset, filter_hits_by_anchor
 
 # ---------------------------------------------------------------------------
@@ -517,3 +524,345 @@ class TestAnchorFilterSymmetricMapRow:
             pairing_map=[('LTR', 'LTR'), ('L', 'R')],
         )
         assert list(result['model']) == ['L']
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for the unification of the two anchor-filter copies
+#
+# compute_outer_edge_offset and filter_hits_by_anchor were implemented twice,
+# independently, in hmm_pair.py and ensemble_search.py. The hmm_pair copy
+# received two corrections the ensemble_search copy never did. These tests run
+# against BOTH import paths, so the two can never diverge again.
+# ---------------------------------------------------------------------------
+
+# Both subcommands must resolve to one implementation.
+_ANCHOR_IMPLEMENTATIONS = [
+    pytest.param(_pair_mod.filter_hits_by_anchor, id='hmm_pair'),
+    pytest.param(_search_mod.filter_hits_by_anchor, id='ensemble_search'),
+]
+
+
+class TestAnchorFilterIsSharedBetweenSubcommands:
+    """tirmite pair and tirmite search must use the same implementation."""
+
+    def test_filter_is_the_same_object(self):
+        """Both modules re-export the single core implementation."""
+        from tirmite.core.hit_filters import filter_hits_by_anchor as canonical
+
+        assert _pair_mod.filter_hits_by_anchor is canonical
+        assert _search_mod.filter_hits_by_anchor is canonical
+
+    def test_offset_helper_is_the_same_object(self):
+        """The offset helper is shared too."""
+        from tirmite.core.hit_filters import compute_outer_edge_offset as canonical
+
+        assert _pair_mod.compute_outer_edge_offset is canonical
+        assert _search_mod.compute_outer_edge_offset is canonical
+
+
+class TestReverseInsertedElements:
+    """Reverse-inserted asymmetric elements must survive the anchor filter.
+
+    Under orientation F,R a forward-inserted element puts its LeftA hit on '+'
+    and its RightA hit on '-'. When the whole element is inserted in reverse,
+    both strands flip: LeftA appears on '-' and RightA on '+'. The model name
+    still gives the pairing ROLE, but the genomic SIDE its outer edge faces has
+    swapped, so the offset must be measured against the other model end.
+
+    The ensemble_search copy omitted that swap and measured against the hit's
+    INNER edge, silently discarding valid reverse-inserted hits. Fixed for
+    tirmite pair in 1.5.0; tirmite search never received the fix until the two
+    were unified.
+    """
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    def test_reverse_inserted_right_model_on_plus_is_kept(self, filter_fn):
+        """RightA on '+' is reverse-inserted; its outer edge is at hmmStart."""
+        df = _make_hit_table(
+            [
+                {
+                    'model': 'RightA',
+                    'target': 'chr1',
+                    'hitStart': '1000',
+                    'hitEnd': '1100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    # Anchored at the model start, which for a reverse-inserted
+                    # right terminus IS the outer edge.
+                    'hmmStart': '1',
+                    'hmmEnd': '60',
+                }
+            ]
+        )
+        result = filter_fn(
+            df,
+            {'LeftA': 100, 'RightA': 100},
+            max_offset=5,
+            orientation='F,R',
+            pairing_map=[('LeftA', 'RightA')],
+        )
+        assert len(result) == 1, (
+            'Reverse-inserted RightA hit anchored at its outer edge was discarded'
+        )
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    def test_reverse_inserted_right_model_off_edge_is_removed(self, filter_fn):
+        """The swap must not make the filter permissive: interior hits still go."""
+        df = _make_hit_table(
+            [
+                {
+                    'model': 'RightA',
+                    'target': 'chr1',
+                    'hitStart': '1000',
+                    'hitEnd': '1100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    # 29 positions short of the model start.
+                    'hmmStart': '30',
+                    'hmmEnd': '60',
+                }
+            ]
+        )
+        result = filter_fn(
+            df,
+            {'LeftA': 100, 'RightA': 100},
+            max_offset=5,
+            orientation='F,R',
+            pairing_map=[('LeftA', 'RightA')],
+        )
+        assert len(result) == 0
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    def test_reverse_inserted_left_model_on_minus_is_kept(self, filter_fn):
+        """LeftA on '-' is reverse-inserted and still anchors at model start.
+
+        The point of the strand swap is that a left-role model's outer edge is
+        model position 1 regardless of insertion direction. Without the swap
+        this hit would be measured against ``model_len - hmmEnd`` instead.
+        """
+        df = _make_hit_table(
+            [
+                {
+                    'model': 'LeftA',
+                    'target': 'chr1',
+                    'hitStart': '1000',
+                    'hitEnd': '1100',
+                    'strand': '-',
+                    'evalue': '1e-10',
+                    'hmmStart': '1',
+                    'hmmEnd': '60',
+                }
+            ]
+        )
+        result = filter_fn(
+            df,
+            {'LeftA': 100, 'RightA': 100},
+            max_offset=5,
+            orientation='F,R',
+            pairing_map=[('LeftA', 'RightA')],
+        )
+        assert len(result) == 1
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    def test_left_model_anchor_edge_is_direction_independent(self, filter_fn):
+        """A left-role hit off the model start is removed on either strand.
+
+        Pinning both directions together is what stops the swap being
+        reintroduced in only one of them.
+        """
+        rows = [
+            {
+                'model': 'LeftA',
+                'target': 'chr1',
+                'hitStart': '1000',
+                'hitEnd': '1100',
+                'strand': strand,
+                'evalue': '1e-10',
+                'hmmStart': '40',
+                'hmmEnd': '100',
+            }
+            for strand in ('+', '-')
+        ]
+        result = filter_fn(
+            _make_hit_table(rows),
+            {'LeftA': 100, 'RightA': 100},
+            max_offset=5,
+            orientation='F,R',
+            pairing_map=[('LeftA', 'RightA')],
+        )
+        assert len(result) == 0
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    def test_forward_inserted_still_filtered_normally(self, filter_fn):
+        """A forward insertion is unaffected by the reverse-insertion branch."""
+        df = _make_hit_table(
+            [
+                # LeftA on '+' anchored at model start: kept.
+                {
+                    'model': 'LeftA',
+                    'target': 'chr1',
+                    'hitStart': '1000',
+                    'hitEnd': '1100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'hmmStart': '1',
+                    'hmmEnd': '60',
+                },
+                # LeftA on '+' starting deep inside the model: removed.
+                {
+                    'model': 'LeftA',
+                    'target': 'chr1',
+                    'hitStart': '2000',
+                    'hitEnd': '2100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'hmmStart': '40',
+                    'hmmEnd': '100',
+                },
+            ]
+        )
+        result = filter_fn(
+            df,
+            {'LeftA': 100, 'RightA': 100},
+            max_offset=5,
+            orientation='F,R',
+            pairing_map=[('LeftA', 'RightA')],
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['hitStart'] == '1000'
+
+
+class TestSymmetricModelInPairingMap:
+    """A self-paired model has no fixed terminus role.
+
+    The ensemble_search copy set model_terminus[left]='left' and then
+    immediately overwrote it with model_terminus[right]='right' for a row like
+    (SymTIR, SymTIR), so every SymTIR hit was treated as a right terminus.
+    """
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    def test_self_paired_model_uses_both_ends_under_same_strand(self, filter_fn):
+        """Under F,F a self-paired model must satisfy BOTH ends."""
+        df = _make_hit_table(
+            [
+                # Reaches both model ends: kept.
+                {
+                    'model': 'SymTIR',
+                    'target': 'chr1',
+                    'hitStart': '1000',
+                    'hitEnd': '1100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'hmmStart': '1',
+                    'hmmEnd': '100',
+                },
+                # Reaches the end but not the start: removed. Labelling this
+                # model 'right' would have wrongly kept it.
+                {
+                    'model': 'SymTIR',
+                    'target': 'chr1',
+                    'hitStart': '2000',
+                    'hitEnd': '2100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'hmmStart': '40',
+                    'hmmEnd': '100',
+                },
+            ]
+        )
+        result = filter_fn(
+            df,
+            {'SymTIR': 100},
+            max_offset=5,
+            orientation='F,F',
+            pairing_map=[('SymTIR', 'SymTIR')],
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['hitStart'] == '1000'
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    def test_symmetric_model_is_symmetric_everywhere(self, filter_fn):
+        """A model listed symmetrically anywhere is symmetric in every row."""
+        df = _make_hit_table(
+            [
+                {
+                    'model': 'SymTIR',
+                    'target': 'chr1',
+                    'hitStart': '2000',
+                    'hitEnd': '2100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'hmmStart': '40',
+                    'hmmEnd': '100',
+                },
+            ]
+        )
+        # SymTIR appears both self-paired and as the left of another pair.
+        result = filter_fn(
+            df,
+            {'SymTIR': 100, 'OtherR': 100},
+            max_offset=5,
+            orientation='F,F',
+            pairing_map=[('SymTIR', 'SymTIR'), ('SymTIR', 'OtherR')],
+        )
+        assert len(result) == 0
+
+
+class TestPairingMapShapes:
+    """Both pairing-map shapes must behave identically.
+
+    tirmite pair supplies a list of tuples; tirmite search supplies a dict.
+    """
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    @pytest.mark.parametrize(
+        'pairing_map',
+        [
+            pytest.param([('LeftA', 'RightA')], id='list-of-tuples'),
+            pytest.param({'LeftA': 'RightA'}, id='dict'),
+        ],
+    )
+    def test_both_shapes_give_the_same_result(self, filter_fn, pairing_map):
+        """A dict and a tuple list describing the same pairing agree."""
+        df = _make_hit_table(
+            [
+                {
+                    'model': 'RightA',
+                    'target': 'chr1',
+                    'hitStart': '1000',
+                    'hitEnd': '1100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'hmmStart': '1',
+                    'hmmEnd': '60',
+                }
+            ]
+        )
+        result = filter_fn(
+            df,
+            {'LeftA': 100, 'RightA': 100},
+            max_offset=5,
+            orientation='F,R',
+            pairing_map=pairing_map,
+        )
+        assert len(result) == 1
+
+    @pytest.mark.parametrize('filter_fn', _ANCHOR_IMPLEMENTATIONS)
+    def test_none_pairing_map_falls_back_to_strand(self, filter_fn):
+        """Without a pairing map, F,R assigns terminus by strand."""
+        df = _make_hit_table(
+            [
+                {
+                    'model': 'TIR',
+                    'target': 'chr1',
+                    'hitStart': '1000',
+                    'hitEnd': '1100',
+                    'strand': '+',
+                    'evalue': '1e-10',
+                    'hmmStart': '1',
+                    'hmmEnd': '60',
+                }
+            ]
+        )
+        result = filter_fn(df, {'TIR': 100}, max_offset=5, orientation='F,R')
+        assert len(result) == 1

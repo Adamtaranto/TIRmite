@@ -919,11 +919,8 @@ class TestFilterHitsByAnchor:
         assert result.empty
 
     def test_missing_model_length_raises_error(self):
-        """Raises EnsembleSearchError when model length is required but unavailable."""
-        from tirmite.cli.ensemble_search import (
-            EnsembleSearchError,
-            filter_hits_by_anchor,
-        )
+        """Raises AnchorFilterError under the mode the search workflow uses."""
+        from tirmite.cli.ensemble_search import AnchorFilterError, filter_hits_by_anchor
 
         df = self._make_hit_table(
             [
@@ -941,8 +938,10 @@ class TestFilterHitsByAnchor:
                 }
             ]
         )
-        with pytest.raises(EnsembleSearchError, match='model length'):
-            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+        with pytest.raises(AnchorFilterError, match='model length'):
+            filter_hits_by_anchor(
+                df, {}, max_offset=5, orientation='F,R', on_missing_length='raise'
+            )
 
     def test_ff_symmetric_no_pairing_map_keeps_hits(self):
         """F,F symmetric without pairing map: terminus type unknown → hits kept."""
@@ -1560,41 +1559,87 @@ class TestAnchorFilterRR:
 
 
 class TestAnchorFilterMissingLength:
-    """Tests for error behaviour when model lengths are unavailable."""
+    """Tests for error behaviour when model lengths are unavailable.
+
+    The search workflow passes ``on_missing_length='raise'`` so that asking
+    for anchor filtering without the lengths needed to perform it is a hard
+    error rather than a silently unfiltered result. ``tirmite pair`` uses the
+    default ``'warn'`` instead, which is why these tests state the mode
+    explicitly.
+    """
 
     def test_raises_error_when_length_missing_fr(self):
-        """Raises EnsembleSearchError when F,R hit has no model length."""
-        from tirmite.cli.ensemble_search import (
-            EnsembleSearchError,
-            filter_hits_by_anchor,
-        )
+        """Raises AnchorFilterError when an F,R hit has no model length."""
+        from tirmite.cli.ensemble_search import AnchorFilterError, filter_hits_by_anchor
 
         df = _anchor_df([_make_row('TIR', '+', hmm_start=1, hmm_end=80)])
-        with pytest.raises(EnsembleSearchError, match='model length'):
-            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+        with pytest.raises(AnchorFilterError, match='model length'):
+            filter_hits_by_anchor(
+                df, {}, max_offset=5, orientation='F,R', on_missing_length='raise'
+            )
 
     def test_raises_error_names_missing_model(self):
         """Error message includes the name of the missing model."""
-        from tirmite.cli.ensemble_search import (
-            EnsembleSearchError,
-            filter_hits_by_anchor,
-        )
+        from tirmite.cli.ensemble_search import AnchorFilterError, filter_hits_by_anchor
 
         df = _anchor_df([_make_row('MyMissingModel', '+', hmm_start=1, hmm_end=80)])
-        with pytest.raises(EnsembleSearchError, match='MyMissingModel'):
-            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+        with pytest.raises(AnchorFilterError, match='MyMissingModel'):
+            filter_hits_by_anchor(
+                df, {}, max_offset=5, orientation='F,R', on_missing_length='raise'
+            )
 
-    def test_ff_same_strand_no_pairing_map_no_error(self):
-        """F,F without pairing map: both-ends check needs length → error if missing."""
-        from tirmite.cli.ensemble_search import (
-            EnsembleSearchError,
-            filter_hits_by_anchor,
+    def test_ff_same_strand_no_pairing_map_raises(self):
+        """F,F without a pairing map needs the length for the both-ends check."""
+        from tirmite.cli.ensemble_search import AnchorFilterError, filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
+        with pytest.raises(AnchorFilterError, match='model lengths'):
+            filter_hits_by_anchor(
+                df, {}, max_offset=5, orientation='F,F', on_missing_length='raise'
+            )
+
+    def test_warn_mode_keeps_hit_unchecked(self, caplog):
+        """The default 'warn' mode keeps the hit and logs, matching tirmite pair."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=1, hmm_end=80)])
+        result = filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+
+        assert len(result) == 1
+        assert 'Model length not found' in caplog.text
+
+    def test_search_pipeline_reports_missing_length_as_search_error(self, tmp_path):
+        """_process_hits translates AnchorFilterError into EnsembleSearchError.
+
+        The CLI presents a single exception type to the user, so unifying the
+        two anchor-filter copies must not change what `tirmite search` raises.
+        """
+        import argparse
+
+        from tirmite.cli.ensemble_search import EnsembleSearchError, _process_hits
+
+        blast_file = tmp_path / 'hits.blast'
+        blast_file.write_text(
+            'UnknownModel\tchr1\t95.0\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n'
         )
 
-        # Now that F,F checks both ends, missing length raises an error
-        df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
+        args = argparse.Namespace(
+            max_evalue=1.0,
+            max_offset=5,
+            orientation='F,R',
+            pairing_map=None,
+            cluster_map=None,
+        )
+
+        # query_lengths is empty, so the anchor filter has no length for
+        # UnknownModel and must fail rather than pass the hit through.
         with pytest.raises(EnsembleSearchError, match='model lengths'):
-            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,F')
+            _process_hits(
+                args,
+                blast_files=[blast_file],
+                nhmmer_files=[],
+                query_lengths={},
+            )
 
 
 class TestAnchorFilterLogging:

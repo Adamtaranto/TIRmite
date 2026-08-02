@@ -875,9 +875,14 @@ def check_cross_cluster_overlaps(
     hit_table['hitStart_int'] = hit_table['hitStart'].astype(int)
     hit_table['hitEnd_int'] = hit_table['hitEnd'].astype(int)
 
-    # Check each target/strand combination
+    # Group by target only, NOT by (target, strand). Under the default and
+    # canonical F,R orientation the two termini of one element lie on opposite
+    # strands, so grouping by strand hides exactly the overlaps this check
+    # exists to report. For same-strand orientations (F,F / R,R) the two
+    # termini are separated by the element body and never overlap, so dropping
+    # strand from the grouping costs nothing there.
     warnings_reported = 0
-    for (target, _strand), group in hit_table.groupby(['target', 'strand']):
+    for target, group in hit_table.groupby('target'):
         if len(group) < 2:
             continue
 
@@ -998,8 +1003,14 @@ def remove_nested_paired_hits(
     # Map removed hit index → (removed_model, container_model) for summary reporting
     removed_hit_containers: Dict[int, Tuple[str, str]] = {}
 
-    # Check each target/strand combination
-    for (_target, _strand), group in hit_table.groupby(['target', 'strand']):
+    # Group by target only, NOT by (target, strand). This step removes hits of
+    # a paired model nested inside its partner's hit, and under the default
+    # F,R orientation those two models sit on OPPOSITE strands. Grouping by
+    # strand therefore made the step a no-op for the exact case it was written
+    # to handle. For same-strand orientations (F,F / R,R) the two termini are
+    # separated by the element body and cannot nest, so dropping strand from
+    # the grouping does not change those results.
+    for _target, group in hit_table.groupby('target'):
         if len(group) < 2:
             continue
 
@@ -1165,8 +1176,11 @@ def filter_best_model_per_locus(
     # Track (removed_model, better_model) → count for summary reporting
     cross_model_removal_counts: Dict[Tuple[str, str], int] = {}
 
-    # Check each target/strand combination
-    for (_target, _strand), group in hit_table.groupby(['target', 'strand']):
+    # Group by target only, NOT by (target, strand). Competing models from
+    # related families can hit one locus on either strand, so a strand-split
+    # grouping let a weaker hit survive simply by being on the opposite strand
+    # from the better one. See the note in remove_nested_paired_hits.
+    for _target, group in hit_table.groupby('target'):
         if len(group) < 2:
             continue
 

@@ -412,6 +412,55 @@ class TestHitMerging:
 class TestNestedHitRemoval:
     """Tests for removing nested weak hits between paired features."""
 
+    def test_removes_nested_hit_on_opposite_strand(self):
+        """The canonical F,R case: paired termini sit on OPPOSITE strands.
+
+        This is the situation the step exists to handle, and it was previously
+        invisible: grouping by (target, strand) meant LeftA on '+' and RightA
+        on '-' were never compared, so no nested cross-hit between a left and
+        right terminus of the same element was ever removed.
+        """
+        hit_table = pd.DataFrame(
+            {
+                'model': ['LeftA', 'RightA'],
+                'target': ['chr1', 'chr1'],
+                'hitStart': ['1000', '1020'],  # RightA nested inside LeftA
+                'hitEnd': ['1200', '1080'],
+                'strand': ['+', '-'],  # opposite strands, as F,R implies
+                'evalue': ['1e-40', '1e-20'],
+                'score': ['200', '100'],
+                'bias': ['NA', 'NA'],
+                'hmmStart': ['1', '1'],
+                'hmmEnd': ['100', '60'],
+            }
+        )
+
+        result = remove_nested_paired_hits(hit_table, {'LeftA': 'RightA'})
+
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'LeftA'
+
+    def test_non_nested_opposite_strand_hits_both_kept(self):
+        """Comparing across strands must not remove hits that do not nest."""
+        hit_table = pd.DataFrame(
+            {
+                'model': ['LeftA', 'RightA'],
+                'target': ['chr1', 'chr1'],
+                'hitStart': ['1000', '5000'],
+                'hitEnd': ['1200', '5200'],
+                'strand': ['+', '-'],
+                'evalue': ['1e-40', '1e-20'],
+                'score': ['200', '100'],
+                'bias': ['NA', 'NA'],
+                'hmmStart': ['1', '1'],
+                'hmmEnd': ['100', '60'],
+            }
+        )
+
+        result = remove_nested_paired_hits(hit_table, {'LeftA': 'RightA'})
+
+        assert len(result) == 2
+
     def test_remove_nested_hit_weak(self):
         """Test removal of weak hit nested within stronger paired hit."""
         hit_table = pd.DataFrame(
@@ -563,8 +612,16 @@ class TestFilterBestModelPerLocus:
         result = filter_best_model_per_locus(hit_table, pairing_map)
         assert len(result) == 2
 
-    def test_no_removal_different_strands(self):
-        """Overlapping hits on different strands are treated independently."""
+    def test_removes_weaker_hit_across_strands(self):
+        """Overlapping cross-model hits are compared regardless of strand.
+
+        This asserted the opposite until the strand-blindness fix. Grouping by
+        (target, strand) meant a weaker hit survived merely by sitting on the
+        opposite strand from the better one. Under the canonical F,R
+        orientation the two termini of an element are on opposite strands by
+        construction, so strand-splitting defeated the filter in the common
+        case.
+        """
         hit_table = pd.DataFrame(
             [
                 self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200, strand='+'),
@@ -573,6 +630,26 @@ class TestFilterBestModelPerLocus:
         )
         pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
         result = filter_best_model_per_locus(hit_table, pairing_map)
+
+        # 200 / 50 = 4.0, comfortably past the 1.5 decisiveness threshold.
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'Family1_LEFT'
+
+    def test_non_overlapping_hits_on_different_strands_both_kept(self):
+        """Strand-blindness must not make the filter over-eager.
+
+        Hits that do not overlap are untouched no matter what strands they are
+        on, so the fix only affects genuinely competing hits.
+        """
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200, strand='+'),
+                self._make_hit('Family2_LEFT', 'chr1', 5000, 5200, 50, strand='-'),
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+
         assert len(result) == 2
 
     def test_model_not_in_pairing_map_is_preserved(self):

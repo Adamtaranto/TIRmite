@@ -13,6 +13,7 @@ transposon terminus models.
 """
 
 import argparse
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -635,10 +636,26 @@ def resolve_overlapping_hits(
             if current_hit.subject_id != existing_hit.subject_id:
                 continue
 
-            # Calculate overlap
-            overlap_start = max(current_hit.subject_start, existing_hit.subject_start)
-            overlap_end = min(current_hit.subject_end, existing_hit.subject_end)
-            overlap_length = max(0, overlap_end - overlap_start)
+            # Normalise before comparing. BLAST reports sstart > send for a
+            # minus-strand HSP and BlastHit stores them unswapped (the strand
+            # is derived from exactly that inversion), so comparing raw
+            # coordinates made the overlap of any minus-strand hit provably
+            # <= 0. No minus-strand hit was ever de-overlapped: every
+            # reverse-oriented element contributed redundant, near-identical
+            # copies to the HMM training set. hits_overlap() already
+            # normalises this way.
+            cur_lo, cur_hi = sorted(
+                (current_hit.subject_start, current_hit.subject_end)
+            )
+            exist_lo, exist_hi = sorted(
+                (existing_hit.subject_start, existing_hit.subject_end)
+            )
+
+            # Coordinates are 1-based inclusive, so two hits sharing a single
+            # base overlap by 1.
+            overlap_start = max(cur_lo, exist_lo)
+            overlap_end = min(cur_hi, exist_hi)
+            overlap_length = max(0, overlap_end - overlap_start + 1)
 
             if overlap_length > max_overlap:
                 # Determine which hit to keep - prioritize length over identity
@@ -909,21 +926,57 @@ def _build_source(blast_db: Optional[Path], genome_files: List[Path]):  # type: 
     if not genome_files:
         raise HMMBuildError('No genome or BLAST database available for extraction')
 
-    if len(genome_files) > 1:
-        logger.warning(
-            f'{len(genome_files)} genomes were searched but sequences will be '
-            f'extracted only from {genome_files[0].name}. Hits on other genomes '
-            'will be skipped.'
+    # Index every searched genome, not just the first.
+    #
+    # This used to index genome_files[0] alone and warn that hits on other
+    # genomes "will be skipped". They were not skipped: extraction looks up
+    # hit.subject_id in that single index, so when two assemblies share a
+    # contig name -- 'chr1' is near-universal -- hits found in genome 2 were
+    # extracted from genome 1 at genome 2's coordinates, yielding arbitrary
+    # sequence with no warning at all.
+    combined: Dict[str, Any] = {}
+    combined_descriptions: Dict[str, str] = {}
+    contig_origin: Dict[str, str] = {}
+    collisions: Dict[str, List[str]] = {}
+
+    for genome_file in genome_files:
+        try:
+            genome_index, descriptions = indexGenome(genome_file)
+        except Exception as e:
+            raise HMMBuildError(
+                f'Failed to index genome {genome_file} for sequence extraction: {e}'
+            ) from e
+
+        for contig in genome_index.keys():
+            if contig in combined:
+                collisions.setdefault(contig, [contig_origin[contig]]).append(
+                    genome_file.name
+                )
+                continue
+            combined[contig] = genome_index[contig]
+            contig_origin[contig] = genome_file.name
+
+        combined_descriptions.update(descriptions)
+
+    if collisions:
+        shown = ', '.join(
+            f'{contig} (in {" and ".join(sources)})'
+            for contig, sources in list(collisions.items())[:5]
+        )
+        raise HMMBuildError(
+            f'{len(collisions)} contig name(s) appear in more than one genome: '
+            f'{shown}. A hit cannot be attributed to a genome by contig name '
+            'alone, so extraction would silently take sequence from the wrong '
+            'assembly. Rename the contigs to be unique across genomes, or '
+            'search one genome at a time.'
         )
 
-    try:
-        genome_index, descriptions = indexGenome(genome_files[0])
-    except Exception as e:
-        raise HMMBuildError(
-            f'Failed to index genome for sequence extraction: {e}'
-        ) from e
+    logger.info(
+        f'Indexed {len(combined)} contigs across {len(genome_files)} genome(s) '
+        'for sequence extraction'
+    )
 
-    return FastaSource(genome_index, descriptions)
+    return FastaSource(combined, combined_descriptions)
 
 
 def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
@@ -1365,13 +1418,27 @@ def clean_hmm_name(name: str) -> str:
         cleaned = f'model_{cleaned}'
 
     # Ensure minimum length
-    if not cleaned or len(cleaned) < 1:
+    if not cleaned:
         cleaned = 'unnamed_model'
 
-    # Limit length to be very conservative
-    max_length = 20  # Very conservative
+    # HMMER imposes no practical limit on the NAME field, so the cap here is
+    # only to keep filenames manageable. It was 20, which silently collided:
+    # '<name>_left' and '<name>_right' both truncate to the same string for any
+    # name of 15 characters or more, and since the HMM path is
+    # f'{clean_model_name}.hmm' the right model OVERWROTE the left one and both
+    # returned paths pointed at the same file.
+    max_length = 60
     if len(cleaned) > max_length:
-        cleaned = cleaned[:max_length].rstrip('_')
+        # Truncation can still collide, so disambiguate with a short digest of
+        # the full name. Deterministic, so re-running gives the same filename.
+        digest = hashlib.sha1(cleaned.encode('utf-8')).hexdigest()[:8]
+        keep = max_length - len(digest) - 1
+        cleaned = f'{cleaned[:keep].rstrip("_")}_{digest}'
+        logger.warning(
+            f'Model name truncated to {max_length} characters: "{cleaned}". '
+            'A digest of the full name is appended so distinct models cannot '
+            'collide.'
+        )
 
     # Final validation - ensure it's not empty after processing
     if not cleaned:
@@ -2436,6 +2503,9 @@ def resolve_asymmetric_conflicts(
         chrom_left = left_by_chrom.get(chrom, [])
         chrom_right = right_by_chrom.get(chrom, [])
 
+        # Left hits surviving this chromosome's conflict resolution.
+        kept_left: List[BlastHit] = []
+
         # Check for overlaps between left and right hits
         for left_hit in chrom_left:
             keep_left = True
@@ -2461,12 +2531,21 @@ def resolve_asymmetric_conflicts(
                         break
 
             if keep_left:
-                filtered_left.append(left_hit)
+                kept_left.append(left_hit)
 
-        # Similar logic for right hits
+        filtered_left.extend(kept_left)
+
+        # Similar logic for right hits.
+        #
+        # This iterates the left hits that SURVIVED the loop above, not the
+        # original chrom_left. Using the original allowed a left hit to be
+        # discarded in the first loop and still evict a right hit in the
+        # second, so a legitimate right-terminus hit could be deleted by a hit
+        # that no longer existed. Verified against the previous behaviour: a
+        # right hit overlapping only a discarded left hit was silently lost.
         for right_hit in chrom_right:
             keep_right = True
-            for left_hit in chrom_left:
+            for left_hit in kept_left:
                 if hits_overlap(left_hit, right_hit):
                     left_score = (
                         left_hit.length,

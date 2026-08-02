@@ -16,6 +16,10 @@ The format is based on [Common Changelog](https://common-changelog.org/).
 - `tirmite.cli.validate.run_blastn` is renamed `_run_validation_blastn`, removing a name collision with `tirmite.runners.runBlastn.run_blastn`. The two are not interchangeable: the runners version applies `-word_size 4 -perc_identity 60`, which are wrong for validation.
 - Argparse validators, `cleanID`, `extract_model_name_from_path` and the MAFFT wrappers each existed as two or three copies in different modules. They are now single implementations in `tirmite.cli._argtypes`, `tirmite.utils.utils` and `tirmite.runners.mafft`. The validators previously reported different error messages for the same bad input depending on the subcommand; messages are now uniform.
 
+- Running a subcommand with no arguments now prints **that subcommand's** help. Previously only a bare `tirmite` was special-cased: `tirmite search` parsed successfully, created its output directory, initialised logging, and only then reported that it had no inputs.
+- Usage errors now exit with status **2** rather than 1, matching argparse's convention and distinguishing "you invoked this wrongly" from "the run failed". This affects a bare `tirmite`, a bare subcommand, an unknown subcommand, and invalid or insufficient arguments to `tirmite search`. Scripts checking for a specific non-zero exit code may need updating.
+- `tirmite search` validates its arguments **before** creating the output directory or configuring logging, so an invocation that cannot run leaves nothing on disk. Previously `tirmite search --outdir RESULTS` with missing inputs created an empty `RESULTS/` directory and then failed.
+
 ### Added
 
 - `--logfile` and a full `--loglevel` choice list for `tirmite legacy` and `tirmite seed`. The other three subcommands already had them; these two could not write a log file at all.

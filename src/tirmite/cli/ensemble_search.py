@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 import shutil
+import sys
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from Bio import SeqIO  # type: ignore[import-not-found]
@@ -1899,6 +1900,55 @@ def create_search_parser() -> argparse.ArgumentParser:
 # -----------------------------------------------------------------------------
 
 
+def _validate_search_args(args: argparse.Namespace) -> None:
+    """
+    Check that the supplied arguments describe a runnable search.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If required inputs are missing or mutually dependent options are not
+        satisfied.
+
+    Notes
+    -----
+    Called *before* the output directory is created and before logging is
+    configured, so that an invalid invocation leaves no trace on disk. It
+    therefore must not log; the caller reports the error on stderr.
+    """
+    has_search_inputs = args.fasta or args.hmm
+    has_precomputed = args.blast_results or args.nhmmer_results
+
+    if not has_search_inputs and not has_precomputed:
+        raise EnsembleSearchError(
+            'Must provide either search inputs (--fasta/--hmm + --genome/--blast-db) '
+            'or precomputed results (--blast-results/--nhmmer-results)'
+        )
+
+    # Validate genome requirements for searches
+    if args.fasta and not args.genome and not args.blast_db:
+        raise EnsembleSearchError(
+            '--genome or --blast-db is required when running BLAST searches with --fasta'
+        )
+
+    if args.hmm and not args.genome:
+        raise EnsembleSearchError(
+            '--genome is required when running nhmmer searches with --hmm'
+        )
+
+    # Validate --split-paired-output requirements
+    if args.split_paired_output and not args.pairing_map:
+        raise EnsembleSearchError(
+            '--split-paired-output requires --pairing-map to identify '
+            'left and right models.'
+        )
+
+
 def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main function for ensemble search workflow.
@@ -1911,7 +1961,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     Returns
     -------
     int
-        Exit code (0 for success, 1 for error).
+        Exit code: 0 for success, 1 for a runtime failure, 2 for a usage
+        error (invalid or insufficient arguments).
     """
     if args is None:
         parser = create_search_parser()
@@ -1919,7 +1970,17 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
     assert args is not None
 
-    # Create output directory first (needed for logfile)
+    # Validate BEFORE creating anything. Previously the output directory was
+    # created and logging initialised first, so an invocation that could never
+    # run still left an empty directory behind.
+    try:
+        _validate_search_args(args)
+    except EnsembleSearchError as e:
+        # Logging is not configured yet, so report on stderr directly.
+        print(f'tirmite search: error: {e}', file=sys.stderr)
+        return 2
+
+    # Create output directory (needed for the logfile)
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     # Set up logging with optional logfile
@@ -1933,42 +1994,15 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     init_logging(loglevel=args.loglevel, logfile=logfile_path)
 
     try:
-        # Validate inputs
         has_search_inputs = args.fasta or args.hmm
         has_precomputed = args.blast_results or args.nhmmer_results
 
-        if not has_search_inputs and not has_precomputed:
-            raise EnsembleSearchError(
-                'Must provide either search inputs (--fasta/--hmm + --genome/--blast-db) '
-                'or precomputed results (--blast-results/--nhmmer-results)'
-            )
-
-        # Validate genome requirements for searches
-        if args.fasta and not args.genome and not args.blast_db:
-            raise EnsembleSearchError(
-                '--genome or --blast-db is required when running BLAST searches with --fasta'
-            )
-
-        if args.hmm and not args.genome:
-            raise EnsembleSearchError(
-                '--genome is required when running nhmmer searches with --hmm'
-            )
-
-        # Validate --split-paired-output requirements
-        if args.split_paired_output:
-            if not args.pairing_map:
-                raise EnsembleSearchError(
-                    '--split-paired-output requires --pairing-map to identify '
-                    'left and right models.'
-                )
-
-        # Validate lengths file requirement when using precomputed results without query files
-        if has_precomputed and not has_search_inputs:
-            if not args.lengths_file:
-                msg = 'No --lengths-file provided. Query coverage filtering will not be available.'
-                if getattr(args, 'max_offset', None) is not None:
-                    msg += ' --max-offset filtering requires model lengths; please supply --lengths-file.'
-                logger.warning(msg)
+        # Warn (not fatal) when coverage/anchor filtering will be unavailable.
+        if has_precomputed and not has_search_inputs and not args.lengths_file:
+            msg = 'No --lengths-file provided. Query coverage filtering will not be available.'
+            if getattr(args, 'max_offset', None) is not None:
+                msg += ' --max-offset filtering requires model lengths; please supply --lengths-file.'
+            logger.warning(msg)
 
         # Collect genome files
         genomes: List[Path] = []

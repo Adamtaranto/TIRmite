@@ -6,6 +6,7 @@ TIRmite command-line interface with subcommands.
 import argparse
 import logging
 import sys
+from typing import Dict
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
 
@@ -73,6 +74,35 @@ Examples:
     return parser
 
 
+def _subcommand_parsers(
+    parser: argparse.ArgumentParser,
+) -> Dict[str, argparse.ArgumentParser]:
+    """
+    Return the subcommand parsers registered on ``parser``.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        The top-level parser built by :func:`create_parser`.
+
+    Returns
+    -------
+    dict of str to argparse.ArgumentParser
+        Mapping of subcommand name to its parser. Empty if the parser has no
+        subcommands.
+
+    Notes
+    -----
+    argparse does not expose a public accessor for this, so the subparsers
+    action is located by type and its ``choices`` mapping read. That mapping
+    has been stable across every Python version TIRmite supports.
+    """
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return dict(action.choices)
+    return {}
+
+
 def main() -> int:
     """
     Main CLI entry point for TIRmite.
@@ -80,19 +110,33 @@ def main() -> int:
     Returns
     -------
     int
-        Exit code from subcommand execution or 1 if no subcommand specified.
+        Exit code from subcommand execution.
 
     Notes
     -----
-    Parses command-line arguments and dispatches to appropriate subcommand handler.
-    Prints help message if run without arguments.
+    Parses command-line arguments and dispatches to the appropriate subcommand
+    handler. Running ``tirmite`` with no arguments prints the top-level help;
+    running a subcommand with no arguments prints *that subcommand's* help.
+    Both exit with status 2, argparse's conventional code for a usage error.
     """
     parser = create_parser()
 
-    # Parse arguments
+    # A bare `tirmite` gets the top-level help.
     if len(sys.argv) == 1:
         parser.print_help()
-        sys.exit(1)
+        sys.exit(2)
+
+    # A bare `tirmite <subcommand>` gets that subcommand's help rather than a
+    # late failure from inside its main(). Previously only the top-level case
+    # was handled, so e.g. `tirmite search` parsed successfully, created its
+    # output directory and initialised logging before reporting that it had no
+    # inputs.
+    if len(sys.argv) == 2:
+        subcommands = _subcommand_parsers(parser)
+        subcommand = subcommands.get(sys.argv[1])
+        if subcommand is not None:
+            subcommand.print_help()
+            sys.exit(2)
 
     args = parser.parse_args()
 
@@ -129,7 +173,7 @@ def main() -> int:
         # looking like an ordinary no-arguments invocation.
         logger.debug(f'No dispatch handler for command: {args.command!r}')
         parser.print_help()
-        sys.exit(1)
+        sys.exit(2)
 
 
 if __name__ == '__main__':

@@ -486,11 +486,11 @@ class TestNestedHitRemoval:
         assert result.iloc[0]['model'] == 'LeftA'
 
     def test_keep_nested_hit_strong(self):
-        """Test keeping nested hit that is relatively strong.
+        """Test keeping a nested hit that outscores its container.
 
-        The default min_score_ratio is 1.5, meaning the nested hit is removed
-        if (nested_score / enclosing_score) < 1.5.
-        To keep the nested hit, we need nested_score >= enclosing_score * 1.5.
+        The default min_score_ratio is 1.5: the nested hit is removed only
+        when the ENCLOSING hit scores at least 1.5x better. Here the nested
+        hit scores higher than its container (160 vs 100), so both are kept.
         """
         hit_table = pd.DataFrame(
             {
@@ -512,6 +512,85 @@ class TestNestedHitRemoval:
         result = remove_nested_paired_hits(hit_table, pairing_map)
 
         assert len(result) == 2  # Both kept because nested score is relatively high
+
+    def _nested_pair(self, enclosing_score, nested_score):
+        """Build LeftA enclosing a nested RightA with the given scores."""
+        return pd.DataFrame(
+            {
+                'model': ['LeftA', 'RightA'],
+                'target': ['chr1', 'chr1'],
+                'hitStart': ['1000', '1020'],
+                'hitEnd': ['1200', '1080'],
+                'strand': ['+', '+'],
+                'evalue': ['1e-40', '1e-20'],
+                'score': [str(enclosing_score), str(nested_score)],
+                'bias': ['NA', 'NA'],
+                'hmmStart': ['1', '1'],
+                'hmmEnd': ['100', '60'],
+            }
+        )
+
+    def test_equal_scoring_nested_hit_is_kept(self):
+        """Two equally good hits are not decisive, so both survive.
+
+        This is the regression test for the inverted ratio. The old rule
+        removed the nested hit unless nested/enclosing >= 1.5, so an
+        equal-scoring nested hit (ratio 1.0) was deleted.
+        """
+        result = remove_nested_paired_hits(
+            self._nested_pair(200, 200), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 2
+
+    def test_better_scoring_nested_hit_is_kept(self):
+        """A nested hit scoring better than its container is kept.
+
+        Under the old rule 140/100 = 1.4 < 1.5, so this hit was deleted
+        despite outscoring the hit that contained it.
+        """
+        result = remove_nested_paired_hits(
+            self._nested_pair(100, 140), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 2
+
+    def test_much_weaker_nested_hit_is_removed(self):
+        """A decisively worse nested hit is still removed."""
+        result = remove_nested_paired_hits(
+            self._nested_pair(300, 100), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'LeftA'
+
+    def test_ratio_boundary_is_inclusive(self):
+        """Exactly min_score_ratio counts as decisive."""
+        result = remove_nested_paired_hits(
+            self._nested_pair(150, 100), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 1
+
+    def test_just_below_ratio_boundary_keeps_both(self):
+        """Just short of the threshold, the nested hit survives."""
+        result = remove_nested_paired_hits(
+            self._nested_pair(149, 100), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 2
+
+    def test_zero_score_nested_hit_is_removed(self):
+        """A zero-scoring nested hit cannot defend itself.
+
+        Guarded explicitly rather than by division: with the ratio flipped,
+        dividing by the nested score would raise ZeroDivisionError.
+        """
+        result = remove_nested_paired_hits(
+            self._nested_pair(200, 0), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'LeftA'
+
+    def test_two_zero_score_hits_are_both_kept(self):
+        """Two unscored hits are indistinguishable, so neither is removed."""
+        result = remove_nested_paired_hits(self._nested_pair(0, 0), {'LeftA': 'RightA'})
+        assert len(result) == 2
 
     def test_no_removal_different_targets(self):
         """Test no removal when hits are on different targets."""

@@ -923,6 +923,43 @@ def check_cross_cluster_overlaps(
 # -----------------------------------------------------------------------------
 
 
+def _is_decisively_better(
+    better_score: float, weaker_score: float, min_score_ratio: float
+) -> bool:
+    """
+    Report whether one hit outscores another by at least the required ratio.
+
+    Parameters
+    ----------
+    better_score : float
+        Score of the hit being kept.
+    weaker_score : float
+        Score of the hit that would be discarded.
+    min_score_ratio : float
+        Minimum ``better_score / weaker_score`` needed to call the difference
+        decisive.
+
+    Returns
+    -------
+    bool
+        True if ``better_score`` beats ``weaker_score`` by at least
+        ``min_score_ratio``.
+
+    Notes
+    -----
+    Scores of zero are handled explicitly rather than by division. A hit with
+    no score cannot defend itself against a scoring hit, so it loses; two
+    unscored hits are indistinguishable, so neither is removed.
+    """
+    if weaker_score <= 0:
+        # A zero-scoring hit is discarded in favour of any scoring hit, but two
+        # zero-scoring hits are left alone.
+        return better_score > 0
+    if better_score <= 0:
+        return False
+    return (better_score / weaker_score) >= min_score_ratio
+
+
 def remove_nested_paired_hits(
     hit_table: pd.DataFrame,
     pairing_map: Dict[str, str],
@@ -939,17 +976,17 @@ def remove_nested_paired_hits(
     of the shared homology rather than genuine detections by the nested model, and
     retaining them would generate spurious pair calls.
 
-    This function compares all hits on the same target sequence and strand.  For each
+    This function compares all hits on the same target sequence.  For each
     pair of hits where:
 
     - Both models appear in the ``pairing_map`` (either as left or right features), AND
     - The two models form a direct left/right pair in the ``pairing_map``, AND
     - One hit's genomic coordinates are completely contained within the other's (nesting),
 
-    the nested hit is removed when its alignment score is less than
-    ``min_score_ratio`` × the enclosing hit's score.  If the nested hit scores
-    comparably (ratio ≥ ``min_score_ratio``), both hits are kept, because the nested
-    model may still represent a genuine detection.
+    the nested hit is removed when the enclosing hit scores decisively better,
+    that is when ``enclosing_score / nested_score >= min_score_ratio``.  If the
+    two score comparably, or the nested hit scores better, both are kept:
+    the nested model may still represent a genuine detection.
 
     **Handling models that appear in multiple pairs**
 
@@ -970,9 +1007,11 @@ def remove_nested_paired_hits(
         Dictionary mapping left feature names to right feature names.
         Only hits from models listed in this map (as keys or values) are evaluated.
     min_score_ratio : float, default 1.5
-        A nested hit is removed when ``nested_score / enclosing_score < min_score_ratio``.
-        Increase this value to be more aggressive (remove more nested hits); decrease
-        it to be more conservative (keep more nested hits).
+        A nested hit is removed when ``enclosing_score / nested_score >= min_score_ratio``,
+        i.e. when the enclosing hit is at least this many times better.  Increase
+        this value to be more conservative (keep more nested hits); decrease it to
+        be more aggressive (remove more nested hits).  This matches the direction
+        used by :func:`filter_best_model_per_locus`.
     summary : SearchFilterSummary, optional
         If provided, per-model nesting details are stored in
         ``summary.nested_removed`` as ``{removed_model: {container_model: count}}``.
@@ -1046,10 +1085,16 @@ def remove_nested_paired_hits(
                 score1 = float(hit1['score_float'])
                 score2 = float(hit2['score_float'])
 
+                # Drop the nested hit only when the ENCLOSING hit is decisively
+                # better, i.e. enclosing/nested >= min_score_ratio. The test used
+                # to be nested/enclosing < min_score_ratio, which deleted a nested
+                # hit unless it scored at least 1.5x its container -- so an
+                # equally good, or even 40% better, nested hit was discarded.
+                # This direction now matches filter_best_model_per_locus.
+
                 # Check if hit2 is nested in hit1
                 if start1 <= start2 and end2 <= end1:
-                    # hit2 is nested in hit1
-                    if score1 > 0 and (score2 / score1) < min_score_ratio:
+                    if _is_decisively_better(score1, score2, min_score_ratio):
                         hits_to_remove.add(idx2)
                         removed_hit_containers[idx2] = (model2, model1)
                         logger.debug(
@@ -1059,8 +1104,7 @@ def remove_nested_paired_hits(
 
                 # Check if hit1 is nested in hit2
                 elif start2 <= start1 and end1 <= end2:
-                    # hit1 is nested in hit2
-                    if score2 > 0 and (score1 / score2) < min_score_ratio:
+                    if _is_decisively_better(score2, score1, min_score_ratio):
                         hits_to_remove.add(idx1)
                         removed_hit_containers[idx1] = (model1, model2)
                         logger.debug(

@@ -22,6 +22,8 @@ from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from Bio import SeqIO  # type: ignore[import-not-found]
 import pandas as pd  # type: ignore[import-untyped]
+from rich.console import Console
+from rich.progress import track
 
 from tirmite.cli._argtypes import (
     validate_evalue,
@@ -286,6 +288,13 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
     """
     cluster_map: Dict[str, List[str]] = {}
 
+    # Tracked so a transposed file can be recognised after parsing; see the
+    # heuristic below.
+    data_lines = 0
+    two_column_lines = 0
+    first_column_values: Set[str] = set()
+    second_column_values: Set[str] = set()
+
     try:
         with open(mapping_file, 'r') as f:
             for line_num, line in enumerate(f, 1):
@@ -295,6 +304,11 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
                     continue
 
                 parts = line.split('\t')
+                data_lines += 1
+                if len(parts) == 2:
+                    two_column_lines += 1
+                    first_column_values.add(parts[0].strip())
+                    second_column_values.add(parts[1].strip())
                 if len(parts) < 2:
                     logger.warning(
                         f'Skipping line {line_num}: insufficient columns (need cluster name + at least one component)'
@@ -321,7 +335,66 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
             f'Failed to parse cluster mapping file {mapping_file}: {e}'
         ) from e
 
+    _warn_if_cluster_map_looks_transposed(
+        mapping_file,
+        data_lines,
+        two_column_lines,
+        first_column_values,
+        second_column_values,
+    )
+
     return cluster_map
+
+
+def _warn_if_cluster_map_looks_transposed(
+    mapping_file: Path,
+    data_lines: int,
+    two_column_lines: int,
+    first_column_values: Set[str],
+    second_column_values: Set[str],
+) -> None:
+    """
+    Warn when a cluster map looks like a model-first file written by mistake.
+
+    Parameters
+    ----------
+    mapping_file : Path
+        Path to the file, for the message.
+    data_lines : int
+        Number of non-comment, non-blank lines seen.
+    two_column_lines : int
+        How many of those had exactly two tab-separated columns.
+    first_column_values : set of str
+        Distinct values seen in column 1.
+    second_column_values : set of str
+        Distinct values seen in column 2.
+
+    Returns
+    -------
+    None
+        Emits a warning; does not modify the parsed map.
+
+    Notes
+    -----
+    A correct cluster map names the cluster first, so column 1 holds distinct
+    cluster names and column 2 onwards their components. A file written the
+    other way round -- one ``model<TAB>cluster`` line per model, which earlier
+    documentation showed -- parses without error but produces clusters that
+    match no hit. It is recognisable because every line has exactly two
+    columns and column 2 repeats while column 1 does not.
+    """
+    if data_lines == 0 or two_column_lines != data_lines:
+        return
+    if len(second_column_values) >= len(first_column_values):
+        return
+
+    logger.warning(
+        f'Cluster map {mapping_file} may have its columns transposed: every line '
+        f'has exactly two columns, and column 2 has fewer distinct values '
+        f'({len(second_column_values)}) than column 1 ({len(first_column_values)}), '
+        'which is the shape of a model-to-cluster file. TIRmite expects the '
+        'cluster name FIRST: cluster<TAB>component1<TAB>component2...'
+    )
 
 
 def validate_cluster_mapping(
@@ -2227,7 +2300,19 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 # Process each genome (or just run once if only using blast-db)
                 genome_list: List[Optional[Path]] = list(genomes) if genomes else [None]
-                for genome_file in genome_list:
+
+                # Searching many genomes is the only long multi-sample loop in
+                # TIRmite and each genome can take minutes, so show progress.
+                # Disabled for a single genome (nothing to track) and when
+                # stderr is not a terminal, so redirected logs stay clean.
+                for genome_file in track(
+                    genome_list,
+                    description='Searching genomes',
+                    total=len(genome_list),
+                    console=Console(stderr=True),
+                    transient=True,
+                    disable=len(genome_list) < 2 or not sys.stderr.isatty(),
+                ):
                     # Prepare genome file (decompress if gzipped)
                     prepared_genome: Optional[Path] = None
                     if genome_file:

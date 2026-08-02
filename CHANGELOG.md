@@ -23,9 +23,19 @@ The format is based on [Common Changelog](https://common-changelog.org/).
 ### Added
 
 - `--logfile` and a full `--loglevel` choice list for `tirmite legacy` and `tirmite seed`. The other three subcommands already had them; these two could not write a log file at all.
+- `--min-score-ratio` and `--merge-max-gap` for `tirmite search`. The score ratio was documented as configurable but was hardcoded at 1.5 and unreachable from the CLI.
+- A progress bar over the per-genome loop in `tirmite search`, shown only when searching more than one genome and only when stderr is a terminal.
+- `parse_cluster_mapping` now warns when a cluster map looks like it has its columns transposed (every line exactly two columns, with column 2 repeating). That layout parses cleanly but matches no hit, and was what earlier documentation showed.
 
 ### Fixed
 
+- **The `--cluster-map` documentation showed the columns in the wrong order.** `docs/tutorials/tirmite-search.md` presented the file as one `model<TAB>cluster` line per model, while the parser, the CLI help and the tests all expect `cluster<TAB>component1<TAB>component2...`. Following the tutorial produced a map in which every *model* name became a cluster, so no hit matched and the run silently returned nothing.
+- **`tirmite search` compared nested and cross-model hits only within a single strand.** Under the canonical `F,R` orientation the two termini of one element are on opposite strands, so nested-hit removal never fired for the case it exists to handle, and a weaker cross-model hit could survive merely by sitting on the other strand.
+- **Nested hits were removed using an inverted score ratio.** A nested hit was discarded unless it scored at least 1.5x *better* than the hit containing it, so equal-scoring and even better-scoring nested hits were deleted. The threshold now reads `enclosing / nested >= min_score_ratio`, matching the cross-model step.
+- **A cluster-level pairing map did not reach the anchor filter.** The anchor filter runs before cluster merging renames hit models, so a pairing map naming clusters matched nothing. For the same-strand orientations `F,F` and `R,R` this fell back to requiring *both* model ends to be anchored, silently discarding valid termini. `F,R` runs were unaffected.
+- **Overlap was understated by one base.** Hit coordinates are 1-based and inclusive, so two hits sharing a single base overlap by 1, not 0.
+- **Hit coordinates were sorted lexicographically**, so `'1000'` sorted before `'999'`. Row order determines which of two mutually-eliminating hits a greedy filter keeps.
+- **`detect_input_format` used the wrong nhmmer column positions** (strand at index 9, e-value at 15, which are `env to` and the description), so a genuine nhmmer file was reported as `unknown` while `import_nhmmer` parsed it correctly.
 - **`tirmite search --max-offset` silently discarded every valid reverse-inserted asymmetric hit.** The anchor filter existed as two independent copies, one in `tirmite pair` and one in `tirmite search`. The reverse-insertion strand-swap correction shipped in 1.5.0 was applied only to the `pair` copy. Without it, the `search` copy measured the offset against each hit's *inner* model edge whenever an element was inserted in reverse, so genuine termini were filtered out. Both subcommands now share one implementation in `tirmite.core.hit_filters`.
 - **`tirmite search --max-offset` mishandled symmetric models named in a pairing map.** A pairing map row naming the same feature on both sides (`SymTIR<TAB>SymTIR`) describes a symmetric element whose model has no fixed terminus role. The `search` copy labelled such a model `left` and then immediately overwrote it with `right`, so every hit was tested against one model end instead of both. Hits covering only the model's second half were wrongly retained.
 

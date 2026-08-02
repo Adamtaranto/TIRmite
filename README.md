@@ -191,14 +191,24 @@ options:
 For complex scenarios with multiple sub-type HMMs or asymmetric element families, use `tirmite search` to merge and filter hits before pairing:
 
   1. Run BLAST and/or nhmmer with multiple query models simultaneously.
-  2. Optionally merge overlapping hits from clustered component features (cluster map).
-  3. When a pairing map is provided:
+  2. Optionally restrict hits to those anchored near the outer edge of their model (`--max-offset`).
+  3. Optionally merge overlapping hits from clustered component features (cluster map). Gap tolerance is set with `--merge-max-gap`.
+  4. When a pairing map is provided:
      - **Step 0**: Exclude hits from models not listed in the pairing map.
      - **Step 1**: Remove nested weak hits within each direct left/right pair.
      - **Step 2**: Remove lower-quality cross-model hits at shared genomic loci.
+     - Steps 1 and 2 share a decisiveness threshold set with `--min-score-ratio` (default 1.5): the weaker hit is removed only when the better one outscores it by at least this factor.
      - Emit a structured **filter summary report** covering all three steps (per-model exclusion counts, nesting relationships, and per-pair cross-model removal counts).
-  4. Output a filtered, merged hit table ready for `tirmite pair`.
-  5. Optionally write separate left/right hit files (`--split-paired-output`) for asymmetric elements.
+  5. Output a filtered, merged hit table ready for `tirmite pair`.
+  6. Optionally write separate left/right hit files (`--split-paired-output`) for asymmetric elements.
+
+The cluster map names the cluster **first**, followed by its component models:
+`cluster_name<TAB>component1<TAB>component2...`. The pairing map is two columns,
+`left_feature<TAB>right_feature`; a row naming the same feature twice describes a
+symmetric element.
+
+Running any subcommand with no arguments prints that subcommand's help. Usage
+errors exit with status 2.
 
 ## Contributing
 

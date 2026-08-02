@@ -2457,3 +2457,69 @@ class TestThresholdFlagsAreReachable:
             )
             == 2
         )
+
+
+class TestTransposedClusterMapWarning:
+    """Recognise a cluster map written with the columns the wrong way round."""
+
+    def test_warns_on_model_first_layout(self, tmp_path, caplog):
+        """The old documented layout parses cleanly but matches nothing.
+
+        One `model<TAB>cluster` line per model is what earlier documentation
+        showed. It produces clusters named after each model, so no hit ever
+        matches, and previously the only symptom was an empty result.
+        """
+        import logging
+
+        path = tmp_path / 'transposed.tsv'
+        path.write_text(
+            'MY_TIR_subtype1\tMY_TIR\n'
+            'MY_TIR_subtype2\tMY_TIR\n'
+            'MY_TIR_subtype3\tMY_TIR\n'
+        )
+
+        with caplog.at_level(logging.WARNING):
+            parse_cluster_mapping(path)
+
+        assert 'transposed' in caplog.text
+        assert 'cluster name FIRST' in caplog.text
+
+    def test_does_not_warn_on_valid_two_column_map(self, tmp_path, caplog):
+        """A legitimate single-component-per-cluster map must not warn.
+
+        Guards against a false positive: here every cluster name is distinct,
+        so column 1 does not repeat and the shape is not the transposed one.
+        """
+        import logging
+
+        path = tmp_path / 'valid.tsv'
+        path.write_text('ClusterA\tComp1\nClusterB\tComp2\nClusterC\tComp3\n')
+
+        with caplog.at_level(logging.WARNING):
+            parse_cluster_mapping(path)
+
+        assert 'transposed' not in caplog.text
+
+    def test_does_not_warn_on_multi_component_map(self, tmp_path, caplog):
+        """The normal layout has more than two columns and never warns."""
+        import logging
+
+        path = tmp_path / 'normal.tsv'
+        path.write_text('ClusterA\tComp1\tComp2\tComp3\nClusterB\tComp4\n')
+
+        with caplog.at_level(logging.WARNING):
+            parse_cluster_mapping(path)
+
+        assert 'transposed' not in caplog.text
+
+    def test_empty_map_does_not_warn(self, tmp_path, caplog):
+        """A comments-only file has no shape to judge."""
+        import logging
+
+        path = tmp_path / 'empty.tsv'
+        path.write_text('# nothing here\n')
+
+        with caplog.at_level(logging.WARNING):
+            parse_cluster_mapping(path)
+
+        assert 'transposed' not in caplog.text

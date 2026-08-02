@@ -1380,6 +1380,125 @@ def clean_hmm_name(name: str) -> str:
     return cleaned
 
 
+def write_seed_comparison_report(
+    seed_comparisons: List[Tuple[Any, Any]],
+    output_file: Path,
+    model_name: str,
+    left_seed_name: str,
+    right_seed_name: str,
+) -> Path:
+    """
+    Write the detailed left-vs-right seed similarity report.
+
+    Parameters
+    ----------
+    seed_comparisons : list of tuple
+        ``(BlastHit, alignment)`` pairs as returned by :func:`compare_seeds`.
+    output_file : Path
+        Path to write the report to.
+    model_name : str
+        Model name, for the report title.
+    left_seed_name : str
+        Filename of the left seed.
+    right_seed_name : str
+        Filename of the right seed.
+
+    Returns
+    -------
+    Path
+        ``output_file``.
+
+    Notes
+    -----
+    Extracted from ``main`` so that it can be tested. It previously lived
+    inline inside a branch of ``main`` that also binds ``alignment`` to a
+    ``Path`` in its sibling ``--update`` branch; a rename of the loop variable
+    left three stale references behind and the block raised ``NameError`` for
+    every asymmetric run that found any seed similarity. Nothing covered it,
+    because ``main`` has no test that reaches this point.
+    """
+    with open(output_file, 'w') as handle:
+        handle.write(f'Seed Comparison Results for {model_name}\n')
+        handle.write('=' * 50 + '\n\n')
+        handle.write(f'Left seed: {left_seed_name}\n')
+        handle.write(f'Right seed: {right_seed_name}\n')
+        handle.write(f'Total similarities found: {len(seed_comparisons)}\n\n')
+
+        for i, (hit, seed_alignment) in enumerate(seed_comparisons, 1):
+            handle.write(f'Similarity {i}:\n')
+            handle.write(f'  Length: {hit.length}bp\n')
+            handle.write(f'  Identity: {hit.identity:.1f}%\n')
+            handle.write(f'  Query coverage: {hit.query_coverage:.3f}\n')
+            handle.write(f'  Subject coverage: {hit.subject_coverage:.3f}\n')
+            handle.write(
+                f'  Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]\n'
+            )
+            handle.write(
+                f'  Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}]\n'
+            )
+            handle.write(f'  Alignment score: {seed_alignment.score}\n')
+            handle.write('  Alignment:\n')
+            for line in str(seed_alignment).split('\n'):
+                handle.write(f'    {line}\n')
+            handle.write('\n')
+
+    return output_file
+
+
+def read_alignment_records(alignment_file: Path) -> List[SeqRecord]:
+    """
+    Read an alignment without assuming its format.
+
+    Parameters
+    ----------
+    alignment_file : Path
+        Path to a multiple sequence alignment.
+
+    Returns
+    -------
+    list of Bio.SeqRecord.SeqRecord
+        The aligned records. Empty if the file holds no sequences in any of
+        the supported formats.
+
+    Raises
+    ------
+    HMMBuildError
+        If the file cannot be read at all.
+
+    Notes
+    -----
+    TIRmite produces alignments in two formats and feeds both to the same HMM
+    builder: the seed workflow aligns with MAFFT and writes **FASTA**, while
+    ``--update`` aligns with ``hmmalign`` and writes **Stockholm**.
+
+    This previously hard-coded ``'stockholm'``, so every seed run failed with
+    ``ValueError: Did not find STOCKHOLM header`` before it reached the
+    builder. The format is now detected by trying each candidate in turn,
+    matching ``pyhmmer.easel.MSAFile``, which auto-detects and does the actual
+    work a few lines later.
+
+    Stockholm is tried first because its header is unambiguous, so a Stockholm
+    file can never be misread as something else.
+    """
+    last_error: Optional[Exception] = None
+
+    for fmt in ('stockholm', 'fasta', 'clustal', 'phylip'):
+        try:
+            records = list(SeqIO.parse(alignment_file, fmt))
+        except (ValueError, IndexError) as e:
+            # Wrong format for this parser; try the next one.
+            last_error = e
+            continue
+
+        if records:
+            logger.debug(f'Read {len(records)} records from {alignment_file} as {fmt}')
+            return records
+
+    if last_error is not None:
+        logger.debug(f'No parser accepted {alignment_file}: {last_error}')
+    return []
+
+
 def build_hmm_from_alignment_pyhmmer(
     alignment_file: Path, model_name: str, output_dir: Path
 ) -> Path:
@@ -1414,7 +1533,7 @@ def build_hmm_from_alignment_pyhmmer(
         alphabet = Alphabet.dna()
 
         # Read alignment file first to validate it
-        alignment_records = list(SeqIO.parse(alignment_file, 'stockholm'))
+        alignment_records = read_alignment_records(alignment_file)
 
         if not alignment_records:
             raise HMMBuildError(
@@ -1435,13 +1554,17 @@ def build_hmm_from_alignment_pyhmmer(
             ) as msa_file:
                 msa = msa_file.read()
 
-            if msa is None or len(msa) == 0:
+            # len(msa) is the alignment WIDTH in columns; msa.sequences is the
+            # sequence list. A zero-width alignment and an empty one are both
+            # unusable, so check the sequence count.
+            if msa is None or len(msa.sequences) == 0:
                 raise HMMBuildError(
                     f'No sequences found in alignment file: {alignment_file}'
                 )
 
             logger.debug(
-                f'Successfully read MSA with {len(msa)} sequences using MSAFile'
+                f'Successfully read MSA with {len(msa.sequences)} sequences '
+                f'({len(msa)} columns) using MSAFile'
             )
 
         except Exception as msa_error:
@@ -1526,10 +1649,15 @@ def build_hmm_from_alignment_pyhmmer(
 
         except Exception as build_error:
             logger.error(f'HMM building failed at builder.build_msa(): {build_error}')
-            logger.error(f'MSA details: {len(msa)} sequences')
-            logger.error(
-                f'MSA sequence lengths: {[len(seq) for seq in msa[:3]]}'
-            )  # First 3
+            # Diagnostics must not themselves raise: an exception here would
+            # mask build_error and skip the retry below. msa[:3] slices a
+            # DigitalMSA, which is not guaranteed to support slicing.
+            try:
+                logger.error(
+                    f'MSA details: {len(msa.sequences)} sequences, {len(msa)} columns'
+                )
+            except Exception:  # pragma: no cover - diagnostics only
+                logger.error('MSA details unavailable')
 
             # Try building without setting MSA name
             logger.debug('Retrying HMM building without MSA name...')
@@ -3173,38 +3301,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             output_dir
                             / f'{cleanID(args.model_name)}_seed_comparison.txt'
                         )
-                        with open(seed_comparison_file, 'w') as f:
-                            f.write(f'Seed Comparison Results for {args.model_name}\n')
-                            f.write('=' * 50 + '\n\n')
-                            f.write(f'Left seed: {args.left_seed.name}\n')
-                            f.write(f'Right seed: {args.right_seed.name}\n')
-                            f.write(
-                                f'Total similarities found: {len(seed_comparisons)}\n\n'
-                            )
-
-                            # The alignment object is not written to the report,
-                            # only the hit's coordinates and scores.
-                            for i, (hit, _seed_alignment) in enumerate(
-                                seed_comparisons, 1
-                            ):
-                                f.write(f'Similarity {i}:\n')
-                                f.write(f'  Length: {hit.length}bp\n')
-                                f.write(f'  Identity: {hit.identity:.1f}%\n')
-                                f.write(f'  Query coverage: {hit.query_coverage:.3f}\n')
-                                f.write(
-                                    f'  Subject coverage: {hit.subject_coverage:.3f}\n'
-                                )
-                                f.write(
-                                    f'  Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]\n'
-                                )
-                                f.write(
-                                    f'  Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}]\n'
-                                )
-                                f.write(f'  Alignment score: {alignment.score}\n')
-                                f.write('  Alignment:\n')
-                                for line in str(alignment).split('\n'):
-                                    f.write(f'    {line}\n')
-                                f.write('\n')
+                        write_seed_comparison_report(
+                            seed_comparisons,
+                            seed_comparison_file,
+                            model_name=args.model_name,
+                            left_seed_name=args.left_seed.name,
+                            right_seed_name=args.right_seed.name,
+                        )
 
                         logger.info(
                             f'Detailed seed comparison saved to: {seed_comparison_file}'

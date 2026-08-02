@@ -1958,6 +1958,54 @@ def create_search_parser() -> argparse.ArgumentParser:
 # -----------------------------------------------------------------------------
 
 
+def _load_cluster_map(path: Path) -> Dict[str, List[str]]:
+    """
+    Read a cluster mapping file, reporting a missing file clearly.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the cluster mapping file.
+
+    Returns
+    -------
+    dict of str to list of str
+        Mapping of cluster name to component model names.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If the file does not exist.
+    """
+    if not path.exists():
+        raise EnsembleSearchError(f'Cluster mapping file not found: {path}')
+    return parse_cluster_mapping(path)
+
+
+def _load_pairing_map(path: Path) -> Dict[str, str]:
+    """
+    Read a pairing map file, reporting a missing file clearly.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the pairing map file.
+
+    Returns
+    -------
+    dict of str to str
+        Mapping of left feature name to right feature name.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If the file does not exist.
+    """
+    if not path.exists():
+        raise EnsembleSearchError(f'Pairing map file not found: {path}')
+    return parse_pairing_map(path)
+
+
 def _validate_search_args(args: argparse.Namespace) -> None:
     """
     Check that the supplied arguments describe a runnable search.
@@ -2061,6 +2109,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             if getattr(args, 'max_offset', None) is not None:
                 msg += ' --max-offset filtering requires model lengths; please supply --lengths-file.'
             logger.warning(msg)
+
+        # Parse the cluster and pairing maps exactly once per run, and pass
+        # them down. The pairing map was previously read from disk three
+        # separate times: for the anchor filter, for the pairing steps, and
+        # again for split output.
+        cluster_map = _load_cluster_map(args.cluster_map) if args.cluster_map else None
+        pairing_map = _load_pairing_map(args.pairing_map) if args.pairing_map else None
 
         # Collect genome files
         genomes: List[Path] = []
@@ -2180,12 +2235,24 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 # Load and process hits within temp context
                 hit_table = _process_hits(
-                    args, blast_files, nhmmer_files, query_lengths
+                    args,
+                    blast_files,
+                    nhmmer_files,
+                    query_lengths,
+                    cluster_map=cluster_map,
+                    pairing_map=pairing_map,
                 )
 
         else:
             # Just load precomputed results
-            hit_table = _process_hits(args, blast_files, nhmmer_files, query_lengths)
+            hit_table = _process_hits(
+                args,
+                blast_files,
+                nhmmer_files,
+                query_lengths,
+                cluster_map=cluster_map,
+                pairing_map=pairing_map,
+            )
 
         # Write final output
         output_file = args.outdir / f'{args.prefix}_hits.tab'
@@ -2193,7 +2260,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Write split output if requested
         if args.split_paired_output:
-            pairing_map = parse_pairing_map(args.pairing_map)
+            assert pairing_map is not None  # guaranteed by _validate_search_args
             validate_split_paired_output(pairing_map)
             write_split_hits(hit_table, pairing_map, args.outdir, args.prefix)
 
@@ -2217,6 +2284,8 @@ def _process_hits(
     blast_files: List[Path],
     nhmmer_files: List[Path],
     query_lengths: Optional[Dict[str, int]] = None,
+    cluster_map: Optional[Dict[str, List[str]]] = None,
+    pairing_map: Optional[Dict[str, str]] = None,
 ) -> pd.DataFrame:
     """
     Process loaded hits: filter, merge, and clean.
@@ -2231,11 +2300,23 @@ def _process_hits(
         Nhmmer result files to load.
     query_lengths : dict, optional
         Mapping of model name to model length.  Required for anchor filtering.
+    cluster_map : dict, optional
+        Pre-parsed cluster mapping. Parsed from ``args.cluster_map`` if not
+        supplied.
+    pairing_map : dict, optional
+        Pre-parsed pairing map. Parsed from ``args.pairing_map`` if not
+        supplied.
 
     Returns
     -------
     pandas.DataFrame
         Processed hit table.
+
+    Notes
+    -----
+    ``cluster_map`` and ``pairing_map`` are accepted pre-parsed so that a run
+    reads each file exactly once. ``main`` parses them and passes them in;
+    direct callers may omit them and have them parsed here.
     """
     # Load hits
     hit_table = load_hits_from_files(
@@ -2256,19 +2337,28 @@ def _process_hits(
     # Report post-filter statistics
     report_hit_statistics(hit_table, stage='(after e-value filtering)')
 
+    # Resolve the cluster and pairing maps. main parses them once and passes
+    # them in; parsing here is the fallback for direct callers. The pairing map
+    # used to be read from disk three separate times in a single run, which is
+    # three chances for the parsed forms to drift apart.
+    if cluster_map is None and args.cluster_map:
+        cluster_map = _load_cluster_map(args.cluster_map)
+    if pairing_map is None and args.pairing_map:
+        pairing_map = _load_pairing_map(args.pairing_map)
+
     # Apply anchor (outer-edge) filter if requested
     max_offset = getattr(args, 'max_offset', None)
     if max_offset is not None:
         orientation = getattr(args, 'orientation', 'F,R')
 
-        # Resolve pairing map for left/right model identification
-        anchor_pairing_map: Optional[Dict[str, str]] = None
-        if args.pairing_map:
-            if not args.pairing_map.exists():
-                raise EnsembleSearchError(
-                    f'Pairing map file not found: {args.pairing_map}'
-                )
-            anchor_pairing_map = parse_pairing_map(args.pairing_map)
+        # The anchor filter runs BEFORE cluster merging, because it measures
+        # each hit against its own model's length and those lengths only exist
+        # per component -- a merged hit carries a cluster name that appears in
+        # no length table. So a cluster-level pairing map has to be expanded
+        # down to component names here, or it matches nothing and terminus
+        # assignment silently falls back to strand (which, for the same-strand
+        # F,F and R,R orientations, resolves nothing at all).
+        anchor_pairing_map = expand_pairing_map_to_components(pairing_map, cluster_map)
 
         try:
             hit_table = filter_hits_by_anchor(
@@ -2291,82 +2381,65 @@ def _process_hits(
         # Report post-anchor statistics
         report_hit_statistics(hit_table, stage='(after anchor filtering)')
 
-    # Load and apply cluster mapping if provided
-    if args.cluster_map:
-        if not args.cluster_map.exists():
+    # Apply cluster mapping if provided. This renames each hit's model to its
+    # cluster name, so every step after this point sees cluster-level names.
+    if cluster_map:
+        available_features = set(hit_table['model'].unique())
+
+        is_valid, warnings = validate_cluster_mapping(cluster_map, available_features)
+        for warning in warnings:
+            logger.warning(warning)
+
+        if not is_valid:
             raise EnsembleSearchError(
-                f'Cluster mapping file not found: {args.cluster_map}'
+                'Cluster mapping validation failed. Check warnings above.'
             )
 
-        cluster_map = parse_cluster_mapping(args.cluster_map)
+        # Check for cross-cluster overlaps before merging
+        check_cross_cluster_overlaps(hit_table, cluster_map)
 
-        if cluster_map:
-            # Get available feature names
-            available_features = set(hit_table['model'].unique())
+        # Merge overlapping hits within clusters
+        hit_table = merge_overlapping_cluster_hits(hit_table, cluster_map)
 
-            # Validate cluster mapping
-            is_valid, warnings = validate_cluster_mapping(
-                cluster_map, available_features
-            )
-            for warning in warnings:
-                logger.warning(warning)
+        # Report post-merge statistics
+        report_hit_statistics(hit_table, stage='(after merging)')
 
-            if not is_valid:
-                raise EnsembleSearchError(
-                    'Cluster mapping validation failed. Check warnings above.'
-                )
+    # Pairing-map filtering. These steps run AFTER cluster merging, so the hit
+    # models are cluster names by now and the pairing map is used as written,
+    # without expansion.
+    if pairing_map:
+        filter_summary = SearchFilterSummary()
 
-            # Check for cross-cluster overlaps before merging
-            check_cross_cluster_overlaps(hit_table, cluster_map)
+        # Step 0: restrict output to models listed in the pairing map only.
+        hit_table = filter_hits_to_pairing_map_models(
+            hit_table, pairing_map, summary=filter_summary
+        )
 
-            # Merge overlapping hits within clusters
-            hit_table = merge_overlapping_cluster_hits(hit_table, cluster_map)
+        # Report statistics after pairing map model filter
+        report_hit_statistics(hit_table, stage='(after pairing map model filter)')
 
-            # Report post-merge statistics
-            report_hit_statistics(hit_table, stage='(after merging)')
+        # Step 1: remove hits from a paired model that are completely nested within
+        # hits of its direct left/right partner and score significantly worse.
+        hit_table = remove_nested_paired_hits(
+            hit_table, pairing_map, summary=filter_summary
+        )
 
-    # Remove nested weak hits if pairing map provided
-    if args.pairing_map:
-        if not args.pairing_map.exists():
-            raise EnsembleSearchError(f'Pairing map file not found: {args.pairing_map}')
+        # Report statistics after nested hit removal
+        report_hit_statistics(hit_table, stage='(after nested hit removal)')
 
-        pairing_map = parse_pairing_map(args.pairing_map)
+        # Step 2: remove lower-quality overlapping hits from competing models across
+        # all pairs in the pairing map.  This handles the case where models from
+        # related element families hit the same locus: at each overlapping locus the
+        # best-scoring model is retained and weaker cross-model hits are discarded.
+        hit_table = filter_best_model_per_locus(
+            hit_table, pairing_map, summary=filter_summary
+        )
 
-        if pairing_map:
-            filter_summary = SearchFilterSummary()
+        # Report final statistics
+        report_hit_statistics(hit_table, stage='(after cross-model overlap filtering)')
 
-            # Step 0: restrict output to models listed in the pairing map only.
-            hit_table = filter_hits_to_pairing_map_models(
-                hit_table, pairing_map, summary=filter_summary
-            )
-
-            # Report statistics after pairing map model filter
-            report_hit_statistics(hit_table, stage='(after pairing map model filter)')
-
-            # Step 1: remove hits from a paired model that are completely nested within
-            # hits of its direct left/right partner and score significantly worse.
-            hit_table = remove_nested_paired_hits(
-                hit_table, pairing_map, summary=filter_summary
-            )
-
-            # Report statistics after nested hit removal
-            report_hit_statistics(hit_table, stage='(after nested hit removal)')
-
-            # Step 2: remove lower-quality overlapping hits from competing models across
-            # all pairs in the pairing map.  This handles the case where models from
-            # related element families hit the same locus: at each overlapping locus the
-            # best-scoring model is retained and weaker cross-model hits are discarded.
-            hit_table = filter_best_model_per_locus(
-                hit_table, pairing_map, summary=filter_summary
-            )
-
-            # Report final statistics
-            report_hit_statistics(
-                hit_table, stage='(after cross-model overlap filtering)'
-            )
-
-            # Emit consolidated summary report for all pairing map filtering steps
-            log_filter_summary(filter_summary)
+        # Emit consolidated summary report for all pairing map filtering steps
+        log_filter_summary(filter_summary)
 
     return hit_table
 

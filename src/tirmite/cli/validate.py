@@ -499,11 +499,94 @@ def extract_hit_sequence(
     return seq if seq else None
 
 
+def parse_target_site_metadata(description: str) -> Dict[str, str]:
+    """
+    Parse the ``key=value`` metadata written into a target-site FASTA header.
+
+    Parameters
+    ----------
+    description : str
+        The FASTA description line produced by ``tirmite pair``.
+
+    Returns
+    -------
+    dict of str to str
+        Every ``key=value`` token found. Keys with no ``=`` are ignored.
+
+    Notes
+    -----
+    ``writeTargetSites`` records ``flank_len``, ``tsd_len``, ``tsd_in_model``,
+    the model names, the contig and the element orientation. Reading them makes
+    validation self-consistent with the run that produced the sites, instead of
+    relying on the user to re-supply matching ``--tsd-length`` and
+    ``--tsd-in-model`` values on the command line.
+    """
+    metadata: Dict[str, str] = {}
+    for token in description.split():
+        if '=' in token:
+            key, _, value = token.partition('=')
+            metadata[key] = value
+    return metadata
+
+
+def compute_junction_position(
+    flank_len: Optional[int], tsd_len: int, tsd_in_model: bool, query_len: int
+) -> int:
+    """
+    Locate the element/genome junction within a reconstructed target site.
+
+    Parameters
+    ----------
+    flank_len : int or None
+        Flank width used when the site was reconstructed. When None the
+        junction falls back to the query midpoint.
+    tsd_len : int
+        Declared TSD length.
+    tsd_in_model : bool
+        Whether the TSD lies inside the terminus model.
+    query_len : int
+        Length of the reconstructed target site.
+
+    Returns
+    -------
+    int
+        1-based position in the unaligned query around which to look for gaps.
+
+    Notes
+    -----
+    The junction is not the midpoint of the query, which is what this code
+    assumed. The two reconstruction modes build the site differently:
+
+    - ``tsd_in_model=False``: ``left_flank + right_flank[tsd_len:]``, so the
+      site is ``2 * flank_len - tsd_len`` long and the boundary sits at
+      ``flank_len``. The midpoint is ``flank_len - tsd_len / 2``, i.e. off by
+      half the TSD length -- 10 bp out for a 20 bp direct repeat.
+    - ``tsd_in_model=True``: ``left_flank + tsd + right_flank``, so the TSD is
+      centred at ``flank_len + tsd_len / 2``, which does coincide with the
+      midpoint.
+
+    Unequal flanks (a truncated flank at a contig edge) shift the junction
+    further still, which is why the recorded ``flank_len`` is preferred over
+    any calculation from ``query_len``.
+    """
+    if flank_len is None:
+        return query_len // 2
+
+    if tsd_in_model:
+        # Centre of the TSD block that sits between the two flanks.
+        return min(query_len, flank_len + max(tsd_len, 1) // 2)
+
+    # Boundary between the left flank and the trimmed right flank.
+    return min(query_len, flank_len)
+
+
 def check_tsd_gaps(
     query_aligned: str,
     target_aligned: str,
     tsd_length: int,
     query_len: int,
+    junction_pos: Optional[int] = None,
+    tsd_in_model: bool = False,
 ) -> Tuple[Optional[int], str]:
     """
     Check for gaps around the alignment midpoint indicating TSD length errors.
@@ -518,6 +601,13 @@ def check_tsd_gaps(
         User-specified TSD length.
     query_len : int
         Original unaligned query length.
+    junction_pos : int, optional
+        1-based position of the element/genome junction in the unaligned
+        query. Defaults to the query midpoint, which is only correct when the
+        TSD lies inside the terminus model.
+    tsd_in_model : bool, default False
+        Whether the TSD lies inside the terminus model. This inverts the sign
+        of the reported error; see Notes.
 
     Returns
     -------
@@ -541,10 +631,10 @@ def check_tsd_gaps(
     for exactly this reason: an unverifiable TSD must never be indistinguishable
     from a verified one.
     """
-    # Find the midpoint of the query in the aligned coordinates
+    # Locate the junction in aligned coordinates.
     query_pos = 0
     midpoint_aligned = 0
-    target_midpoint = query_len // 2
+    target_midpoint = query_len // 2 if junction_pos is None else junction_pos
 
     for i, c in enumerate(query_aligned):
         if c != '-':
@@ -564,17 +654,35 @@ def check_tsd_gaps(
     query_gaps = query_aligned[start:end].count('-')
     target_gaps = target_aligned[start:end].count('-')
 
+    # The two reconstruction modes respond to an over-long TSD in opposite
+    # directions, so the sign of the measured difference has to be flipped for
+    # one of them:
+    #
+    #   tsd_in_model=False: the site is left_flank + right_flank[tsd_len:], so
+    #     over-declaring TRIMS real flank. The query is shorter than the true
+    #     empty site, MAFFT gaps the QUERY, and gaps in the query mean "too
+    #     long".
+    #   tsd_in_model=True: the site is left_flank + tsd + right_flank, so
+    #     over-declaring INSERTS extra element bases. The query is longer,
+    #     MAFFT gaps the TARGET, and gaps in the query now mean "too short".
+    #
+    # Without this, an in-model TSD declared too long was reported as too
+    # short, pushing the user to lengthen it further.
+    sign = -1 if tsd_in_model else 1
+
     if query_gaps > 0 and target_gaps == 0:
-        # Gaps in query at midpoint → user TSD was too long
-        return query_gaps, (
-            f'Query has {query_gaps} gap(s) near midpoint: '
-            f'TSD length may be {query_gaps}bp too long'
+        error = sign * query_gaps
+        direction = 'too long' if error > 0 else 'too short'
+        return error, (
+            f'Query has {query_gaps} gap(s) near the junction: '
+            f'TSD length may be {query_gaps}bp {direction}'
         )
     elif target_gaps > 0 and query_gaps == 0:
-        # Gaps in target at midpoint → user TSD was too short
-        return -target_gaps, (
-            f'Target has {target_gaps} gap(s) near midpoint: '
-            f'TSD length may be {target_gaps}bp too short'
+        error = -sign * target_gaps
+        direction = 'too long' if error > 0 else 'too short'
+        return error, (
+            f'Target has {target_gaps} gap(s) near the junction: '
+            f'TSD length may be {target_gaps}bp {direction}'
         )
     elif query_gaps == 0 and target_gaps == 0:
         return 0, 'TSD length appears consistent with validation data'
@@ -583,7 +691,7 @@ def check_tsd_gaps(
         # rather than 0 keeps this out of the average entirely.
         return None, (
             f'Both query ({query_gaps}) and target ({target_gaps}) have gaps '
-            f'near midpoint; validation inconclusive'
+            f'near the junction; validation inconclusive'
         )
 
 
@@ -728,22 +836,81 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 query_len = len(query.seq)
                 logger.info(f'Processing query: {qid} (len={query_len})')
 
-                # Parse model pair info from description
-                desc_parts = query.description.split()
-                left_model = ''
-                right_model = ''
-                for part in desc_parts:
-                    if part.startswith('left_model='):
-                        left_model = part.split('=', 1)[1]
-                    elif part.startswith('right_model='):
-                        right_model = part.split('=', 1)[1]
+                # `tirmite pair` records everything needed to validate this
+                # site in the FASTA header. Prefer it over the CLI flags, which
+                # the user has to re-supply consistently by hand.
+                metadata = parse_target_site_metadata(query.description)
+                left_model = metadata.get('left_model', '')
+                right_model = metadata.get('right_model', '')
 
-                # Resolve TSD length for this query
+                # Resolve TSD length: header first, then the map, then the flag.
                 query_tsd_length = args.tsd_length
+                source = '--tsd-length'
+
                 if tsd_length_map and left_model and right_model:
-                    key = f'{left_model}\t{right_model}'
-                    if key in tsd_length_map:
-                        query_tsd_length = tsd_length_map[key]
+                    # Try both key orders. `pair` looks the map up with
+                    # coordinate-ordered models but writes ROLE-ordered ones to
+                    # the header, so for a reverse-inserted element the two
+                    # differ and the direct lookup misses.
+                    for key in (
+                        f'{left_model}\t{right_model}',
+                        f'{right_model}\t{left_model}',
+                    ):
+                        if key in tsd_length_map:
+                            query_tsd_length = tsd_length_map[key]
+                            source = '--tsd-length-map'
+                            break
+                    else:
+                        logger.warning(
+                            f'{qid}: no entry for {left_model}/{right_model} in '
+                            'the TSD length map (tried both orders)'
+                        )
+
+                header_tsd_len = metadata.get('tsd_len')
+                if header_tsd_len is not None:
+                    try:
+                        query_tsd_length = int(header_tsd_len)
+                        source = 'FASTA header'
+                    except ValueError:
+                        logger.warning(
+                            f'{qid}: unparseable tsd_len={header_tsd_len!r} in header'
+                        )
+
+                # tsd_in_model changes the SIGN of the reported error, so
+                # getting it from the header rather than the flag matters.
+                header_in_model = metadata.get('tsd_in_model')
+                if header_in_model is not None:
+                    query_tsd_in_model = header_in_model.lower() == 'true'
+                    if query_tsd_in_model != args.tsd_in_model:
+                        logger.warning(
+                            f'{qid}: --tsd-in-model={args.tsd_in_model} disagrees '
+                            f'with the header (tsd_in_model={query_tsd_in_model}); '
+                            'using the header, which records how the site was '
+                            'actually reconstructed'
+                        )
+                else:
+                    query_tsd_in_model = args.tsd_in_model
+
+                header_flank_len = metadata.get('flank_len')
+                query_flank_len: Optional[int] = None
+                if header_flank_len is not None:
+                    try:
+                        query_flank_len = int(header_flank_len)
+                    except ValueError:
+                        logger.warning(
+                            f'{qid}: unparseable flank_len={header_flank_len!r}'
+                        )
+
+                junction_pos = compute_junction_position(
+                    query_flank_len,
+                    query_tsd_length,
+                    query_tsd_in_model,
+                    query_len,
+                )
+                logger.debug(
+                    f'{qid}: tsd_length={query_tsd_length} (from {source}), '
+                    f'tsd_in_model={query_tsd_in_model}, junction={junction_pos}'
+                )
 
                 query_hits = filtered_hits.get(qid, [])
                 logger.info(f'  {len(query_hits)} hits passing filters')
@@ -813,6 +980,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                                 target_aligned,
                                 query_tsd_length,
                                 query_len,
+                                junction_pos=junction_pos,
+                                tsd_in_model=query_tsd_in_model,
                             )
                             # None means inconclusive; count it separately so
                             # it cannot be averaged in as agreement.

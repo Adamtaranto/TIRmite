@@ -229,3 +229,127 @@ class TestCheckTsdGapsInconclusive:
         assert inconclusive is None
         assert confirmed == 0
         assert inconclusive is not confirmed
+
+
+class TestTargetSiteMetadata:
+    """`tirmite pair` records how it built each site; validate must read it."""
+
+    def test_parses_key_value_tokens(self):
+        """Every key=value token in the header is recovered."""
+        from tirmite.cli.validate import parse_target_site_metadata
+
+        desc = (
+            'flank_len=500 tsd_len=8 tsd_in_model=True left_model=L '
+            'right_model=R contig=chr1 element_orientation=reverse'
+        )
+        meta = parse_target_site_metadata(desc)
+
+        assert meta['flank_len'] == '500'
+        assert meta['tsd_len'] == '8'
+        assert meta['tsd_in_model'] == 'True'
+        assert meta['left_model'] == 'L'
+
+    def test_ignores_tokens_without_equals(self):
+        """Free text in the description is not mistaken for metadata."""
+        from tirmite.cli.validate import parse_target_site_metadata
+
+        meta = parse_target_site_metadata('some free text tsd_len=4')
+
+        assert meta == {'tsd_len': '4'}
+
+    def test_empty_description(self):
+        """A bare record yields no metadata rather than raising."""
+        from tirmite.cli.validate import parse_target_site_metadata
+
+        assert parse_target_site_metadata('') == {}
+
+
+class TestJunctionPosition:
+    """The junction is not the query midpoint in both reconstruction modes."""
+
+    def test_out_of_model_junction_is_the_flank_boundary(self):
+        """site = left_flank + right_flank[tsd:], so the boundary is flank_len.
+
+        The midpoint would be flank_len - tsd/2, i.e. 10 bp out for a 20 bp
+        direct repeat.
+        """
+        from tirmite.cli.validate import compute_junction_position
+
+        flank_len, tsd = 50, 20
+        query_len = 2 * flank_len - tsd  # 80
+
+        assert compute_junction_position(flank_len, tsd, False, query_len) == 50
+        assert query_len // 2 == 40  # what the code used to assume
+
+    def test_in_model_junction_is_the_tsd_centre(self):
+        """site = left_flank + tsd + right_flank, so the TSD centre is used."""
+        from tirmite.cli.validate import compute_junction_position
+
+        flank_len, tsd = 50, 20
+        query_len = 2 * flank_len + tsd  # 120
+
+        assert compute_junction_position(flank_len, tsd, True, query_len) == 60
+
+    def test_falls_back_to_midpoint_without_flank_len(self):
+        """An older header with no flank_len keeps the previous behaviour."""
+        from tirmite.cli.validate import compute_junction_position
+
+        assert compute_junction_position(None, 8, False, 100) == 50
+
+    def test_never_exceeds_query_length(self):
+        """A malformed header cannot push the junction past the sequence."""
+        from tirmite.cli.validate import compute_junction_position
+
+        assert compute_junction_position(9999, 8, False, 100) == 100
+
+
+class TestTsdInModelSignConvention:
+    """The two modes respond to an over-long TSD in opposite directions."""
+
+    def test_out_of_model_query_gaps_mean_too_long(self):
+        """Over-declaring TRIMS real flank, so the query is short."""
+        error, message = check_tsd_gaps(
+            'ACGT--GTAC', 'ACGTACGTAC', 0, 10, junction_pos=5, tsd_in_model=False
+        )
+
+        assert error > 0
+        assert 'too long' in message
+
+    def test_in_model_query_gaps_mean_too_short(self):
+        """Over-declaring INSERTS element bases, so the query is long.
+
+        The regression test: with tsd_in_model the sign is inverted, and
+        reporting "too long" here would push the user to shorten a TSD that is
+        already too short.
+        """
+        error, message = check_tsd_gaps(
+            'ACGT--GTAC', 'ACGTACGTAC', 0, 10, junction_pos=5, tsd_in_model=True
+        )
+
+        assert error < 0
+        assert 'too short' in message
+
+    def test_sign_flips_between_modes_for_the_same_alignment(self):
+        """The identical alignment yields opposite verdicts by mode."""
+        out_of_model, _ = check_tsd_gaps(
+            'ACGTACGTAC', 'ACGT--GTAC', 0, 10, junction_pos=5, tsd_in_model=False
+        )
+        in_model, _ = check_tsd_gaps(
+            'ACGTACGTAC', 'ACGT--GTAC', 0, 10, junction_pos=5, tsd_in_model=True
+        )
+
+        assert out_of_model == -in_model
+        assert out_of_model != 0
+
+    def test_inconclusive_is_unaffected_by_mode(self):
+        """No evidence is no evidence, whichever way the sign would go."""
+        for in_model in (False, True):
+            error, _ = check_tsd_gaps(
+                'AC-TACGTAC',
+                'ACGTAC-TAC',
+                0,
+                10,
+                junction_pos=5,
+                tsd_in_model=in_model,
+            )
+            assert error is None

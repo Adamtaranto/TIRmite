@@ -40,9 +40,10 @@ from tirmite.core.hit_filters import (  # noqa: F401
     expand_pairing_map_to_components,
     filter_hits_by_anchor,
 )
-from tirmite.core.parsers import (
+from tirmite.core.parsers import (  # noqa: F401
     import_blast,
     import_nhmmer,
+    sort_hit_table,
 )
 from tirmite.runners.hmmer_wrappers import build_nhmmer_command
 from tirmite.runners.runBlastn import BlastError, run_blastn
@@ -825,12 +826,8 @@ def merge_overlapping_cluster_hits(
     # Create merged DataFrame
     merged_df = pd.DataFrame(merged_records)
 
-    # Sort by model, target, location
-    merged_df = merged_df.sort_values(
-        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
-        ascending=[True, True, True, True, True],
-    )
-    merged_df = merged_df.reset_index(drop=True)
+    # Sort by model, target, location (coordinates numerically, not as strings)
+    merged_df = sort_hit_table(merged_df)
 
     logger.info(
         f'Merged overlapping cluster hits: {len(clustered_hits)} -> {len(merged_df)} hits'

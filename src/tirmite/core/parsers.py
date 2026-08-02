@@ -26,6 +26,63 @@ import pandas as pd  # type: ignore[import-untyped]
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
+# Canonical sort order for a hit table. Coordinates are compared numerically,
+# everything else lexicographically.
+_HIT_SORT_KEYS = ['model', 'target', 'hitStart', 'hitEnd', 'strand']
+_NUMERIC_SORT_KEYS = ('hitStart', 'hitEnd')
+
+
+def sort_hit_table(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sort a hit table by model, target, genomic coordinates and strand.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Hit table with at least the columns ``model``, ``target``,
+        ``hitStart``, ``hitEnd`` and ``strand``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The table sorted in place of the input, with the index reset.
+
+    Notes
+    -----
+    ``hitStart`` and ``hitEnd`` are stored as **strings**, so sorting on them
+    directly compares lexicographically: ``'1000'`` sorts before ``'999'``.
+    They are therefore sorted on temporary integer columns, which are dropped
+    before returning so that the table's all-string dtype contract is
+    preserved -- ``table2dict``, the pairing engine and the GFF writer all
+    depend on it.
+
+    Row order is not merely cosmetic. ``filter_best_model_per_locus`` walks the
+    group in order and removes greedily, so the ordering decides which of two
+    mutually-eliminating hits survives.
+
+    Examples
+    --------
+    >>> sorted_hits = sort_hit_table(hit_table)
+    """
+    if df.empty:
+        return df.reset_index(drop=True)
+
+    numeric_columns = {}
+    for column in _NUMERIC_SORT_KEYS:
+        helper = f'__{column}_sortkey'
+        # errors='coerce' keeps a malformed coordinate from aborting the sort;
+        # such rows sort last rather than raising.
+        numeric_columns[helper] = pd.to_numeric(df[column], errors='coerce')
+
+    df = df.assign(**numeric_columns)
+    sort_keys = [
+        f'__{key}_sortkey' if key in _NUMERIC_SORT_KEYS else key
+        for key in _HIT_SORT_KEYS
+    ]
+    df = df.sort_values(sort_keys, ascending=[True] * len(sort_keys))
+    df = df.drop(columns=list(numeric_columns))
+    return df.reset_index(drop=True)
+
 
 def convertAlign(
     alnDir: Optional[str] = None,
@@ -190,13 +247,8 @@ def import_nhmmer(
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
-    # Sort hits by HMM, Chromosome, location, and strand
-    df = df.sort_values(
-        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
-        ascending=[True, True, True, True, True],
-    )
-    # Reindex
-    df = df.reset_index(drop=True)
+    # Sort hits by HMM, Chromosome, location, and strand (coordinates numerically)
+    df = sort_hit_table(df)
     # if prefix:
     #    df['model'] = str(prefix) + '_' + df['model'].astype(str)
     return df
@@ -280,13 +332,8 @@ def import_BED(
     if hitTable is not None:
         # If an existing table was passed, concatenate
         df = pd.concat([df, hitTable], ignore_index=True)
-    # Sort hits by HMM, Chromosome, location, and strand
-    df = df.sort_values(
-        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
-        ascending=[True, True, True, True, True],
-    )
-    # Reindex
-    df = df.reset_index(drop=True)
+    # Sort hits by HMM, Chromosome, location, and strand (coordinates numerically)
+    df = sort_hit_table(df)
     # if prefix:
     #    df['model'] = str(prefix) + '_' + df['model'].astype(str)
     return df
@@ -414,14 +461,8 @@ def import_blast(
         # Order: new data (df) first, existing (hitTable) second (matches import_nhmmer)
         df = pd.concat([df, hitTable], ignore_index=True)
 
-    # Sort hits by model, target, location, and strand
-    df = df.sort_values(
-        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
-        ascending=[True, True, True, True, True],
-    )
-
-    # Reindex
-    df = df.reset_index(drop=True)
+    # Sort hits by model, target, location, and strand (coordinates numerically)
+    df = sort_hit_table(df)
 
     return df
 

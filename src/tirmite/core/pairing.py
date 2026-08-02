@@ -863,30 +863,38 @@ def _check_distance(
     """
     distance = inter_hit_distance(ref_hit, candidate, direction)
 
-    logger.debug('=== DISTANCE CHECK DEBUG ===')
-    logger.debug(f'Direction: {direction}')
-    logger.debug(
-        f'Ref hit: {ref_hit.model} strand={ref_hit.strand} coords=({ref_hit.hitStart}, {ref_hit.hitEnd})'
-    )
-    logger.debug(
-        f'Candidate: {candidate.model} strand={candidate.strand} coords=({candidate.hitStart}, {candidate.hitEnd})'
-    )
-    logger.debug(f'Calculated distance: {distance}')
+    # This runs once per (reference hit, candidate) pair, so it is the hottest
+    # line in the pairing engine: 125,000 calls for a 250-element input. The
+    # f-strings below must therefore be built ONLY when DEBUG is actually
+    # enabled -- passing them as arguments evaluates them unconditionally, and
+    # profiling showed 941,261 logger.debug calls accounting for the majority
+    # of parseHitsGeneral's runtime, every one of them discarded.
+    debug_enabled = logger.isEnabledFor(logging.DEBUG)
+
+    if debug_enabled:
+        logger.debug(
+            f'Distance check ({direction}): '
+            f'ref {ref_hit.model} {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd} '
+            f'vs candidate {candidate.model} {candidate.strand}:'
+            f'{candidate.hitStart}-{candidate.hitEnd} = {distance}'
+        )
 
     # Check for negative distances (invalid pairing)
     if distance < 0:
-        logger.debug(
-            f'Negative distance ({distance}) between {ref_hit.model} and {candidate.model} '
-            f'on {ref_hit.target}. Ref: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}, '
-            f'Candidate: {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
-        )
+        if debug_enabled:
+            logger.debug(
+                f'Negative distance ({distance}) between {ref_hit.model} and {candidate.model} '
+                f'on {ref_hit.target}. Ref: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}, '
+                f'Candidate: {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
+            )
         return False
 
     # Check if within max distance
     valid = distance >= 0 and distance <= maxDist
-    logger.debug(
-        f'Valid distance check: {valid} (distance: {distance}, maxDist: {maxDist})'
-    )
+    if debug_enabled:
+        logger.debug(
+            f'Valid distance check: {valid} (distance: {distance}, maxDist: {maxDist})'
+        )
 
     return valid
 
@@ -936,19 +944,23 @@ def _find_candidates(
     its own partner and could be "paired" with itself.
     """
 
-    logger.debug('=== _find_candidates DEBUG ===')
-    logger.debug(
-        f'Ref hit: {ref_hit.model} {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}'
-    )
-    logger.debug(
-        f'Looking for target_model: {target_model}, target_strand: {target_strand}'
-    )
-    logger.debug(f'Direction: {direction}, maxDist: {maxDist}')
+    # Called once per hit per direction; the per-candidate loop below is hotter
+    # still. Check once and reuse, so no f-string is built when DEBUG is off.
+    debug_enabled = logger.isEnabledFor(logging.DEBUG)
+
+    if debug_enabled:
+        logger.debug(
+            f'_find_candidates: ref {ref_hit.model} '
+            f'{ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}, '
+            f'target {target_model} on {target_strand}, '
+            f'direction {direction}, maxDist {maxDist}'
+        )
 
     if target_model not in hitsDict or ref_hit.target not in hitsDict[target_model]:
-        logger.debug(
-            f'No hits found for target_model {target_model} on {ref_hit.target}'
-        )
+        if debug_enabled:
+            logger.debug(
+                f'No hits found for target_model {target_model} on {ref_hit.target}'
+            )
         return
 
     # Store candidates under the reference hit's model and UID
@@ -966,23 +978,21 @@ def _find_candidates(
             continue
 
         if candidate.strand == target_strand:
-            logger.debug(
-                f'Checking candidate: {candidate.model} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
-            )
-
             # Calculate distance based on direction and orientation
             valid_distance = _check_distance(ref_hit, candidate, direction, maxDist)
 
             if valid_distance:
                 hitIndex[model_key][uid_key]['candidates'].append(candidate)
                 candidates_found += 1
-                logger.debug(
-                    f'Added valid candidate: {candidate.model}_{candidate.idx}'
-                )
+                if debug_enabled:
+                    logger.debug(
+                        f'Added valid candidate: {candidate.model}_{candidate.idx}'
+                    )
 
-    logger.debug(
-        f'Found {candidates_found} valid candidates for {ref_hit.model}_{ref_hit.idx}'
-    )
+    if debug_enabled:
+        logger.debug(
+            f'Found {candidates_found} valid candidates for {ref_hit.model}_{ref_hit.idx}'
+        )
 
     # Rank candidates nearest-first.
     #

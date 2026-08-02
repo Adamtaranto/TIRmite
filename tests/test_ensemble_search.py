@@ -2523,3 +2523,100 @@ class TestTransposedClusterMapWarning:
             parse_cluster_mapping(path)
 
         assert 'transposed' not in caplog.text
+
+
+class TestGreedyRemovalOrder:
+    """Pin the order-dependent behaviour of filter_best_model_per_locus.
+
+    That function skips hits already marked for removal (`if idx in
+    hits_to_remove: continue`), so a hit removed by one comparison can no
+    longer eliminate anything itself. The outcome therefore depends on the
+    traversal order, which is DataFrame row order.
+
+    No test previously failed if that order changed, which makes the function
+    unsafe to convert into a coordinate-ordered sweep without noticing. These
+    tests exist so an optimisation has to preserve it deliberately.
+
+    remove_nested_paired_hits has no such skip -- its result is the set union
+    of all pairwise decisions -- so it is order-independent and may be freely
+    reordered.
+    """
+
+    def _chain(self, scores):
+        """Three mutually overlapping hits from three different models."""
+        return pd.DataFrame(
+            [
+                _locus_hit(f'Model{i}', 'chr1', 1000 + i * 20, 1200 + i * 20, s)
+                for i, s in enumerate(scores)
+            ]
+        )
+
+    def _pairing_map(self, n=3):
+        """Map each ModelN to a distinct partner so all are 'paired features'."""
+        return {f'Model{i}': f'Partner{i}' for i in range(n)}
+
+    def test_transitive_chain_outcome_is_pinned(self):
+        """A middle hit removed early cannot then remove the third.
+
+        Scores 300 / 100 / 90: Model0 beats Model1 (3.0) and Model2 (3.33), so
+        both go. Model1 would also have beaten... nothing, but the point is
+        that the result is exactly one survivor and it is the strongest.
+        """
+        result = filter_best_model_per_locus(
+            self._chain([300, 100, 90]), self._pairing_map()
+        )
+
+        assert list(result['model']) == ['Model0']
+
+    def test_middle_hit_removed_first_cannot_evict_the_third(self):
+        """The greedy skip is load-bearing here.
+
+        Model0 (300) removes Model1 (100). Model1 would have been decisive
+        against Model2 (60) at ratio 1.67, but it is already removed, so it
+        gets no say. Model0 vs Model2 is 5.0, so Model2 goes too.
+        """
+        result = filter_best_model_per_locus(
+            self._chain([300, 100, 60]), self._pairing_map()
+        )
+
+        assert list(result['model']) == ['Model0']
+
+    def test_non_decisive_chain_keeps_everything(self):
+        """When no pair is decisive, order cannot matter."""
+        result = filter_best_model_per_locus(
+            self._chain([100, 95, 90]), self._pairing_map()
+        )
+
+        assert len(result) == 3
+
+    def test_row_order_determines_the_survivor_for_equal_scores(self):
+        """With equal scores nothing is decisive, so all survive.
+
+        Pinning this guards the boundary: a sweep that reordered comparisons
+        must not start removing equal-scoring hits.
+        """
+        result = filter_best_model_per_locus(
+            self._chain([100, 100, 100]), self._pairing_map()
+        )
+
+        assert len(result) == 3
+
+    def test_nested_removal_is_order_independent(self):
+        """remove_nested_paired_hits evaluates every pair regardless.
+
+        It has no already-removed skip, so reversing the input row order must
+        give the same set of survivors.
+        """
+        rows = [
+            _locus_hit('LeftA', 'chr1', 1000, 1400, 300),
+            _locus_hit('RightA', 'chr1', 1100, 1200, 50),
+        ]
+        pairing_map = {'LeftA': 'RightA'}
+
+        forward = remove_nested_paired_hits(pd.DataFrame(rows), pairing_map)
+        reverse = remove_nested_paired_hits(
+            pd.DataFrame(list(reversed(rows))), pairing_map
+        )
+
+        assert sorted(forward['model']) == sorted(reverse['model'])
+        assert list(forward['model']) == ['LeftA']

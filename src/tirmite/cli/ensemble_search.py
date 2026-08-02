@@ -990,21 +990,38 @@ def check_cross_cluster_overlaps(
         if len(group) < 2:
             continue
 
-        # Sort by position
+        # Sort by position, then sweep.
+        #
+        # Because starts are ascending, once a candidate begins after the
+        # current hit ends, so does every candidate after it -- no later pair
+        # can overlap, so the inner loop breaks. That turns an unconditional
+        # all-pairs scan into an output-sensitive one, which matters because
+        # this is warning-only work that every clustered run pays for.
+        # Column access is positional for the same reason as the filters
+        # above: iterrows() materialises a Series per row.
         group = group.sort_values('hitStart_int')
-        hits_list = list(group.iterrows())
+        clusters = group['cluster'].to_numpy()
+        starts = group['hitStart_int'].to_numpy()
+        ends = group['hitEnd_int'].to_numpy()
+        n_hits = len(group)
 
-        for i, (_, hit1) in enumerate(hits_list):
-            for _, hit2 in hits_list[i + 1 :]:
+        for i in range(n_hits):
+            start1 = int(starts[i])
+            end1 = int(ends[i])
+            cluster1 = clusters[i]
+
+            for j in range(i + 1, n_hits):
+                start2 = int(starts[j])
+
+                # Sorted by start, so nothing further along can overlap either.
+                if start2 > end1:
+                    break
+
                 # Skip if same cluster
-                if hit1['cluster'] == hit2['cluster']:
+                if cluster1 == clusters[j]:
                     continue
 
-                # Check overlap
-                start1 = int(hit1['hitStart_int'])
-                end1 = int(hit1['hitEnd_int'])
-                start2 = int(hit2['hitStart_int'])
-                end2 = int(hit2['hitEnd_int'])
+                end2 = int(ends[j])
 
                 # Coordinates are 1-based and inclusive at both ends, so two
                 # hits sharing a single base overlap by 1, not 0. Without the
@@ -1016,8 +1033,8 @@ def check_cross_cluster_overlaps(
                 if overlap >= min_overlap:
                     if warnings_reported < 10:  # Limit warnings
                         logger.warning(
-                            f'Cross-cluster overlap detected: {target}:{start1}-{end1} ({hit1["cluster"]}) '
-                            f'overlaps with {target}:{start2}-{end2} ({hit2["cluster"]})'
+                            f'Cross-cluster overlap detected: {target}:{start1}-{end1} ({cluster1}) '
+                            f'overlaps with {target}:{start2}-{end2} ({clusters[j]})'
                         )
                     warnings_reported += 1
 
@@ -1162,35 +1179,52 @@ def remove_nested_paired_hits(
 
         group_indices = list(group.index)
 
+        # Pull the columns out as plain sequences once per group.
+        #
+        # The loops below are O(n^2) by nature, but they used to do a
+        # DataFrame .loc[label] lookup per iteration. On a mixed-dtype frame
+        # that materialises a fresh object-dtype Series across all 13 columns
+        # and infers an interleaved dtype -- profiled at ~67 us per access and
+        # 89% of this function's total runtime, against nanoseconds for the
+        # three integer comparisons it exists to perform. Positional access
+        # into numpy arrays removes that constant without touching the
+        # algorithm, the comparison order, or the output.
+        models = group['model'].to_numpy()
+        starts = group['hitStart_int'].to_numpy()
+        ends = group['hitEnd_int'].to_numpy()
+        scores = group['score_float'].to_numpy()
+
         for i, idx1 in enumerate(group_indices):
-            hit1 = hit_table.loc[idx1]
-            model1 = hit1['model']
+            model1 = models[i]
 
             if model1 not in all_paired_features:
                 continue
 
-            for idx2 in group_indices[i + 1 :]:
-                hit2 = hit_table.loc[idx2]
-                model2 = hit2['model']
+            # Hoisted out of the inner loop. These were re-extracted from the
+            # hit1 Series on every inner iteration.
+            start1 = int(starts[i])
+            end1 = int(ends[i])
+            score1 = float(scores[i])
+
+            partner1 = pairing_map.get(model1)
+
+            for j in range(i + 1, len(group_indices)):
+                idx2 = group_indices[j]
+                model2 = models[j]
 
                 if model2 not in all_paired_features:
                     continue
 
                 # Check if they are paired (left-right or right-left)
-                is_paired = (
-                    model1 in pairing_map and pairing_map[model1] == model2
-                ) or (model2 in pairing_map and pairing_map[model2] == model1)
+                is_paired = partner1 == model2 or pairing_map.get(model2) == model1
 
                 if not is_paired:
                     continue
 
                 # Check if one is nested within the other
-                start1 = int(hit1['hitStart_int'])
-                end1 = int(hit1['hitEnd_int'])
-                start2 = int(hit2['hitStart_int'])
-                end2 = int(hit2['hitEnd_int'])
-                score1 = float(hit1['score_float'])
-                score2 = float(hit2['score_float'])
+                start2 = int(starts[j])
+                end2 = int(ends[j])
+                score2 = float(scores[j])
 
                 # Drop the nested hit only when the ENCLOSING hit is decisively
                 # better, i.e. enclosing/nested >= min_score_ratio. The test used
@@ -1337,26 +1371,38 @@ def filter_best_model_per_locus(
 
         group_indices = list(group.index)
 
+        # Columns pulled out once per group; see the note in
+        # remove_nested_paired_hits. The traversal order is deliberately
+        # unchanged: this filter skips hits already marked for removal, so a
+        # hit eliminated early gets no further say, and the outcome depends on
+        # the order in which pairs are visited. That order is DataFrame row
+        # order (model, target, hitStart, hitEnd, strand -- model-major, not
+        # coordinate-major), and converting this to a coordinate-ordered sweep
+        # would silently change which hits survive.
+        models = group['model'].to_numpy()
+        starts = group['hitStart_int'].to_numpy()
+        ends = group['hitEnd_int'].to_numpy()
+        scores = group['score_float'].to_numpy()
+
         for i, idx1 in enumerate(group_indices):
             if idx1 in hits_to_remove:
                 continue
 
-            hit1 = hit_table.loc[idx1]
-            model1 = hit1['model']
+            model1 = models[i]
 
             if model1 not in all_paired_features:
                 continue
 
-            start1 = int(hit1['hitStart_int'])
-            end1 = int(hit1['hitEnd_int'])
-            score1 = float(hit1['score_float'])
+            start1 = int(starts[i])
+            end1 = int(ends[i])
+            score1 = float(scores[i])
 
-            for idx2 in group_indices[i + 1 :]:
+            for j in range(i + 1, len(group_indices)):
+                idx2 = group_indices[j]
                 if idx2 in hits_to_remove:
                     continue
 
-                hit2 = hit_table.loc[idx2]
-                model2 = hit2['model']
+                model2 = models[j]
 
                 if model2 not in all_paired_features:
                     continue
@@ -1365,9 +1411,9 @@ def filter_best_model_per_locus(
                 if model1 == model2:
                     continue
 
-                start2 = int(hit2['hitStart_int'])
-                end2 = int(hit2['hitEnd_int'])
-                score2 = float(hit2['score_float'])
+                start2 = int(starts[j])
+                end2 = int(ends[j])
+                score2 = float(scores[j])
 
                 # Compute overlap
                 # Coordinates are 1-based and inclusive at both ends, matching

@@ -72,25 +72,19 @@ def blast_result_file(tmp_path):
 
 @pytest.fixture
 def nhmmer_result_file(tmp_path):
-    """Create a temporary nhmmer result file.
+    """Create a temporary nhmmer ``--tblout`` result file.
 
-    Column order expected by ``import_nhmmer`` is the whitespace-delimited
-    ``--tblout`` layout: target, accession, query, accession, mdl, hmmFrom,
-    hmmTo, seqFrom, seqTo, strand, trunc, pass, gc, bias, score, evalue, inc,
-    description.
+    Column order, which ``import_nhmmer`` and ``detect_input_format`` both
+    index positionally: target name, accession, query name, accession,
+    hmmfrom, hmm to, alifrom, ali to, envfrom, env to, sq len, strand,
+    E-value, score, bias, description.
     """
     path = tmp_path / 'hits.nhmmer'
     path.write_text(
-        '#target name         accession query name           accession mdl mdl from   '
-        'mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc '
-        'description of target\n'
-        '#------------------- --------- -------------------- --------- --- -------- '
-        '-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- '
-        '--- ---------------------\n'
-        'chr1                 -         ComponentA1          -          cm        1       '
-        '60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n'
-        'chr1                 -         ComponentA2          -          cm        1       '
-        '58     1020     1077      +    no    1 0.42   0.0   42.1   2.5e-09 yes -\n'
+        '# target name  accession  query name  accession  hmmfrom  hmm to  alifrom  '
+        'ali to  envfrom  env to  sq len  strand  E-value  score  bias  description\n'
+        'chr1 - ComponentA1 - 1 60 1000 1059 1000 1059 100000 + 1.2e-10 45.2 0.0 -\n'
+        'chr1 - ComponentA2 - 1 58 1020 1077 1020 1077 100000 + 2.5e-09 42.1 0.0 -\n'
     )
     return str(path)
 
@@ -262,23 +256,20 @@ class TestHitLoading:
         assert 'ComponentA1' in hit_table['model'].values
 
     def test_load_nhmmer_hits(self, nhmmer_result_file):
-        """Test loading hits from nhmmer file.
+        """Test loading hits from an nhmmer file.
 
-        Note: There is a format mismatch between the column indices expected by
-        `detect_input_format` (strand at index 9, evalue at index 15) and
-        `import_nhmmer` (strand at index 11, evalue at index 12). This is an
-        existing issue in the codebase that predates this feature. The test
-        fixture may not parse correctly due to this inconsistency. This test
-        verifies the loading mechanism doesn't crash rather than precise parsing.
+        This used to assert only that loading did not crash, because the
+        fixture's column layout did not match what `import_nhmmer` reads and
+        so parsed to zero rows. Both the fixture and `detect_input_format` now
+        use the real `--tblout` layout, so the parsed content can be checked.
         """
         from pathlib import Path
 
-        # Just verify the function doesn't crash - actual parsing may vary
-        # due to existing inconsistencies in nhmmer format handling
         hit_table = load_hits_from_files(nhmmer_files=[Path(nhmmer_result_file)])
 
-        # The loading should not raise an exception
-        assert isinstance(hit_table, pd.DataFrame)
+        assert len(hit_table) == 2
+        assert sorted(hit_table['model'].unique()) == ['ComponentA1', 'ComponentA2']
+        assert set(hit_table['target']) == {'chr1'}
 
     def test_load_no_files_raises_error(self):
         """Test that loading with no files raises an error."""

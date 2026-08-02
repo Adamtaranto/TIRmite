@@ -483,10 +483,18 @@ def detect_input_format(infile: str) -> str:
 
     Notes
     -----
-    Detection heuristics:
-    - BLAST: Tab-delimited, typically 12+ columns, numeric subject coordinates
-    - nhmmer: Space-delimited, has specific column patterns with model names
-    - Checks first non-comment line for format signature
+    Detection heuristics, applied to the first non-comment line:
+
+    - BLAST (outfmt 6): tab-delimited, 12+ columns, with numeric subject
+      coordinates in columns 8 and 9 and a numeric e-value in column 10.
+    - nhmmer (``--tblout``): whitespace-delimited, 15+ columns, with the
+      strand in column 11 and a numeric e-value in column 12.
+
+    The nhmmer column indices deliberately match those used by
+    :func:`import_nhmmer`. They previously did not: this function looked for
+    the strand in column 9 and the e-value in column 15, which are "env to"
+    and the description field respectively, so a genuine nhmmer file was
+    reported as ``'unknown'``.
     """
     try:
         with open(infile, 'r') as f:
@@ -509,14 +517,16 @@ def detect_input_format(infile: str) -> str:
                     except (ValueError, IndexError):
                         pass
 
-                # Try space-delimited (nhmmer)
+                # Try whitespace-delimited (nhmmer --tblout). Column order is
+                # target, accession, query, accession, hmmfrom, hmm to,
+                # alifrom, ali to, envfrom, env to, sq len, strand, E-value,
+                # score, bias, description. The description is optional and
+                # may itself contain spaces, so require only 15 fields.
                 space_split = li.split()
-                if len(space_split) >= 16:
-                    # nhmmer has specific pattern: column 9 is strand (+/-)
-                    # and column 15 is evalue (scientific notation)
+                if len(space_split) >= 15:
                     try:
-                        if space_split[9] in ['+', '-']:
-                            float(space_split[15])  # evalue
+                        if space_split[11] in ('+', '-'):
+                            float(space_split[12])  # E-value
                             return 'nhmmer'
                     except (ValueError, IndexError):
                         pass

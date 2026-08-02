@@ -32,17 +32,18 @@ def blast_file(tmp_path):
 
 @pytest.fixture
 def nhmmer_file(tmp_path):
-    """Create a temporary nhmmer output file."""
+    """Create a temporary nhmmer ``--tblout`` output file.
+
+    Column order, which both `detect_input_format` and `import_nhmmer` index
+    positionally: target name, accession, query name, accession, hmmfrom,
+    hmm to, alifrom, ali to, envfrom, env to, sq len, strand, E-value, score,
+    bias, description.
+    """
     path = tmp_path / 'hits.nhmmer'
     path.write_text(
-        '#target name         accession query name           accession mdl mdl from   '
-        'mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc '
-        'description of target\n'
-        '#------------------- --------- -------------------- --------- --- -------- '
-        '-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- '
-        '--- ---------------------\n'
-        'chr1                 -         TIR_model1           -          cm        1       '
-        '60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n'
+        '# target name  accession  query name  accession  hmmfrom  hmm to  alifrom  '
+        'ali to  envfrom  env to  sq len  strand  E-value  score  bias  description\n'
+        'chr1 - TIR_model1 - 1 60 1000 1059 1000 1059 100000 + 1.2e-10 45.2 0.0 -\n'
     )
     return str(path)
 

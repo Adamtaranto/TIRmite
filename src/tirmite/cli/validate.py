@@ -577,7 +577,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Load TSD length map if provided
         tsd_length_map: Dict[str, int] = {}
         if args.tsd_length_map:
-            from tirmite.tirmitetools import load_tsd_length_map
+            from tirmite.core.tsd import load_tsd_length_map
 
             tsd_length_map = load_tsd_length_map(args.tsd_length_map)
 

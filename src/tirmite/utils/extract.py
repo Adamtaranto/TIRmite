@@ -11,8 +11,8 @@ Notes
 **Coordinate contract.** All coordinates in this module are 1-based, inclusive,
 plus-strand genomic coordinates, matching ``blastdbcmd -range`` and the
 ``hitStart``/``hitEnd`` columns produced by
-:func:`tirmite.tirmitetools.import_nhmmer` and
-:func:`tirmite.tirmitetools.import_blast`.  Conversion to ``pyfaidx``'s 0-based
+:func:`tirmite.core.parsers.import_nhmmer` and
+:func:`tirmite.core.parsers.import_blast`.  Conversion to ``pyfaidx``'s 0-based
 half-open slicing happens inside :class:`FastaSource` and nowhere else.
 
 **Return contract.** :func:`fetch_sequence` returns uppercase, plus-strand

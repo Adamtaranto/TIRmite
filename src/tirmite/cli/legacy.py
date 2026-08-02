@@ -20,8 +20,33 @@ import traceback
 from typing import Any, Dict, Optional, cast
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite.core.extraction import (
+    fetchElements,
+    writeElements,
+    writePairedTIRs,
+    writeTIRs,
+)
+from tirmite.core.filters import (
+    filterHitsEval,
+    filterHitsLen,
+)
+from tirmite.core.output import (
+    fetchUnpaired,
+    gffWrite,
+)
+from tirmite.core.pairing import (
+    PairingConfig,
+    iterateGetPairsAsymmetric,
+    iterateGetPairsCustom,
+    parseHitsGeneral,
+    table2dict,
+)
+from tirmite.core.parsers import (
+    convertAlign,
+    import_BED,
+    import_nhmmer,
+)
 from tirmite.runners.hmmer_wrappers import process_hmmer_workflow
-import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
@@ -532,7 +557,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Import hits from BED file
             hitTable = None
             logging.info('Loading custom termini hits from: %s' % str(args.pairbed))
-            hitTable = tirmite.import_BED(
+            hitTable = import_BED(
                 infile=args.pairbed, hitTable=hitTable, prefix=args.prefix
             )
 
@@ -541,7 +566,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Create pairing configuration BEFORE validation
             if args.left_model and args.right_model:
                 # Asymmetric pairing with different models
-                config = tirmite.PairingConfig(
+                config = PairingConfig(
                     orientation=args.orientation,
                     left_model=args.left_model,
                     right_model=args.right_model,
@@ -566,7 +591,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     single_model = available_models[0]
                     logging.info(f'No specific model provided, using: {single_model}')
 
-                config = tirmite.PairingConfig(
+                config = PairingConfig(
                     orientation=args.orientation, single_model=single_model
                 )
 
@@ -581,7 +606,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Apply hit e-value filters
             logging.info('Filtering hits with e-value > %s' % str(args.maxeval))
             hitCount = len(hitTable.index)
-            hitTable = tirmite.filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
+            hitTable = filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
             logging.info(
                 'Excluded %s hits on e-value criteria.'
                 % str(hitCount - len(hitTable.index))
@@ -589,11 +614,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             logging.info('Remaining hits: %s ' % str(len(hitTable.index)))
 
             # Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
-            hitsDict, hitIndex = tirmite.table2dict(hitTable)
+            hitsDict, hitIndex = table2dict(hitTable)
 
             # If pairing is off, just report the hits.
             if args.nopairing:
-                tirmite.writeTIRs(
+                writeTIRs(
                     outDir=outDir,
                     hitTable=hitTable,
                     maxeval=args.maxeval,
@@ -608,7 +633,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         else:
             # If raw alignments provided, convert to stockholm format.
             if args.aln_dir or args.aln_file:
-                stockholmDir = tirmite.convertAlign(
+                stockholmDir = convertAlign(
                     alnDir=args.aln_dir,
                     alnFile=args.aln_file,
                     inFormat='fasta',
@@ -674,7 +699,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 os.path.join(os.path.abspath(resultDir), '*.out')
             ):
                 logging.info('Loading nhmmer hits from: %s ' % resultfile)
-                hitTable = tirmite.import_nhmmer(
+                hitTable = import_nhmmer(
                     infile=resultfile, hitTable=hitTable, prefix=args.prefix
                 )
                 modelCount += 1
@@ -705,9 +730,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             for model, count in model_counts_before.items():
                 logging.info(f'Model {model}: {count} hits before coverage filtering')
 
-            hitTable = tirmite.filterHitsLen(
-                hmmDB=hmmDB, mincov=args.mincov, hitTable=hitTable
-            )
+            hitTable = filterHitsLen(hmmDB=hmmDB, mincov=args.mincov, hitTable=hitTable)
 
             # Log post-filtering counts per model
             model_counts_after = hitTable['model'].value_counts().to_dict()
@@ -744,7 +767,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             for model, count in model_counts_before.items():
                 logging.info(f'Model {model}: {count} hits before e-value filtering')
 
-            hitTable = tirmite.filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
+            hitTable = filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
 
             # Log post-filtering counts per model
             model_counts_after = hitTable['model'].value_counts().to_dict()
@@ -794,7 +817,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             )
 
             # Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
-            hitsDict, hitIndex = tirmite.table2dict(hitTable)
+            hitsDict, hitIndex = table2dict(hitTable)
 
             # Create pairing configuration for HMM workflow
             if args.left_model and args.right_model:
@@ -803,7 +826,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 right_model_name = extract_model_name_from_path(args.right_model)
 
                 # Asymmetric pairing with different models
-                config = tirmite.PairingConfig(
+                config = PairingConfig(
                     orientation=args.orientation,
                     left_model=left_model_name,
                     right_model=right_model_name,
@@ -812,7 +835,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             else:
                 # Symmetric pairing with single model (backward compatible)
                 single_model = list(hitsDict.keys())[0] if hitsDict else None
-                config = tirmite.PairingConfig(
+                config = PairingConfig(
                     orientation=args.orientation, single_model=single_model
                 )
                 required_models = [single_model]
@@ -828,7 +851,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # If pairing is off, just report the hits
             if args.nopairing:
-                tirmite.writeTIRs(
+                writeTIRs(
                     outDir=outDir,
                     hitTable=hitTable,
                     maxeval=args.maxeval,
@@ -866,7 +889,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Use generalized parsing instead of original parseHits
         logging.info('Searching for candidate pairings...')
-        hitIndex = tirmite.parseHitsGeneral(
+        hitIndex = parseHitsGeneral(
             hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist, config=config
         )
 
@@ -883,7 +906,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 logging.info(
                     f'Using asymmetric pairing: {config.left_model} + {config.right_model}'
                 )
-                hitIndex, paired, unpaired = tirmite.iterateGetPairsAsymmetric(
+                hitIndex, paired, unpaired = iterateGetPairsAsymmetric(
                     hitIndex, config, stableReps=args.stable_reps
                 )
             else:
@@ -891,7 +914,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 logging.info(
                     f'Using symmetric pairing with orientation {config.orientation}'
                 )
-                hitIndex, paired, unpaired = tirmite.iterateGetPairsCustom(
+                hitIndex, paired, unpaired = iterateGetPairsCustom(
                     hitIndex, config, stableReps=args.stable_reps
                 )
 
@@ -918,7 +941,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Write TIR hits to fasta for each pHMM
         logging.info('Writing all valid terminus hits to fasta.')
         try:
-            tirmite.writeTIRs(
+            writeTIRs(
                 outDir=outDir,
                 hitTable=hitTable,
                 maxeval=args.maxeval,
@@ -935,7 +958,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if args.gff_report in ['all', 'paired']:
             logging.info('Writing successfully paired termini to fasta.')
             try:
-                tirmite.writePairedTIRs(
+                writePairedTIRs(
                     outDir=outDir,
                     paired=paired,
                     hitIndex=hitIndex,
@@ -950,7 +973,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Extract paired hit regions
         try:
-            pairedEles = tirmite.fetchElements(
+            pairedEles = fetchElements(
                 paired=paired,
                 hitIndex=hitIndex,
                 genome=genome,
@@ -970,13 +993,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Write paired-TIR features to fasta
         logging.info('Writing paired-termini elements to fasta.')
-        tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
+        writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
 
         # Write paired features to gff3, optionally also report paired/unpaired TIRs
         if args.gff_out:
             # Get unpaired TIRs
             if args.gff_report in ['all', 'unpaired']:
-                unpairedTIRs = tirmite.fetchUnpaired(hitIndex=hitIndex)
+                unpairedTIRs = fetchUnpaired(hitIndex=hitIndex)
                 logging.info(f'Found {len(unpairedTIRs)} unpaired termini')
             else:
                 unpairedTIRs = None
@@ -989,7 +1012,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Write gff3
             logging.info('Writing features to gff: %s ' % gffOutPath)
-            tirmite.gffWrite(
+            gffWrite(
                 outpath=gffOutPath,
                 featureList=pairedEles,
                 writeTIRs=args.gff_report,

@@ -38,10 +38,13 @@ from tirmite.core.hit_filters import (  # noqa: F401
     expand_pairing_map_to_components,
     filter_hits_by_anchor,
 )
+from tirmite.core.parsers import (
+    import_blast,
+    import_nhmmer,
+)
 from tirmite.runners.hmmer_wrappers import build_nhmmer_command
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
-import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import prepare_genome_file, temporary_directory
 
@@ -500,7 +503,7 @@ def load_hits_from_files(
 
             logging.info(f'Loading BLAST hits from: {blast_file}')
             try:
-                hit_table = tirmite.import_blast(str(blast_file), hitTable=hit_table)
+                hit_table = import_blast(str(blast_file), hitTable=hit_table)
                 loaded_files.append(str(blast_file))
             except Exception as e:
                 logging.error(f'Failed to load BLAST file {blast_file}: {e}')
@@ -517,7 +520,7 @@ def load_hits_from_files(
 
             logging.info(f'Loading nhmmer hits from: {nhmmer_file}')
             try:
-                hit_table = tirmite.import_nhmmer(str(nhmmer_file), hitTable=hit_table)
+                hit_table = import_nhmmer(str(nhmmer_file), hitTable=hit_table)
                 loaded_files.append(str(nhmmer_file))
             except Exception as e:
                 logging.error(f'Failed to load nhmmer file {nhmmer_file}: {e}')

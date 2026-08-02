@@ -181,7 +181,7 @@ def filter_hits_by_anchor(
 
     # Imported lazily so that this module does not execute the pairing engine
     # at import time, which keeps tirmite.core free of import-order surprises.
-    from tirmite.tirmitetools import parse_orientation
+    from tirmite.core.pairing import parse_orientation
 
     # Parse orientation with the same validator PairingConfig uses, so the two
     # can never disagree about what a given orientation string means.

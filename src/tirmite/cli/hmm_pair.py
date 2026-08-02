@@ -21,6 +21,18 @@ import sys
 from typing import Any, Dict, List, Optional, cast
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite.core.extraction import (
+    fetchElements,
+    writeElements,
+    writePairedTIRs,
+    writeTIRs,
+)
+from tirmite.core.filters import (
+    filterHitsEval,
+)
+from tirmite.core.flanks import (
+    writeFlanks,
+)
 
 # Re-exported rather than imported for use only: tests and downstream code
 # import these names from this module, and they were defined here before the
@@ -29,7 +41,26 @@ from tirmite.core.hit_filters import (  # noqa: F401
     compute_outer_edge_offset,
     filter_hits_by_anchor,
 )
-import tirmite.tirmitetools as tirmite
+from tirmite.core.output import (
+    fetchUnpaired,
+    gffWrite,
+)
+from tirmite.core.pairing import (
+    PairingConfig,
+    iterateGetPairsAsymmetric,
+    iterateGetPairsCustom,
+    parseHitsGeneral,
+    table2dict,
+)
+from tirmite.core.parsers import (
+    detect_input_format,
+    import_blast,
+    import_nhmmer,
+)
+from tirmite.core.tsd import (
+    load_tsd_length_map,
+    writeTargetSites,
+)
 from tirmite.utils.extract import check_ids, make_source
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
@@ -1201,7 +1232,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Single nhmmer file mode
             logging.info('Importing nhmmer hits...')
             input_format = 'nhmmer'
-            hitTable = tirmite.import_nhmmer(
+            hitTable = import_nhmmer(
                 infile=args.nhmmer_file, hitTable=None, prefix=args.prefix
             )
         elif args.left_nhmmer:
@@ -1219,7 +1250,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             right_model_name = extract_model_name_from_path(args.right_model)
 
             # Import left file
-            left_hitTable = tirmite.import_nhmmer(
+            left_hitTable = import_nhmmer(
                 infile=args.left_nhmmer,
                 hitTable=None,
                 prefix=args.prefix,
@@ -1230,7 +1261,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             )
 
             # Import right file
-            right_hitTable = tirmite.import_nhmmer(
+            right_hitTable = import_nhmmer(
                 infile=args.right_nhmmer,
                 hitTable=None,
                 prefix=args.prefix,
@@ -1277,12 +1308,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
 
             # Combine hit tables
-            hitTable = tirmite.import_nhmmer(
+            hitTable = import_nhmmer(
                 infile=args.left_nhmmer,
                 hitTable=None,
                 prefix=args.prefix,
             )
-            hitTable = tirmite.import_nhmmer(
+            hitTable = import_nhmmer(
                 infile=args.right_nhmmer,
                 hitTable=hitTable,
                 prefix=args.prefix,
@@ -1293,14 +1324,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             input_format = 'blast'
 
             # Detect format and warn if mismatch
-            detected_format = tirmite.detect_input_format(args.blast_file)
+            detected_format = detect_input_format(args.blast_file)
             if detected_format != 'blast' and detected_format != 'unknown':
                 logging.warning(
                     f'File format appears to be {detected_format}, but --blast-file was specified. '
                     'Consider using --nhmmer-file instead.'
                 )
 
-            hitTable = tirmite.import_blast(
+            hitTable = import_blast(
                 infile=args.blast_file, hitTable=None, prefix=args.prefix
             )
 
@@ -1316,8 +1347,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
             # Detect format for both files
-            detected_left = tirmite.detect_input_format(args.left_blast)
-            detected_right = tirmite.detect_input_format(args.right_blast)
+            detected_left = detect_input_format(args.left_blast)
+            detected_right = detect_input_format(args.right_blast)
 
             if detected_left != 'blast' and detected_left != 'unknown':
                 logging.warning(
@@ -1329,7 +1360,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
             # Import left file
-            left_hitTable = tirmite.import_blast(
+            left_hitTable = import_blast(
                 infile=args.left_blast,
                 hitTable=None,
                 prefix=args.prefix,
@@ -1340,7 +1371,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             )
 
             # Import right file
-            right_hitTable = tirmite.import_blast(
+            right_hitTable = import_blast(
                 infile=args.right_blast,
                 hitTable=None,
                 prefix=args.prefix,
@@ -1387,12 +1418,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
 
             # Combine hit tables
-            hitTable = tirmite.import_blast(
+            hitTable = import_blast(
                 infile=args.left_blast,
                 hitTable=None,
                 prefix=args.prefix,
             )
-            hitTable = tirmite.import_blast(
+            hitTable = import_blast(
                 infile=args.right_blast,
                 hitTable=hitTable,
                 prefix=args.prefix,
@@ -1521,7 +1552,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         hitCount = len(hitTable)
 
         model_counts_before = hitTable['model'].value_counts().to_dict()
-        hitTable = tirmite.filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
+        hitTable = filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
 
         model_counts_after = hitTable['model'].value_counts().to_dict()
         evalue_excluded = hitCount - len(hitTable)
@@ -1580,7 +1611,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         filter_stats['after_filtering'] = len(hitTable)
 
         # Convert to dict structure
-        hitsDict, hitIndex = tirmite.table2dict(hitTable)
+        hitsDict, hitIndex = table2dict(hitTable)
 
         # Check for multiple models and validate pairing map requirement
         # Note: unique_models was already determined and logged after import
@@ -1618,7 +1649,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             left_model_name = extract_model_name_from_path(args.left_model)
             right_model_name = extract_model_name_from_path(args.right_model)
 
-            config = tirmite.PairingConfig(
+            config = PairingConfig(
                 orientation=args.orientation,
                 left_model=left_model_name,
                 right_model=right_model_name,
@@ -1648,7 +1679,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 f'right={right_model_name} (from --right-blast)'
             )
 
-            config = tirmite.PairingConfig(
+            config = PairingConfig(
                 orientation=args.orientation,
                 left_model=left_model_name,
                 right_model=right_model_name,
@@ -1662,7 +1693,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 sys.exit(1)
 
             single_model = available_models[0]
-            config = tirmite.PairingConfig(
+            config = PairingConfig(
                 orientation=args.orientation, single_model=single_model
             )
 
@@ -1671,7 +1702,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # so only write to the base outDir when no pairing map is used.
         if not pairing_map and not args.no_hits:
             logging.info('Writing individual hits to FASTA...')
-            tirmite.writeTIRs(
+            writeTIRs(
                 outDir=outDir,
                 hitTable=hitTable,
                 maxeval=args.maxeval,
@@ -1722,12 +1753,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 # Create config for this pairing
                 if left_feature == right_feature:
                     # Symmetric pairing
-                    pair_config = tirmite.PairingConfig(
+                    pair_config = PairingConfig(
                         orientation=args.orientation, single_model=left_feature
                     )
                 else:
                     # Asymmetric pairing
-                    pair_config = tirmite.PairingConfig(
+                    pair_config = PairingConfig(
                         orientation=args.orientation,
                         left_model=left_feature,
                         right_model=right_feature,
@@ -1737,7 +1768,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 logging.info(
                     f'Searching for candidate pairings: {left_feature} <-> {right_feature}'
                 )
-                pair_hitIndex = tirmite.parseHitsGeneral(
+                pair_hitIndex = parseHitsGeneral(
                     hitsDict=hitsDict,
                     hitIndex=original_hitIndex,
                     maxDist=args.maxdist,
@@ -1750,7 +1781,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         f'Using asymmetric pairing: {pair_config.left_model} + {pair_config.right_model}'
                     )
                     pair_hitIndex, pair_paired, pair_unpaired = (
-                        tirmite.iterateGetPairsAsymmetric(
+                        iterateGetPairsAsymmetric(
                             pair_hitIndex, pair_config, stableReps=args.stable_reps
                         )
                     )
@@ -1758,10 +1789,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     logging.info(
                         f'Using symmetric pairing with orientation {pair_config.orientation}'
                     )
-                    pair_hitIndex, pair_paired, pair_unpaired = (
-                        tirmite.iterateGetPairsCustom(
-                            pair_hitIndex, pair_config, stableReps=args.stable_reps
-                        )
+                    pair_hitIndex, pair_paired, pair_unpaired = iterateGetPairsCustom(
+                        pair_hitIndex, pair_config, stableReps=args.stable_reps
                     )
 
                 # Create sub-directory for this pair
@@ -1779,7 +1808,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 pair_hitTable_tirs = hitTable[hitTable['model'].isin(pair_hit_models)]
                 if not args.no_hits:
                     logging.info(f'Writing individual hits for pair {pair_label}...')
-                    tirmite.writeTIRs(
+                    writeTIRs(
                         outDir=pair_outDir,
                         hitTable=pair_hitTable_tirs,
                         maxeval=args.maxeval,
@@ -1795,7 +1824,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 # Write paired TIRs
                 if args.gff_report in ['all', 'paired']:
-                    tirmite.writePairedTIRs(
+                    writePairedTIRs(
                         outDir=pair_outDir,
                         paired=pair_paired,
                         hitIndex=pair_hitIndex,
@@ -1809,14 +1838,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 # Extract and write elements for this pair
                 if not args.no_elements:
-                    pair_pairedEles = tirmite.fetchElements(
+                    pair_pairedEles = fetchElements(
                         paired=pair_paired,
                         hitIndex=pair_hitIndex,
                         genome=genome,
                         genome_descriptions=genome_descriptions,
                         blastdb=args.blastdb if args.blastdb else None,
                     )
-                    tirmite.writeElements(
+                    writeElements(
                         pair_outDir, eleDict=pair_pairedEles, prefix=args.prefix
                     )
                 else:
@@ -1824,7 +1853,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 # Extract and write flanks for this pair
                 if args.flanks or args.flanks_paired:
-                    tirmite.writeFlanks(
+                    writeFlanks(
                         outDir=pair_outDir,
                         hitTable=hitTable,
                         model_lengths=model_lengths,
@@ -1846,11 +1875,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     if args.insertion_site:
                         tsd_length_map_data = None
                         if args.tsd_length_map:
-                            tsd_length_map_data = tirmite.load_tsd_length_map(
+                            tsd_length_map_data = load_tsd_length_map(
                                 args.tsd_length_map
                             )
 
-                        tirmite.writeTargetSites(
+                        writeTargetSites(
                             outDir=pair_outDir,
                             hitTable=hitTable,
                             model_lengths=model_lengths,
@@ -1891,9 +1920,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 if args.gff_out:
                     pair_unpairedTIRs = None
                     if args.gff_report in ['all', 'unpaired']:
-                        pair_unpairedTIRs = tirmite.fetchUnpaired(
-                            hitIndex=pair_hitIndex
-                        )
+                        pair_unpairedTIRs = fetchUnpaired(hitIndex=pair_hitIndex)
                         logging.info(
                             f'Pair {pair_label}: {len(pair_unpairedTIRs)} unpaired termini'
                         )
@@ -1908,7 +1935,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         )
 
                     logging.info(f'Writing GFF3 output: {pair_gffOutPath}')
-                    tirmite.gffWrite(
+                    gffWrite(
                         outpath=pair_gffOutPath,
                         featureList=pair_pairedEles,
                         writeTIRs=args.gff_report,
@@ -1955,7 +1982,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         else:
             # Single pairing procedure (original logic)
             logging.info('Searching for candidate pairings...')
-            hitIndex = tirmite.parseHitsGeneral(
+            hitIndex = parseHitsGeneral(
                 hitsDict=hitsDict,
                 hitIndex=hitIndex,
                 maxDist=args.maxdist,
@@ -1967,14 +1994,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 logging.info(
                     f'Using asymmetric pairing: {config.left_model} + {config.right_model}'
                 )
-                hitIndex, paired, unpaired = tirmite.iterateGetPairsAsymmetric(
+                hitIndex, paired, unpaired = iterateGetPairsAsymmetric(
                     hitIndex, config, stableReps=args.stable_reps
                 )
             else:
                 logging.info(
                     f'Using symmetric pairing with orientation {config.orientation}'
                 )
-                hitIndex, paired, unpaired = tirmite.iterateGetPairsCustom(
+                hitIndex, paired, unpaired = iterateGetPairsCustom(
                     hitIndex, config, stableReps=args.stable_reps
                 )
 
@@ -1992,7 +2019,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Write paired TIRs
             if args.gff_report in ['all', 'paired']:
                 logging.info('Writing paired termini to FASTA...')
-                tirmite.writePairedTIRs(
+                writePairedTIRs(
                     outDir=outDir,
                     paired=paired,
                     hitIndex=hitIndex,
@@ -2007,7 +2034,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Extract and write elements
             if not args.no_elements:
                 logging.info('Extracting paired elements...')
-                pairedEles = tirmite.fetchElements(
+                pairedEles = fetchElements(
                     paired=paired,
                     hitIndex=hitIndex,
                     genome=genome,
@@ -2016,7 +2043,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
                 logging.info('Writing paired elements to FASTA...')
-                tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
+                writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
             else:
                 pairedEles = {}
 
@@ -2041,7 +2068,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Extract and write external flanks if requested
             if args.flanks or args.flanks_paired:
                 logging.info('Extracting external flanking sequences...')
-                tirmite.writeFlanks(
+                writeFlanks(
                     outDir=outDir,
                     hitTable=hitTable,
                     model_lengths=model_lengths,
@@ -2066,11 +2093,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     # Load TSD length map if provided
                     tsd_length_map = None
                     if args.tsd_length_map:
-                        tsd_length_map = tirmite.load_tsd_length_map(
-                            args.tsd_length_map
-                        )
+                        tsd_length_map = load_tsd_length_map(args.tsd_length_map)
 
-                    tirmite.writeTargetSites(
+                    writeTargetSites(
                         outDir=outDir,
                         hitTable=hitTable,
                         model_lengths=model_lengths,
@@ -2094,7 +2119,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 # Get unpaired TIRs if needed
                 unpairedTIRs = None
                 if args.gff_report in ['all', 'unpaired']:
-                    unpairedTIRs = tirmite.fetchUnpaired(hitIndex=hitIndex)
+                    unpairedTIRs = fetchUnpaired(hitIndex=hitIndex)
                     logging.info(f'Found {len(unpairedTIRs)} unpaired termini')
 
                 # Set GFF output path
@@ -2104,7 +2129,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     gffOutPath = os.path.join(outDir, 'tirmite_pair_report.gff3')
 
                 logging.info(f'Writing GFF3 output: {gffOutPath}')
-                tirmite.gffWrite(
+                gffWrite(
                     outpath=gffOutPath,
                     featureList=pairedEles,
                     writeTIRs=args.gff_report,

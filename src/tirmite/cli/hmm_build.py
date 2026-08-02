@@ -40,6 +40,7 @@ from tirmite.cli._argtypes import (
     validate_identity,
     validate_threads,
 )
+from tirmite.core.parsers import import_nhmmer
 from tirmite.runners.hmmer_wrappers import (
     build_hmmalign_command,
     build_hmmpress_command,
@@ -48,7 +49,6 @@ from tirmite.runners.hmmer_wrappers import (
 from tirmite.runners.mafft import MafftError, align_to_file
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
-from tirmite.tirmitetools import import_nhmmer
 from tirmite.utils.extract import (
     BlastDBSource,
     FastaSource,

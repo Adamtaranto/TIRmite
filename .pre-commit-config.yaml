@@ -29,7 +29,9 @@ repos:
     rev: v1.11.0rc0
     hooks:
       - id: numpydoc-validation
-        exclude: (tests/|docs/).*
+        # tests/ and benchmarks/ take pytest fixtures as parameters, which
+        # numpydoc would require documenting on every single test function.
+        exclude: (tests/|benchmarks/|docs/).*
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:

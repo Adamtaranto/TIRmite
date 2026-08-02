@@ -37,12 +37,17 @@ dev = [
     "numpydoc-validation",
     "pre-commit",
     "pytest",
+    "pytest-codspeed",
     "pytest-cov",
     "ruff",
 ]
 test = [
     "pytest",
     "pytest-cov",
+]
+bench = [
+    "pytest",
+    "pytest-codspeed",
 ]
 docs = [
     "zensical",
@@ -79,8 +84,12 @@ version-file = "src/tirmite/_version.py"
 
 [tool.pytest.ini_options]
 addopts = "-v --cov=tirmite --cov-branch --cov-report=xml --cov-report=term"
+# Only `tests` is collected by default, so `pytest` never runs the benchmarks.
+# Run them explicitly with:  pytest benchmarks/ --codspeed --no-cov
 testpaths = ["tests"]
-python_files = ["test_*.py"]
+# `bench_*.py` is listed so files under benchmarks/ are collected when that
+# directory is named explicitly. No such files exist under tests/.
+python_files = ["test_*.py", "bench_*.py"]
 markers = [
     "slow: tests that shell out to BLAST+ repeatedly; deselect with -m 'not slow'",
 ]

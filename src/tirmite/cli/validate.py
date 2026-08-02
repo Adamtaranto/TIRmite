@@ -34,6 +34,8 @@ from tirmite.utils.extract import (
 )
 from tirmite.utils.logs import init_logging
 
+logger = logging.getLogger(__name__)
+
 
 def add_validate_parser(subparsers: Any) -> argparse.ArgumentParser:
     """
@@ -270,11 +272,11 @@ def _run_validation_blastn(
         'no',
     ]
 
-    logging.info(f'Running blastn: {" ".join(cmd)}')
+    logger.info(f'Running blastn: {" ".join(cmd)}')
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        logging.error(f'blastn failed: {result.stderr}')
+        logger.error(f'blastn failed: {result.stderr}')
         raise RuntimeError(f'blastn failed with return code {result.returncode}')
 
 
@@ -317,7 +319,7 @@ def parse_blast_results(
     hits: List[Dict[str, Any]] = []
 
     if not os.path.exists(blast_file):
-        logging.warning(f'BLAST results file not found: {blast_file}')
+        logger.warning(f'BLAST results file not found: {blast_file}')
         return hits
 
     with open(blast_file, 'r') as f:
@@ -346,7 +348,7 @@ def parse_blast_results(
                     hit[col] = val
             hits.append(hit)
 
-    logging.info(f'Parsed {len(hits)} hits from {blast_file}')
+    logger.info(f'Parsed {len(hits)} hits from {blast_file}')
     return hits
 
 
@@ -395,7 +397,7 @@ def filter_junction_spanning(
         filtered[qid].append(hit)
 
     total_passing = sum(len(v) for v in filtered.values())
-    logging.info(
+    logger.info(
         f'Filtered to {total_passing} junction-spanning hits '
         f'across {len(filtered)} queries'
     )
@@ -437,7 +439,7 @@ def extract_hit_sequence(
     same clamping and validation used for FASTA-indexed genomes.
     """
     if not blastdbcmd_available():
-        logging.error('blastdbcmd not found in PATH')
+        logger.error('blastdbcmd not found in PATH')
         return None
 
     seq = fetch_sequence(BlastDBSource(blastdb), subject_id, start, end)
@@ -558,21 +560,21 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         init_logging(loglevel=args.loglevel, logfile=logfile_path)
 
-        logging.info(f'TIRmite-validate version {__version__}')
-        logging.info(f'Output directory: {outdir}')
+        logger.info(f'TIRmite-validate version {__version__}')
+        logger.info(f'Output directory: {outdir}')
 
         # Validate inputs
         if not Path(args.target_sites).exists():
-            logging.error(f'Target sites file not found: {args.target_sites}')
+            logger.error(f'Target sites file not found: {args.target_sites}')
             sys.exit(1)
 
         # Load query sequences
-        logging.info(f'Loading target sites from {args.target_sites}')
+        logger.info(f'Loading target sites from {args.target_sites}')
         queries = list(SeqIO.parse(args.target_sites, 'fasta'))
         if not queries:
-            logging.error('No sequences found in target sites file')
+            logger.error('No sequences found in target sites file')
             sys.exit(1)
-        logging.info(f'Loaded {len(queries)} target site queries')
+        logger.info(f'Loaded {len(queries)} target site queries')
 
         # Load TSD length map if provided
         tsd_length_map: Dict[str, int] = {}
@@ -584,7 +586,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Run or load BLAST results
         with tempfile.TemporaryDirectory() as tmpdir:
             if args.blast_results:
-                logging.info(
+                logger.info(
                     f'Loading pre-computed BLAST results from {args.blast_results}'
                 )
                 blast_file = args.blast_results
@@ -611,7 +613,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             for query in queries:
                 qid = query.id
                 query_len = len(query.seq)
-                logging.info(f'Processing query: {qid} (len={query_len})')
+                logger.info(f'Processing query: {qid} (len={query_len})')
 
                 # Parse model pair info from description
                 desc_parts = query.description.split()
@@ -631,7 +633,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         query_tsd_length = tsd_length_map[key]
 
                 query_hits = filtered_hits.get(qid, [])
-                logging.info(f'  {len(query_hits)} hits passing filters')
+                logger.info(f'  {len(query_hits)} hits passing filters')
 
                 if not query_hits:
                     summary_rows.append(
@@ -715,7 +717,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         )
 
                     if abs(avg_error) >= 1:
-                        logging.warning(
+                        logger.warning(
                             f'TSD length validation warning for {qid}: {consensus_msg}'
                         )
                 else:
@@ -744,7 +746,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
                     writer.writeheader()
                     writer.writerows(summary_rows)
-            logging.info(f'Validation summary written to {summary_file}')
+            logger.info(f'Validation summary written to {summary_file}')
 
             # Write aligned FASTA files
             for qid, aligned_records in all_alignments.items():
@@ -752,16 +754,16 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 aln_file = outdir / f'{prefix_str}{safe_qid}_alignment.fasta'
                 with open(aln_file, 'w') as handle:
                     SeqIO.write(aligned_records, handle, 'fasta')
-                logging.info(f'Alignment written to {aln_file}')
+                logger.info(f'Alignment written to {aln_file}')
 
-        logging.info('TIRmite-validate analysis completed successfully')
+        logger.info('TIRmite-validate analysis completed successfully')
 
     except KeyboardInterrupt:
-        logging.info('Analysis interrupted by user')
+        logger.info('Analysis interrupted by user')
         sys.exit(130)
     except Exception as e:
-        logging.error(f'Unexpected error: {e}')
-        logging.exception('Full traceback:')
+        logger.error(f'Unexpected error: {e}')
+        logger.exception('Full traceback:')
         sys.exit(1)
 
     return 0

@@ -16,6 +16,12 @@ import logging
 from operator import attrgetter
 from typing import Any, NamedTuple, Optional, Tuple
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 # CS10_Chromosome_02_+_88294_88353_modelAlignment:1_60
 
 
@@ -80,7 +86,7 @@ def _model_deficit(
     if raw_offset >= 0:
         return raw_offset
 
-    logging.warning(
+    logger.warning(
         f'Model length {model_len} is inconsistent with alignment coordinates '
         f'{hmm_start}-{hmm_end} ({which} implies a deficit of {raw_offset}). '
         'Check that the HMM or --lengths-file matches this hit table. '

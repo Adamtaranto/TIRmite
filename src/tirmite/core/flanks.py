@@ -24,6 +24,12 @@ from tirmite.utils.extract import (
 )
 from tirmite.utils.utils import cleanID
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 def compute_flank_coordinates(
     hit_start: int,
@@ -323,15 +329,13 @@ def extract_terminus_flank(
     that had already drifted in their logging.
     """
     if model_len is None:
-        logging.warning(
+        logger.warning(
             f'Model length not found for {hit.model}, skipping flank for hit {hit.idx}'
         )
         return None
 
     if hmm_start is None or hmm_end is None:
-        logging.warning(
-            f'HMM coordinates unavailable for hit {hit.idx}, skipping flank'
-        )
+        logger.warning(f'HMM coordinates unavailable for hit {hit.idx}, skipping flank')
         return None
 
     flank_start, flank_end, offset = compute_flank_coordinates(
@@ -346,7 +350,7 @@ def extract_terminus_flank(
     )
 
     if flank_max_offset is not None and offset > flank_max_offset:
-        logging.debug(
+        logger.debug(
             f'Skipping flank for hit {hit.idx}: offset {offset} > max {flank_max_offset}'
         )
         return None
@@ -355,7 +359,7 @@ def extract_terminus_flank(
     # that merely overhangs, since it means the element sits at the very edge of
     # the assembly and no flanking context exists at all.
     if flank_end < 1:
-        logging.warning(
+        logger.warning(
             f'Flank for hit {hit.idx} on {hit.target} falls entirely before '
             f'contig start (computed coords {flank_start}–{flank_end}), skipping'
         )
@@ -364,7 +368,7 @@ def extract_terminus_flank(
     if pad:
         region = fetch_region_padded(source, hit.target, flank_start, flank_end)
         if region is None:
-            logging.debug(f'Empty flank region for hit {hit.idx}, skipping')
+            logger.debug(f'Empty flank region for hit {hit.idx}, skipping')
             return None
         return FlankResult(
             seq=region.seq,
@@ -377,17 +381,17 @@ def extract_terminus_flank(
 
     clamped = clamp_region(source, hit.target, flank_start, flank_end)
     if clamped is None:
-        logging.debug(f'Empty flank region for hit {hit.idx}, skipping')
+        logger.debug(f'Empty flank region for hit {hit.idx}, skipping')
         return None
     flank_start, flank_end = clamped
 
     seq_str = fetch_sequence(source, hit.target, flank_start, flank_end)
     if seq_str is None:
-        logging.warning(f'Failed to extract flank sequence for hit {hit.idx}, skipping')
+        logger.warning(f'Failed to extract flank sequence for hit {hit.idx}, skipping')
         return None
 
     if len(seq_str) < flank_len:
-        logging.warning(
+        logger.warning(
             f'Flank for hit {hit.idx} on {hit.target} is truncated at '
             f'contig boundary: expected {flank_len}bp, '
             f'extracted {len(seq_str)}bp (coords {flank_start}–{flank_end})'
@@ -503,7 +507,7 @@ def writeFlanks(
     # When config is None (e.g. pairing-map mode with multiple configs) unpaired
     # hits cannot be attributed to a terminus; fall back to paired-only processing.
     if config is None and write_all:
-        logging.debug(
+        logger.debug(
             'config is None: cannot determine terminus type for unpaired hits; '
             'processing paired hits only.'
         )
@@ -747,7 +751,7 @@ def writeFlanks(
     )
 
     if write_all and is_symmetric_same_strand:
-        logging.warning(
+        logger.warning(
             'Symmetric same-strand orientation detected (%s). '
             'Cannot determine the outer edge for unpaired hits from a single model. '
             'Unpaired hits will be skipped in --flanks output. '
@@ -784,7 +788,7 @@ def writeFlanks(
                     # knowing whether it is the left or right terminus.  Writing both
                     # flanks would include an internal flank, so we skip unpaired hits
                     # entirely and advise the user to use --flanks-paired instead.
-                    logging.debug(
+                    logger.debug(
                         f'Skipping unpaired hit {hit_id} (model={hit.model}): '
                         'cannot determine external flank in symmetric same-strand mode'
                     )
@@ -792,7 +796,7 @@ def writeFlanks(
                 else:
                     terminus = resolve_terminus(hit, config)
                     if terminus is None:
-                        logging.debug(
+                        logger.debug(
                             f'Cannot determine terminus type for unpaired hit {hit.idx} '
                             f'(model={hit.model}, strand={hit.strand}), skipping'
                         )

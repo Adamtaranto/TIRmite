@@ -17,6 +17,12 @@ import subprocess
 import tempfile
 from typing import List, Optional, Sequence, Union
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 class CommandError(Exception):
     """
@@ -81,7 +87,7 @@ def run_command(
     """
     if verbose:
         cmd_str = cmd if isinstance(cmd, str) else ' '.join(cmd)
-        logging.info(f'Running command: {cmd_str}')
+        logger.info(f'Running command: {cmd_str}')
 
     try:
         result = subprocess.run(
@@ -113,7 +119,7 @@ def run_command(
             )
 
         if verbose and result.stdout:
-            logging.info(f'Command output:\n{result.stdout}')
+            logger.info(f'Command output:\n{result.stdout}')
 
         return result
 
@@ -169,7 +175,7 @@ def run_commands_sequential(
 
     for i, cmd in enumerate(cmds):
         try:
-            logging.info(f'Executing command {i + 1}/{len(cmds)}')
+            logger.info(f'Executing command {i + 1}/{len(cmds)}')
 
             result = run_command(
                 cmd=cmd,
@@ -182,10 +188,10 @@ def run_commands_sequential(
 
         except CommandError as e:
             if stop_on_error:
-                logging.error(f'Command {i + 1} failed: {e.message}')
+                logger.error(f'Command {i + 1} failed: {e.message}')
                 raise
             else:
-                logging.warning(f'Command {i + 1} failed (continuing): {e.message}')
+                logger.warning(f'Command {i + 1} failed (continuing): {e.message}')
                 results.append(None)  # Placeholder for failed command
                 continue
 
@@ -243,7 +249,7 @@ def run_cmd_in_tempdir(
         tmpdir_path = Path(tmpdir)
 
         if verbose:
-            logging.info(f'Working in temporary directory: {tmpdir_path}')
+            logger.info(f'Working in temporary directory: {tmpdir_path}')
 
         # Execute commands in temporary directory
         results = run_commands_sequential(
@@ -265,6 +271,6 @@ def run_cmd_in_tempdir(
             try:
                 shutil.rmtree(tmpdir)
                 if verbose:
-                    logging.info(f'Cleaned up temporary directory: {tmpdir}')
+                    logger.info(f'Cleaned up temporary directory: {tmpdir}')
             except OSError as e:
-                logging.warning(f'Failed to remove temporary directory {tmpdir}: {e}')
+                logger.warning(f'Failed to remove temporary directory {tmpdir}: {e}')

@@ -6,6 +6,16 @@ The format is based on [Common Changelog](https://common-changelog.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Logging now uses a named logger per module (`logging.getLogger(__name__)`) instead of the root-logger convenience functions, across all ~650 call sites. Log records carry the emitting module name, and per-module verbosity can be controlled.
+- `init_logging` configures the `tirmite` logger rather than the root logger, and no longer clears existing root handlers. Importing TIRmite and calling a `main()` function previously replaced the handlers of whatever application was hosting it. Library modules (`tirmite.core`, `tirmite.utils`, `tirmite.runners`) attach a `NullHandler`, so importing TIRmite emits nothing until logging is configured. Propagation stays enabled, so a host application's root handlers still receive TIRmite's records.
+- `init_logging` is now safe to call more than once; repeated calls no longer duplicate console output.
+
+### Added
+
+- `--logfile` and a full `--loglevel` choice list for `tirmite legacy` and `tirmite seed`. The other three subcommands already had them; these two could not write a log file at all.
+
 ### Fixed
 
 - **`tirmite search --max-offset` silently discarded every valid reverse-inserted asymmetric hit.** The anchor filter existed as two independent copies, one in `tirmite pair` and one in `tirmite search`. The reverse-insertion strand-swap correction shipped in 1.5.0 was applied only to the `pair` copy. Without it, the `search` copy measured the offset against each hit's *inner* model edge whenever an element was inserted in reverse, so genuine termini were filtered out. Both subcommands now share one implementation in `tirmite.core.hit_filters`.

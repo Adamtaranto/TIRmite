@@ -48,6 +48,8 @@ from tirmite.runners.wrapping import run_command
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import prepare_genome_file, temporary_directory
 
+logger = logging.getLogger(__name__)
+
 
 class EnsembleSearchError(Exception):
     """Custom exception for ensemble search errors."""
@@ -111,7 +113,7 @@ def get_fasta_sequence_lengths(fasta_file: Path) -> Dict[str, int]:
     try:
         for record in SeqIO.parse(str(fasta_file), 'fasta'):
             lengths[record.id] = len(record.seq)
-        logging.debug(f'Loaded {len(lengths)} sequence lengths from {fasta_file.name}')
+        logger.debug(f'Loaded {len(lengths)} sequence lengths from {fasta_file.name}')
     except Exception as e:
         raise EnsembleSearchError(f'Failed to read FASTA file {fasta_file}: {e}') from e
 
@@ -152,10 +154,10 @@ def get_hmm_model_lengths(hmm_file: Path) -> Dict[str, int]:
                         model_lengths[current_model] = length
                 elif line == '//':
                     current_model = None
-        logging.debug(f'Loaded {len(model_lengths)} model lengths from {hmm_file.name}')
+        logger.debug(f'Loaded {len(model_lengths)} model lengths from {hmm_file.name}')
 
     except Exception as e:
-        logging.error(f'Error reading HMM file {hmm_file}: {e}')
+        logger.error(f'Error reading HMM file {hmm_file}: {e}')
 
     return model_lengths
 
@@ -190,7 +192,7 @@ def load_lengths_file(lengths_file: Path) -> Dict[str, int]:
 
                 parts = line.split('\t')
                 if len(parts) != 2:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping malformed line {line_num} in {lengths_file}: {line}'
                     )
                     continue
@@ -200,7 +202,7 @@ def load_lengths_file(lengths_file: Path) -> Dict[str, int]:
                     model_length = int(model_length_str)
                     model_lengths[model_name] = model_length
                 except ValueError:
-                    logging.warning(
+                    logger.warning(
                         f'Invalid model length on line {line_num}: {model_length_str}'
                     )
 
@@ -242,14 +244,14 @@ def parse_genome_list(genome_list_file: Path) -> List[Path]:
 
                 genome_path = Path(line)
                 if not genome_path.exists():
-                    logging.warning(
+                    logger.warning(
                         f'Genome file not found (line {line_num}): {genome_path}'
                     )
                     continue
 
                 genomes.append(genome_path)
 
-        logging.info(f'Loaded {len(genomes)} genome paths from {genome_list_file.name}')
+        logger.info(f'Loaded {len(genomes)} genome paths from {genome_list_file.name}')
 
     except Exception as e:
         raise EnsembleSearchError(
@@ -291,7 +293,7 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
 
                 parts = line.split('\t')
                 if len(parts) < 2:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping line {line_num}: insufficient columns (need cluster name + at least one component)'
                     )
                     continue
@@ -300,11 +302,11 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
                 components = [p.strip() for p in parts[1:] if p.strip()]
 
                 if not cluster_name:
-                    logging.warning(f'Skipping line {line_num}: empty cluster name')
+                    logger.warning(f'Skipping line {line_num}: empty cluster name')
                     continue
 
                 if not components:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping line {line_num}: no component features specified for cluster {cluster_name}'
                     )
                     continue
@@ -433,7 +435,7 @@ def parse_pairing_map(pairing_file: Path) -> Dict[str, str]:
 
                 parts = line.split('\t')
                 if len(parts) != 2:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping line {line_num}: expected 2 columns (left, right), got {len(parts)}'
                     )
                     continue
@@ -442,7 +444,7 @@ def parse_pairing_map(pairing_file: Path) -> Dict[str, str]:
                 right_name = parts[1].strip()
 
                 if not left_name or not right_name:
-                    logging.warning(f'Skipping line {line_num}: empty feature name')
+                    logger.warning(f'Skipping line {line_num}: empty feature name')
                     continue
 
                 pairing_map[left_name] = right_name
@@ -497,16 +499,16 @@ def load_hits_from_files(
     if blast_files:
         for blast_file in blast_files:
             if not blast_file.exists():
-                logging.warning(f'BLAST file not found, skipping: {blast_file}')
+                logger.warning(f'BLAST file not found, skipping: {blast_file}')
                 failed_files.append(f'{blast_file} (not found)')
                 continue
 
-            logging.info(f'Loading BLAST hits from: {blast_file}')
+            logger.info(f'Loading BLAST hits from: {blast_file}')
             try:
                 hit_table = import_blast(str(blast_file), hitTable=hit_table)
                 loaded_files.append(str(blast_file))
             except Exception as e:
-                logging.error(f'Failed to load BLAST file {blast_file}: {e}')
+                logger.error(f'Failed to load BLAST file {blast_file}: {e}')
                 failed_files.append(f'{blast_file} ({e})')
                 continue
 
@@ -514,31 +516,31 @@ def load_hits_from_files(
     if nhmmer_files:
         for nhmmer_file in nhmmer_files:
             if not nhmmer_file.exists():
-                logging.warning(f'nhmmer file not found, skipping: {nhmmer_file}')
+                logger.warning(f'nhmmer file not found, skipping: {nhmmer_file}')
                 failed_files.append(f'{nhmmer_file} (not found)')
                 continue
 
-            logging.info(f'Loading nhmmer hits from: {nhmmer_file}')
+            logger.info(f'Loading nhmmer hits from: {nhmmer_file}')
             try:
                 hit_table = import_nhmmer(str(nhmmer_file), hitTable=hit_table)
                 loaded_files.append(str(nhmmer_file))
             except Exception as e:
-                logging.error(f'Failed to load nhmmer file {nhmmer_file}: {e}')
+                logger.error(f'Failed to load nhmmer file {nhmmer_file}: {e}')
                 failed_files.append(f'{nhmmer_file} ({e})')
                 continue
 
     # Report summary of file loading
     if failed_files:
-        logging.warning(
+        logger.warning(
             f'Failed to load {len(failed_files)} file(s): {", ".join(failed_files[:5])}'
             + (f' and {len(failed_files) - 5} more' if len(failed_files) > 5 else '')
         )
 
     if loaded_files:
-        logging.info(f'Successfully loaded {len(loaded_files)} file(s)')
+        logger.info(f'Successfully loaded {len(loaded_files)} file(s)')
 
     if hit_table is None or hit_table.empty:
-        logging.warning('No hits loaded from input files')
+        logger.warning('No hits loaded from input files')
         # Return empty DataFrame with correct columns
         cols = [
             'model',
@@ -580,7 +582,7 @@ def filter_hits_by_evalue(hit_table: pd.DataFrame, max_evalue: float) -> pd.Data
     filtered = hit_table[hit_table['evalue_float'] <= max_evalue].copy()
     filtered = filtered.drop(columns=['evalue_float'])
 
-    logging.info(
+    logger.info(
         f'E-value filter (max={max_evalue}): {len(hit_table)} -> {len(filtered)} hits'
     )
     return filtered
@@ -598,23 +600,23 @@ def report_hit_statistics(hit_table: pd.DataFrame, stage: str = '') -> None:
         Label for the processing stage (e.g., 'before filtering', 'after filtering').
     """
     if hit_table.empty:
-        logging.info(f'Hit statistics {stage}: 0 total hits')
+        logger.info(f'Hit statistics {stage}: 0 total hits')
         return
 
     total_hits = len(hit_table)
     unique_models = hit_table['model'].nunique()
     unique_targets = hit_table['target'].nunique()
 
-    logging.info(f'Hit statistics {stage}:')
-    logging.info(f'  Total hits: {total_hits}')
-    logging.info(f'  Unique query features (models): {unique_models}')
-    logging.info(f'  Unique target sequences: {unique_targets}')
+    logger.info(f'Hit statistics {stage}:')
+    logger.info(f'  Total hits: {total_hits}')
+    logger.info(f'  Unique query features (models): {unique_models}')
+    logger.info(f'  Unique target sequences: {unique_targets}')
 
     # Report hits per model
     hits_per_model = hit_table.groupby('model').size()
-    logging.info('  Hits per feature:')
+    logger.info('  Hits per feature:')
     for model, count in hits_per_model.items():
-        logging.info(f'    {model}: {count}')
+        logger.info(f'    {model}: {count}')
 
 
 def filter_hits_to_pairing_map_models(
@@ -655,7 +657,7 @@ def filter_hits_to_pairing_map_models(
 
     if n_removed:
         removed_models = sorted(set(hit_table.loc[~mask, 'model'].unique()))
-        logging.info(
+        logger.info(
             f'Pairing map filter: removed {n_removed} hit(s) from '
             f'{len(removed_models)} model(s) not in the pairing map: '
             f'{", ".join(removed_models)}'
@@ -710,12 +712,12 @@ def merge_overlapping_cluster_hits(
     unclustered_hits = hit_table[hit_table['cluster'].isna()].copy()
 
     if unclustered_hits.shape[0] > 0:
-        logging.warning(
+        logger.warning(
             f'{len(unclustered_hits)} hits from unclustered features will be ignored'
         )
 
     if clustered_hits.empty:
-        logging.warning('No clustered hits to merge')
+        logger.warning('No clustered hits to merge')
         return pd.DataFrame(columns=hit_table.columns.drop('cluster'))
 
     # Group by target, strand, and cluster for merging
@@ -795,7 +797,7 @@ def merge_overlapping_cluster_hits(
     )
     merged_df = merged_df.reset_index(drop=True)
 
-    logging.info(
+    logger.info(
         f'Merged overlapping cluster hits: {len(clustered_hits)} -> {len(merged_df)} hits'
     )
 
@@ -900,14 +902,14 @@ def check_cross_cluster_overlaps(
 
                 if overlap >= min_overlap:
                     if warnings_reported < 10:  # Limit warnings
-                        logging.warning(
+                        logger.warning(
                             f'Cross-cluster overlap detected: {target}:{start1}-{end1} ({hit1["cluster"]}) '
                             f'overlaps with {target}:{start2}-{end2} ({hit2["cluster"]})'
                         )
                     warnings_reported += 1
 
     if warnings_reported > 10:
-        logging.warning(f'... and {warnings_reported - 10} more cross-cluster overlaps')
+        logger.warning(f'... and {warnings_reported - 10} more cross-cluster overlaps')
 
 
 # -----------------------------------------------------------------------------
@@ -1038,7 +1040,7 @@ def remove_nested_paired_hits(
                     if score1 > 0 and (score2 / score1) < min_score_ratio:
                         hits_to_remove.add(idx2)
                         removed_hit_containers[idx2] = (model2, model1)
-                        logging.debug(
+                        logger.debug(
                             f'Removing nested hit {model2} ({start2}-{end2}, score={score2:.1f}) '
                             f'within {model1} ({start1}-{end1}, score={score1:.1f})'
                         )
@@ -1049,14 +1051,14 @@ def remove_nested_paired_hits(
                     if score2 > 0 and (score1 / score2) < min_score_ratio:
                         hits_to_remove.add(idx1)
                         removed_hit_containers[idx1] = (model1, model2)
-                        logging.debug(
+                        logger.debug(
                             f'Removing nested hit {model1} ({start1}-{end1}, score={score1:.1f}) '
                             f'within {model2} ({start2}-{end2}, score={score2:.1f})'
                         )
 
     # Remove marked hits
     if hits_to_remove:
-        logging.info(
+        logger.info(
             f'Removed {len(hits_to_remove)} nested weak hits between paired features'
         )
         hit_table = hit_table.drop(index=list(hits_to_remove))
@@ -1215,7 +1217,7 @@ def filter_best_model_per_locus(
                         cross_model_removal_counts[pair_key] = (
                             cross_model_removal_counts.get(pair_key, 0) + 1
                         )
-                        logging.debug(
+                        logger.debug(
                             f'Removing overlapping cross-model hit {model2} '
                             f'({start2}-{end2}, score={score2:.1f}) in favour of '
                             f'{model1} ({start1}-{end1}, score={score1:.1f})'
@@ -1227,20 +1229,18 @@ def filter_best_model_per_locus(
                         cross_model_removal_counts[pair_key] = (
                             cross_model_removal_counts.get(pair_key, 0) + 1
                         )
-                        logging.debug(
+                        logger.debug(
                             f'Removing overlapping cross-model hit {model1} '
                             f'({start1}-{end1}, score={score1:.1f}) in favour of '
                             f'{model2} ({start2}-{end2}, score={score2:.1f})'
                         )
 
     if hits_to_remove:
-        logging.info(
+        logger.info(
             f'Removed {len(hits_to_remove)} overlapping lower-quality cross-model hits'
         )
         for model_name, count in sorted(removed_per_model.items()):
-            logging.info(
-                f'  {model_name}: {count} hit(s) removed by cross-model filter'
-            )
+            logger.info(f'  {model_name}: {count} hit(s) removed by cross-model filter')
         hit_table = hit_table.drop(index=list(hits_to_remove))
 
         if summary is not None:
@@ -1323,7 +1323,7 @@ def log_filter_summary(summary: 'SearchFilterSummary') -> None:
     lines.append('=' * 60)
 
     for line in lines:
-        logging.info(line)
+        logger.info(line)
 
 
 # -----------------------------------------------------------------------------
@@ -1406,7 +1406,7 @@ def write_hits_table(hit_table: pd.DataFrame, output_file: Path) -> None:
     if not blast_df.empty:
         blast_df.to_csv(output_file, sep='\t', index=False, header=False, mode='a')
 
-    logging.info(f'Wrote {len(hit_table)} hits to {output_file}')
+    logger.info(f'Wrote {len(hit_table)} hits to {output_file}')
 
 
 def validate_split_paired_output(pairing_map: Dict[str, str]) -> None:
@@ -1470,7 +1470,7 @@ def write_split_hits(
     if hit_table.empty:
         write_hits_table(hit_table, left_file)
         write_hits_table(hit_table, right_file)
-        logging.info(
+        logger.info(
             f'Split output: 0 left hits -> {left_file}, 0 right hits -> {right_file}'
         )
         return left_file, right_file
@@ -1485,13 +1485,13 @@ def write_split_hits(
     write_hits_table(right_hits, right_file)
 
     if not unassigned_hits.empty:
-        logging.warning(
+        logger.warning(
             f'{len(unassigned_hits)} hit(s) from model(s) not in the pairing map were not '
             'written to either the left or right output file: '
             f'{", ".join(sorted(unassigned_hits["model"].unique()))}'
         )
 
-    logging.info(
+    logger.info(
         f'Split output: {len(left_hits)} left hits -> {left_file}, '
         f'{len(right_hits)} right hits -> {right_file}'
     )
@@ -1550,8 +1550,8 @@ def run_nhmmer_search(
 
     # Log the full command
     cmd_str = ' '.join(command)
-    logging.info(f'Running nhmmer search: {hmm_file.name} vs {target_file.name}')
-    logging.info(f'nhmmer command: {cmd_str}')
+    logger.info(f'Running nhmmer search: {hmm_file.name} vs {target_file.name}')
+    logger.info(f'nhmmer command: {cmd_str}')
 
     try:
         result = run_command(command, verbose=True)
@@ -1616,7 +1616,7 @@ def run_blastn_search(
     # qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
     blast_outfmt = '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore'
 
-    logging.info(f'Running BLAST search: {query_file.name} vs {target_file.name}')
+    logger.info(f'Running BLAST search: {query_file.name} vs {target_file.name}')
 
     try:
         run_blastn(
@@ -1968,7 +1968,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 msg = 'No --lengths-file provided. Query coverage filtering will not be available.'
                 if getattr(args, 'max_offset', None) is not None:
                     msg += ' --max-offset filtering requires model lengths; please supply --lengths-file.'
-                logging.warning(msg)
+                logger.warning(msg)
 
         # Collect genome files
         genomes: List[Path] = []
@@ -2002,7 +2002,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
         if query_lengths:
-            logging.info(f'Loaded query lengths for {len(query_lengths)} models')
+            logger.info(f'Loaded query lengths for {len(query_lengths)} models')
 
         # Run searches if needed
         if has_search_inputs:
@@ -2013,7 +2013,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 temp_path = Path(temp_dir)
 
                 if args.keep_temp:
-                    logging.info(f'Temporary files will be kept in: {temp_path}')
+                    logger.info(f'Temporary files will be kept in: {temp_path}')
 
                 # Process each genome (or just run once if only using blast-db)
                 genome_list: List[Optional[Path]] = list(genomes) if genomes else [None]
@@ -2027,7 +2027,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     if args.fasta:
                         for fasta_file in args.fasta:
                             if not fasta_file.exists():
-                                logging.warning(f'FASTA file not found: {fasta_file}')
+                                logger.warning(f'FASTA file not found: {fasta_file}')
                                 continue
 
                             # Use blast-db if provided, otherwise use prepared genome
@@ -2036,7 +2036,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             elif prepared_genome:
                                 target = prepared_genome
                             else:
-                                logging.warning('No target for BLAST search')
+                                logger.warning('No target for BLAST search')
                                 continue
 
                             genome_suffix = (
@@ -2062,7 +2062,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     if args.hmm and prepared_genome:
                         for hmm_file in args.hmm:
                             if not hmm_file.exists():
-                                logging.warning(f'HMM file not found: {hmm_file}')
+                                logger.warning(f'HMM file not found: {hmm_file}')
                                 continue
 
                             genome_suffix = (
@@ -2107,16 +2107,16 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Log completion message with logfile location if enabled
         if logfile_path and args.logfile:
-            logging.info(f'Log file saved to: {logfile_path}')
+            logger.info(f'Log file saved to: {logfile_path}')
 
-        logging.info('Ensemble search completed successfully')
+        logger.info('Ensemble search completed successfully')
         return 0
 
     except EnsembleSearchError as e:
-        logging.error(f'Ensemble search failed: {e}')
+        logger.error(f'Ensemble search failed: {e}')
         return 1
     except Exception as e:
-        logging.error(f'Unexpected error: {e}')
+        logger.error(f'Unexpected error: {e}')
         return 1
 
 
@@ -2152,7 +2152,7 @@ def _process_hits(
     )
 
     if hit_table.empty:
-        logging.warning('No hits loaded')
+        logger.warning('No hits loaded')
         return hit_table
 
     # Report initial statistics
@@ -2217,7 +2217,7 @@ def _process_hits(
                 cluster_map, available_features
             )
             for warning in warnings:
-                logging.warning(warning)
+                logger.warning(warning)
 
             if not is_valid:
                 raise EnsembleSearchError(

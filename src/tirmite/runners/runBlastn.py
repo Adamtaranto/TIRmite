@@ -18,6 +18,12 @@ import subprocess
 import time
 from typing import List, Optional, Union
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 class BlastError(Exception):
     """
@@ -188,23 +194,23 @@ def run_blastn(
 
     # Always log the command and thread usage
     available_cpus = os.cpu_count() or 1
-    logging.info('Running blastn with the following parameters:')
-    logging.info(f'  Command: {" ".join(cmd)}')
-    logging.info(f'  Query: {query_path}')
+    logger.info('Running blastn with the following parameters:')
+    logger.info(f'  Command: {" ".join(cmd)}')
+    logger.info(f'  Query: {query_path}')
     if subject_is_db:
-        logging.info(f'  BLAST database: {subject_path}')
+        logger.info(f'  BLAST database: {subject_path}')
     else:
-        logging.info(f'  Subject: {subject_path}')
-    logging.info(f'  Output: {output_path}')
-    logging.info(f'  Word size: {word_size}')
-    logging.info(f'  Percent identity: {perc_identity}%')
-    logging.info(f'  Threads: {num_threads} requested / {available_cpus} available')
+        logger.info(f'  Subject: {subject_path}')
+    logger.info(f'  Output: {output_path}')
+    logger.info(f'  Word size: {word_size}')
+    logger.info(f'  Percent identity: {perc_identity}%')
+    logger.info(f'  Threads: {num_threads} requested / {available_cpus} available')
     if additional_args:
-        logging.info(f'  Additional args: {" ".join(additional_args)}')
+        logger.info(f'  Additional args: {" ".join(additional_args)}')
     if timeout is None:
-        logging.info('  Timeout: none (will run until complete)')
+        logger.info('  Timeout: none (will run until complete)')
     else:
-        logging.info(f'  Timeout: {timeout}s')
+        logger.info(f'  Timeout: {timeout}s')
 
     try:
         proc = subprocess.Popen(
@@ -226,7 +232,7 @@ def run_blastn(
             now = time.time()
             if now - last_log_time >= _LOG_INTERVAL:
                 elapsed = int(now - start_time)
-                logging.info(f'BLAST search is still running... ({elapsed}s elapsed)')
+                logger.info(f'BLAST search is still running... ({elapsed}s elapsed)')
                 last_log_time = now
             if timeout is not None and (now - start_time) >= timeout:
                 proc.kill()
@@ -252,7 +258,7 @@ def run_blastn(
             raise BlastError(error_msg)
 
         if verbose and result.stdout:
-            logging.info(f'BLAST output: {result.stdout}')
+            logger.info(f'BLAST output: {result.stdout}')
 
         # Verify output file was created
         if not output_path.exists():

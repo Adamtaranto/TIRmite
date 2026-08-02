@@ -31,6 +31,12 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 import pandas as pd  # type: ignore[import-untyped]
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 # A pairing map reaches this module in two shapes: ``tirmite pair`` carries an
 # ordered list of (left, right) tuples, while ``tirmite search`` carries a dict
 # keyed on the left feature. Both are accepted and normalised on entry.
@@ -188,7 +194,7 @@ def filter_hits_by_anchor(
     try:
         orientation_parts = parse_orientation(orientation)
     except ValueError as e:
-        logging.warning(f'{e} Skipping anchor filter.')
+        logger.warning(f'{e} Skipping anchor filter.')
         return hit_table
 
     left_strand = '+' if orientation_parts[0] == 'F' else '-'
@@ -226,7 +232,7 @@ def filter_hits_by_anchor(
         if model_len is None:
             missing_lengths.add(model)
             if on_missing_length == 'warn':
-                logging.warning(
+                logger.warning(
                     f'Model length not found for {model}, '
                     'keeping hit without anchor check'
                 )
@@ -299,7 +305,7 @@ def filter_hits_by_anchor(
         )
 
     if skipped_no_terminus:
-        logging.debug(
+        logger.debug(
             f'Anchor filter: {skipped_no_terminus} hit(s) kept without checking - '
             'terminus type could not be determined. For same-strand symmetric '
             'pairing, supply --pairing-map to identify left/right models.'
@@ -307,13 +313,13 @@ def filter_hits_by_anchor(
 
     result = hit_table[kept].copy()
 
-    logging.info(
+    logger.info(
         f'Anchor filter (max_offset={max_offset}): '
         f'{len(hit_table)} -> {len(result)} hits ({removed} removed)'
     )
     if removed_per_model:
         for model_name, count in sorted(removed_per_model.items()):
-            logging.info(f'  {model_name}: {count} hit(s) excluded by anchor filter')
+            logger.info(f'  {model_name}: {count} hit(s) excluded by anchor filter')
     return result
 
 

@@ -29,6 +29,12 @@ from Bio import AlignIO, SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 class MafftError(Exception):
     """Raised when MAFFT is unavailable, fails, or emits unparseable output."""
@@ -95,8 +101,8 @@ def _run_mafft(
         SeqIO.write(sequences, handle, 'fasta')
 
     cmd = ['mafft', *extra_args, str(input_path)]
-    logging.info(f'Running MAFFT alignment on {len(sequences)} sequences')
-    logging.debug(f'MAFFT command: {" ".join(cmd)}')
+    logger.info(f'Running MAFFT alignment on {len(sequences)} sequences')
+    logger.debug(f'MAFFT command: {" ".join(cmd)}')
 
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
@@ -161,7 +167,7 @@ def align_to_file(
         with open(output_file, 'w') as outfile:
             SeqIO.write(alignment_records, outfile, 'fasta')
 
-        logging.info(
+        logger.info(
             f'Alignment of {len(alignment_records)} sequences written to {output_file}'
         )
         return output_file
@@ -205,7 +211,7 @@ def align_in_memory(
         # --quiet suppresses its progress chatter on stderr.
         stdout = _run_mafft(sequences, input_file, ['--auto', '--quiet'])
     except MafftError as e:
-        logging.warning(f'MAFFT alignment failed: {e}')
+        logger.warning(f'MAFFT alignment failed: {e}')
         return None
 
     with open(output_file, 'w') as out_handle:
@@ -214,5 +220,5 @@ def align_in_memory(
     try:
         return list(AlignIO.read(output_file, 'fasta'))
     except Exception as e:
-        logging.warning(f'Failed to parse MAFFT output: {e}')
+        logger.warning(f'Failed to parse MAFFT output: {e}')
         return None

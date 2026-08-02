@@ -25,6 +25,12 @@ from tirmite.utils.extract import (
 )
 from tirmite.utils.utils import cleanID
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 def hamming_distance(seq1: str, seq2: str) -> int:
     """
@@ -120,7 +126,7 @@ def load_tsd_length_map(tsd_map_file: str) -> Dict[str, int]:
     if not tsd_lengths:
         raise ValueError(f'No valid TSD lengths found in {tsd_map_file}')
 
-    logging.info(
+    logger.info(
         f'Loaded TSD lengths for {len(tsd_lengths)} model pair(s) from {tsd_map_file}'
     )
     return tsd_lengths
@@ -229,12 +235,12 @@ def reconstruct_target_site(
         # would report an unverifiable TSD as a perfect duplication.
         tsd_hamming, _compared = compare_tsds(left_tsd, right_tsd)
         if tsd_hamming is None:
-            logging.warning(
+            logger.warning(
                 f'TSD could not be verified: left={left_tsd or "-"} '
                 f'right={right_tsd or "-"}'
             )
         elif tsd_hamming > 0:
-            logging.warning(
+            logger.warning(
                 f'TSD mismatch (hamming={tsd_hamming}): '
                 f'left={left_tsd} right={right_tsd}'
             )
@@ -544,7 +550,7 @@ def writeTargetSites(
             key_sym = f'{right_model}\t{left_model}'
             if key_sym in tsd_length_map:
                 return tsd_length_map[key_sym]
-            logging.warning(
+            logger.warning(
                 f'No TSD length found for model pair ({left_model}, {right_model}) '
                 f'in TSD length map, using default tsd_length={tsd_length}'
             )
@@ -590,16 +596,14 @@ def writeTargetSites(
         model = hit.model
         model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
         if model_len is None:
-            logging.warning(
+            logger.warning(
                 f'Model length not found for {model}, skipping TSD extraction'
             )
             return None
 
         hmm_start, hmm_end = get_hmm_coords(hit.idx)
         if hmm_start is None or hmm_end is None:
-            logging.debug(
-                f'HMM coordinates unavailable for hit {hit.idx}, skipping TSD'
-            )
+            logger.debug(f'HMM coordinates unavailable for hit {hit.idx}, skipping TSD')
             return None
 
         tsd_start, tsd_end = compute_inner_tsd_coordinates(
@@ -614,7 +618,7 @@ def writeTargetSites(
         )
 
         if tsd_end < tsd_start:
-            logging.debug(
+            logger.debug(
                 f'Invalid TSD coordinates for hit {hit.idx}: {tsd_start}-{tsd_end}'
             )
             return None
@@ -659,7 +663,7 @@ def writeTargetSites(
             right_flank = extract_flank(rightHit, is_left=False)
 
             if left_flank is None or right_flank is None:
-                logging.debug(
+                logger.debug(
                     f'Could not extract flanks for pair {pair_id}, skipping target site'
                 )
                 continue
@@ -696,13 +700,13 @@ def writeTargetSites(
 
                 tsd_hamming, tsd_compared = compare_tsds(left_tsd, right_tsd)
                 if tsd_hamming is None:
-                    logging.warning(
+                    logger.warning(
                         f'TSD for pair {pair_id} could not be verified '
                         f'(left={left_tsd or "-"} right={right_tsd or "-"}); '
                         'reporting as unverified rather than as a match'
                     )
                 elif tsd_hamming > 0:
-                    logging.warning(
+                    logger.warning(
                         f'TSD mismatch for pair {pair_id} '
                         f'(hamming={tsd_hamming} over {tsd_compared}bp): '
                         f'left={left_tsd} right={right_tsd}'
@@ -834,11 +838,11 @@ def writeTargetSites(
                 outDir, f'{prefix_str}{pair_label}_target_sites_{len(records)}.fasta'
             )
             _write_single_line_fasta(records, ts_outfile)
-            logging.info(
+            logger.info(
                 f'Wrote {len(records)} reconstructed target sites to {ts_outfile}'
             )
     else:
-        logging.warning('No target sites could be reconstructed')
+        logger.warning('No target sites could be reconstructed')
 
     if interleaved_records:
         # Write per-pair interleaved flank files
@@ -854,4 +858,4 @@ def writeTargetSites(
                 f'{prefix_str}{pair_label}_interleaved_flanks_{len(records)}.fasta',
             )
             _write_single_line_fasta(records, il_outfile)
-            logging.info(f'Wrote interleaved flanks to {il_outfile}')
+            logger.info(f'Wrote interleaved flanks to {il_outfile}')

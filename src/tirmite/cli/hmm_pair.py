@@ -70,6 +70,8 @@ from tirmite.utils.utils import (
     setup_directories,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def log_startup_info(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     """
@@ -85,9 +87,9 @@ def log_startup_info(args: argparse.Namespace, parser: argparse.ArgumentParser) 
     import tirmite as _tirmite_pkg
 
     pkg_path = Path(_tirmite_pkg.__file__).parent
-    logging.info(f'TIRmite package location: {pkg_path}')
-    logging.info(f'TIRmite-pair version: {__version__}')
-    logging.info(f'Command: {" ".join(sys.argv)}')
+    logger.info(f'TIRmite package location: {pkg_path}')
+    logger.info(f'TIRmite-pair version: {__version__}')
+    logger.info(f'Command: {" ".join(sys.argv)}')
 
     # Collect args that differ from their defaults
     defaults = {action.dest: action.default for action in parser._actions}
@@ -99,9 +101,9 @@ def log_startup_info(args: argparse.Namespace, parser: argparse.ArgumentParser) 
             non_defaults.append(f'  --{flag} {current_val}')
 
     if non_defaults:
-        logging.info('Non-default arguments:\n' + '\n'.join(non_defaults))
+        logger.info('Non-default arguments:\n' + '\n'.join(non_defaults))
     else:
-        logging.info('All arguments are at their default values.')
+        logger.info('All arguments are at their default values.')
 
 
 def get_hmm_model_length(hmm_file_path: str) -> Dict[str, int]:
@@ -140,7 +142,7 @@ def get_hmm_model_length(hmm_file_path: str) -> Dict[str, int]:
                     current_model = None
 
     except Exception as e:
-        logging.error(f'Error reading HMM file {hmm_file_path}: {e}')
+        logger.error(f'Error reading HMM file {hmm_file_path}: {e}')
 
     return model_lengths
 
@@ -175,7 +177,7 @@ def load_model_lengths_file(lengths_file: str) -> Dict[str, int]:
 
                 parts = line.split('\t')
                 if len(parts) != 2:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping malformed line {line_num} in {lengths_file}: {line}'
                     )
                     continue
@@ -185,12 +187,12 @@ def load_model_lengths_file(lengths_file: str) -> Dict[str, int]:
                     model_length = int(model_length_str)
                     model_lengths[model_name] = model_length
                 except ValueError:
-                    logging.warning(
+                    logger.warning(
                         f'Invalid model length on line {line_num}: {model_length_str}'
                     )
 
     except Exception as e:
-        logging.error(f'Error reading model lengths file {lengths_file}: {e}')
+        logger.error(f'Error reading model lengths file {lengths_file}: {e}')
 
     return model_lengths
 
@@ -222,7 +224,7 @@ def calculate_hit_coverage(hitTable: Any, model_lengths: Dict[str, int]) -> Any:
             model_length = model_lengths[model]
             coverage = hit_length / model_length
         else:
-            logging.warning(f'Model length not found for {model}, using coverage = 0')
+            logger.warning(f'Model length not found for {model}, using coverage = 0')
             coverage = 0.0
 
         coverage_values.append(coverage)
@@ -321,12 +323,12 @@ def load_pairing_map(pairing_map_file: str) -> list[tuple[str, str]]:
     # Warn about features appearing in multiple pairings
     for feature, line_nums in seen_features.items():
         if len(line_nums) > 1:
-            logging.warning(
+            logger.warning(
                 f'Feature "{feature}" appears in multiple pairing combinations '
                 f'(lines: {", ".join(map(str, line_nums))})'
             )
 
-    logging.info(f'Loaded {len(pairings)} pairing combinations from {pairing_map_file}')
+    logger.info(f'Loaded {len(pairings)} pairing combinations from {pairing_map_file}')
     return pairings
 
 
@@ -941,7 +943,7 @@ def validate_arguments(args: Any) -> None:
     # Validate target site reconstruction options
     tsd_options_set = args.tsd_length > 0 or args.tsd_length_map or args.tsd_in_model
     if tsd_options_set and not args.insertion_site:
-        logging.warning(
+        logger.warning(
             'TSD options (--tsd-length, --tsd-length-map, --tsd-in-model) are set '
             'but --insertion-site is not enabled. These options will be ignored. '
             'Add --insertion-site to enable insertion site reconstruction.'
@@ -1132,7 +1134,7 @@ def _write_pair_summary(
         f.write(f'Total paired elements extracted: {total_elements}\n')
         f.write(f'Total unpaired hits: {total_unpaired}\n')
 
-    logging.info(f'Wrote summary report to {summary_path}')
+    logger.info(f'Wrote summary report to {summary_path}')
 
 
 def main(args: Optional[argparse.Namespace] = None) -> int:
@@ -1162,7 +1164,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         try:
             validate_arguments(args)
         except (ValueError, FileNotFoundError) as e:
-            logging.error(f'Argument validation failed: {e}')
+            logger.error(f'Argument validation failed: {e}')
             sys.exit(1)
 
         # Set up directories first (we need output dir for default logfile location)
@@ -1188,27 +1190,27 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Log startup information: version, package path, command, non-default args
         log_startup_info(args, parser)
-        logging.info(f'Output directory: {outDir}')
-        logging.debug(f'Temporary directory: {tempDir}')
+        logger.info(f'Output directory: {outDir}')
+        logger.debug(f'Temporary directory: {tempDir}')
 
         # Index genome if provided
         genome = None
         genome_descriptions = None
         if args.genome:
-            logging.info(f'Indexing genome: {args.genome}')
+            logger.info(f'Indexing genome: {args.genome}')
             genome, genome_descriptions = indexGenome(args.genome)
         elif args.blastdb:
-            logging.info(f'Using BLAST database: {args.blastdb}')
+            logger.info(f'Using BLAST database: {args.blastdb}')
             blastdbcmd_path = shutil.which('blastdbcmd')
             if blastdbcmd_path:
-                logging.info(f'blastdbcmd found: {blastdbcmd_path}')
+                logger.info(f'blastdbcmd found: {blastdbcmd_path}')
             else:
-                logging.warning(
+                logger.warning(
                     'blastdbcmd not found in PATH; sequence extraction will fail'
                 )
 
         # Load model/query lengths
-        logging.info('Loading model/query lengths...')
+        logger.info('Loading model/query lengths...')
         model_lengths = {}
 
         if args.lengths_file:
@@ -1230,14 +1232,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         if args.nhmmer_file:
             # Single nhmmer file mode
-            logging.info('Importing nhmmer hits...')
+            logger.info('Importing nhmmer hits...')
             input_format = 'nhmmer'
             hitTable = import_nhmmer(
                 infile=args.nhmmer_file, hitTable=None, prefix=args.prefix
             )
         elif args.left_nhmmer:
             # Asymmetric nhmmer mode - import from both files
-            logging.info('Importing nhmmer hits from left and right models...')
+            logger.info('Importing nhmmer hits from left and right models...')
             input_format = 'nhmmer'
 
             # Check if left and right files are the same
@@ -1256,7 +1258,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
             left_models = check_multiple_models(left_hitTable)
-            logging.info(
+            logger.info(
                 f'Left nhmmer file: {len(left_hitTable)} hits, {len(left_models)} unique query/model name(s)'
             )
 
@@ -1267,14 +1269,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
             right_models = check_multiple_models(right_hitTable)
-            logging.info(
+            logger.info(
                 f'Right nhmmer file: {len(right_hitTable)} hits, {len(right_models)} unique query/model name(s)'
             )
 
             # Check for overlapping query names
             overlapping_models = set(left_models) & set(right_models)
             if overlapping_models:
-                logging.warning(
+                logger.warning(
                     f'Query/model names appear in both left and right files: {", ".join(overlapping_models)}'
                 )
 
@@ -1283,7 +1285,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 left_hitTable, right_hitTable
             )
             if left_overlap_count > 0 or right_overlap_count > 0:
-                logging.warning(
+                logger.warning(
                     f'Found {left_overlap_count} left hit(s) and {right_overlap_count} right hit(s) '
                     'with overlapping genomic coordinates'
                 )
@@ -1291,12 +1293,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Validate single query per file or require --pairing-map
             if len(left_models) > 1 or len(right_models) > 1:
                 if len(left_models) > 1:
-                    logging.warning(
+                    logger.warning(
                         f'Left nhmmer file contains {len(left_models)} query/model names: '
                         + ', '.join(sorted(left_models))
                     )
                 if len(right_models) > 1:
-                    logging.warning(
+                    logger.warning(
                         f'Right nhmmer file contains {len(right_models)} query/model names: '
                         + ', '.join(sorted(right_models))
                     )
@@ -1320,13 +1322,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             )
         elif args.blast_file:
             # Single BLAST file mode
-            logging.info('Importing BLAST hits...')
+            logger.info('Importing BLAST hits...')
             input_format = 'blast'
 
             # Detect format and warn if mismatch
             detected_format = detect_input_format(args.blast_file)
             if detected_format != 'blast' and detected_format != 'unknown':
-                logging.warning(
+                logger.warning(
                     f'File format appears to be {detected_format}, but --blast-file was specified. '
                     'Consider using --nhmmer-file instead.'
                 )
@@ -1337,7 +1339,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         elif args.left_blast:
             # Asymmetric BLAST mode - import from both files
-            logging.info('Importing BLAST hits from left and right queries...')
+            logger.info('Importing BLAST hits from left and right queries...')
             input_format = 'blast'
 
             # Check if left and right files are the same
@@ -1351,11 +1353,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             detected_right = detect_input_format(args.right_blast)
 
             if detected_left != 'blast' and detected_left != 'unknown':
-                logging.warning(
+                logger.warning(
                     f'Left file format appears to be {detected_left}, but --left-blast was specified.'
                 )
             if detected_right != 'blast' and detected_right != 'unknown':
-                logging.warning(
+                logger.warning(
                     f'Right file format appears to be {detected_right}, but --right-blast was specified.'
                 )
 
@@ -1366,7 +1368,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
             left_models = check_multiple_models(left_hitTable)
-            logging.info(
+            logger.info(
                 f'Left BLAST file: {len(left_hitTable)} hits, {len(left_models)} unique query/model name(s)'
             )
 
@@ -1377,14 +1379,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
             right_models = check_multiple_models(right_hitTable)
-            logging.info(
+            logger.info(
                 f'Right BLAST file: {len(right_hitTable)} hits, {len(right_models)} unique query/model name(s)'
             )
 
             # Check for overlapping query names
             overlapping_models = set(left_models) & set(right_models)
             if overlapping_models:
-                logging.warning(
+                logger.warning(
                     f'Query/model names appear in both left and right files: {", ".join(overlapping_models)}'
                 )
 
@@ -1393,7 +1395,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 left_hitTable, right_hitTable
             )
             if left_overlap_count > 0 or right_overlap_count > 0:
-                logging.warning(
+                logger.warning(
                     f'Found {left_overlap_count} left hit(s) and {right_overlap_count} right hit(s) '
                     'with overlapping genomic coordinates'
                 )
@@ -1401,12 +1403,12 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Validate single query per file or require --pairing-map
             if len(left_models) > 1 or len(right_models) > 1:
                 if len(left_models) > 1:
-                    logging.warning(
+                    logger.warning(
                         f'Left BLAST file contains {len(left_models)} query/model names: '
                         + ', '.join(sorted(left_models))
                     )
                 if len(right_models) > 1:
-                    logging.warning(
+                    logger.warning(
                         f'Right BLAST file contains {len(right_models)} query/model names: '
                         + ', '.join(sorted(right_models))
                     )
@@ -1430,22 +1432,22 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             )
 
         if hitTable is None or len(hitTable) == 0:
-            logging.error('No hits were imported from input files')
+            logger.error('No hits were imported from input files')
             cleanup_temp_directory(tempDir, args.keep_temp)
             sys.exit(1)
 
         # Log import statistics
         initial_hit_count = len(hitTable)
-        logging.info(f'Imported {initial_hit_count} total hits')
+        logger.info(f'Imported {initial_hit_count} total hits')
 
         # Get unique models and log statistics
         unique_models = check_multiple_models(hitTable)
-        logging.info(f'Found {len(unique_models)} unique query/model name(s)')
+        logger.info(f'Found {len(unique_models)} unique query/model name(s)')
 
         # Log per-query hit counts at debug level
         for model in unique_models:
             hit_count = len(hitTable[hitTable['model'] == model])
-            logging.debug(f'Query/model "{model}": {hit_count} hits')
+            logger.debug(f'Query/model "{model}": {hit_count} hits')
 
         # Filter stats dict – populated incrementally and passed to summary reports
         filter_stats: Dict[str, Any] = {
@@ -1478,20 +1480,20 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             if models_to_ignore:
                 ignored_hits = len(hitTable[hitTable['model'].isin(models_to_ignore)])
-                logging.warning(
+                logger.warning(
                     f'Pairing map references {len(map_models)} model(s). '
                     f'Ignoring {len(models_to_ignore)} model(s) not in pairing map: '
                     + ', '.join(sorted(models_to_ignore))
                 )
-                logging.info(
+                logger.info(
                     f'Excluding {ignored_hits} hits for {len(models_to_ignore)} ignored model(s)'
                 )
                 hitTable = hitTable[hitTable['model'].isin(models_to_process)].copy()
-                logging.info(
+                logger.info(
                     f'{len(hitTable)} hits remaining for {len(models_to_process)} model(s) in pairing map'
                 )
                 if len(hitTable) == 0:
-                    logging.error('No hits remaining after pairing map model filter')
+                    logger.error('No hits remaining after pairing map model filter')
                     cleanup_temp_directory(tempDir, args.keep_temp)
                     sys.exit(1)
                 # Update unique_models after filtering
@@ -1499,7 +1501,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 filter_stats['pairing_map_models_ignored'] = sorted(models_to_ignore)
                 filter_stats['pairing_map_hits_ignored'] = ignored_hits
             else:
-                logging.info(
+                logger.info(
                     f'All {len(models_in_hits)} model(s) in hits are covered by pairing map'
                 )
 
@@ -1507,48 +1509,48 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if args.blast_file and args.query_len:
             for query_name in unique_models:
                 model_lengths[query_name] = args.query_len
-                logging.debug(f'Set length for query {query_name}: {args.query_len}')
-            logging.info(
+                logger.debug(f'Set length for query {query_name}: {args.query_len}')
+            logger.info(
                 f'Applied query length {args.query_len} to {len(unique_models)} query name(s)'
             )
 
         # Validate that we have model lengths for all models in hitTable
         if not model_lengths:
-            logging.error('No model/query lengths could be loaded')
+            logger.error('No model/query lengths could be loaded')
             cleanup_temp_directory(tempDir, args.keep_temp)
             sys.exit(1)
 
-        logging.info(f'Loaded lengths for models: {", ".join(model_lengths.keys())}')
+        logger.info(f'Loaded lengths for models: {", ".join(model_lengths.keys())}')
 
         # Calculate hit coverage
-        logging.info('Calculating hit coverage...')
+        logger.info('Calculating hit coverage...')
         hitTable = calculate_hit_coverage(hitTable, model_lengths)
 
         # Apply coverage filtering
-        logging.info(f'Filtering hits with coverage < {args.mincov}')
+        logger.info(f'Filtering hits with coverage < {args.mincov}')
         hitCount = len(hitTable)
 
         # Log pre-filtering counts
         model_counts_before = hitTable['model'].value_counts().to_dict()
         for model, count in model_counts_before.items():
-            logging.info(f'Model {model}: {count} hits before coverage filtering')
+            logger.info(f'Model {model}: {count} hits before coverage filtering')
 
         hitTable = filter_hits_coverage(hitTable, args.mincov)
 
         # Log post-filtering counts
         model_counts_after = hitTable['model'].value_counts().to_dict()
         coverage_excluded = hitCount - len(hitTable)
-        logging.info(f'Excluded {coverage_excluded} hits on coverage criteria')
+        logger.info(f'Excluded {coverage_excluded} hits on coverage criteria')
         filter_stats['coverage_excluded'] = coverage_excluded
 
         for model in model_counts_before:
             before = model_counts_before[model]
             after = model_counts_after.get(model, 0)
             excluded = before - after
-            logging.info(f'Model {model}: {excluded} excluded, {after} remaining')
+            logger.info(f'Model {model}: {excluded} excluded, {after} remaining')
 
         # Apply e-value filtering
-        logging.info(f'Filtering hits with e-value > {args.maxeval}')
+        logger.info(f'Filtering hits with e-value > {args.maxeval}')
         hitCount = len(hitTable)
 
         model_counts_before = hitTable['model'].value_counts().to_dict()
@@ -1556,16 +1558,16 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         model_counts_after = hitTable['model'].value_counts().to_dict()
         evalue_excluded = hitCount - len(hitTable)
-        logging.info(f'Excluded {evalue_excluded} hits on e-value criteria')
+        logger.info(f'Excluded {evalue_excluded} hits on e-value criteria')
         filter_stats['evalue_excluded'] = evalue_excluded
 
         for model in model_counts_before:
             before = model_counts_before[model]
             after = model_counts_after.get(model, 0)
             excluded = before - after
-            logging.info(f'Model {model}: {excluded} excluded, {after} remaining')
+            logger.info(f'Model {model}: {excluded} excluded, {after} remaining')
 
-        logging.info(f'Total remaining hits: {len(hitTable)}')
+        logger.info(f'Total remaining hits: {len(hitTable)}')
 
         # Verify that every target sequence can be resolved in the chosen
         # sequence source before extraction begins. On the BLAST side the usual
@@ -1575,14 +1577,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             extraction_source = make_source(genome=genome, blastdb=args.blastdb)
             missing_targets = check_ids(extraction_source, hitTable['target'])
             if missing_targets:
-                logging.warning(
+                logger.warning(
                     f'{len(missing_targets)} target sequence(s) could not be '
                     'resolved; hits on those sequences will be skipped.'
                 )
 
         # Apply anchor filter if --max-offset is set
         if args.max_offset is not None:
-            logging.info(
+            logger.info(
                 f'Filtering hits by anchor offset (max_offset={args.max_offset})...'
             )
             hitCount_before_anchor = len(hitTable)
@@ -1603,7 +1605,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             filter_stats['anchor_excluded'] = hitCount_before_anchor - len(hitTable)
 
             if len(hitTable) == 0:
-                logging.error('No hits remaining after anchor filter')
+                logger.error('No hits remaining after anchor filter')
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
@@ -1627,7 +1629,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         elif len(unique_models) > 1 and not is_asymmetric:
             # Multiple models in single file without pairing map - warn and raise error
             # (Asymmetric mode already validated per-file)
-            logging.warning(
+            logger.warning(
                 f'Input contains {len(unique_models)} distinct models/queries: '
                 + ', '.join(sorted(unique_models))
             )
@@ -1640,7 +1642,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if pairing_map:
             # Use pairing map - will create configs for each pairing later
             # Pairing map workflow handles both single and multiple pairings
-            logging.info(
+            logger.info(
                 f'Will execute {len(pairing_map)} independent pairing procedure(s) based on pairing map'
             )
             config = None
@@ -1665,7 +1667,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             right_model_names = right_hitTable['model'].unique()
 
             if len(left_model_names) == 0 or len(right_model_names) == 0:
-                logging.error(
+                logger.error(
                     'Expected at least 1 model in each BLAST file for asymmetric pairing'
                 )
                 cleanup_temp_directory(tempDir, args.keep_temp)
@@ -1673,7 +1675,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             left_model_name = left_model_names[0]
             right_model_name = right_model_names[0]
-            logging.info(
+            logger.info(
                 f'Assigning models for asymmetric pairing: '
                 f'left={left_model_name} (from --left-blast), '
                 f'right={right_model_name} (from --right-blast)'
@@ -1688,7 +1690,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Symmetric pairing
             available_models = list(hitsDict.keys())
             if not available_models:
-                logging.error('No models found in hits')
+                logger.error('No models found in hits')
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
@@ -1701,7 +1703,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # In pairing_map mode individual hits are written per pair (below),
         # so only write to the base outDir when no pairing map is used.
         if not pairing_map and not args.no_hits:
-            logging.info('Writing individual hits to FASTA...')
+            logger.info('Writing individual hits to FASTA...')
             writeTIRs(
                 outDir=outDir,
                 hitTable=hitTable,
@@ -1718,14 +1720,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Skip pairing if requested
         if args.nopairing:
-            logging.info('Pairing disabled. Analysis complete.')
+            logger.info('Pairing disabled. Analysis complete.')
             cleanup_temp_directory(tempDir, args.keep_temp)
             return 0
 
         # Run pairing - handle single or multiple pairing procedures
         if pairing_map:
             # Multiple pairing procedures based on pairing map
-            logging.info(
+            logger.info(
                 f'Running {len(pairing_map)} independent pairing procedures based on pairing map'
             )
 
@@ -1734,18 +1736,18 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             original_hitIndex = hitIndex  # Preserve original for unpaired hit tracking
 
             for pair_idx, (left_feature, right_feature) in enumerate(pairing_map, 1):
-                logging.info(
+                logger.info(
                     f'Pairing procedure {pair_idx}/{len(pairing_map)}: {left_feature} <-> {right_feature}'
                 )
 
                 # Check if both features exist in hitsDict
                 if left_feature not in hitsDict:
-                    logging.warning(
+                    logger.warning(
                         f'Feature "{left_feature}" not found in hits, skipping this pairing'
                     )
                     continue
                 if right_feature not in hitsDict:
-                    logging.warning(
+                    logger.warning(
                         f'Feature "{right_feature}" not found in hits, skipping this pairing'
                     )
                     continue
@@ -1765,7 +1767,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
 
                 # Run pairing for this combination (use fresh copy of hitIndex for each)
-                logging.info(
+                logger.info(
                     f'Searching for candidate pairings: {left_feature} <-> {right_feature}'
                 )
                 pair_hitIndex = parseHitsGeneral(
@@ -1775,9 +1777,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     config=pair_config,
                 )
 
-                logging.info('Performing iterative pairing...')
+                logger.info('Performing iterative pairing...')
                 if pair_config.is_asymmetric:
-                    logging.info(
+                    logger.info(
                         f'Using asymmetric pairing: {pair_config.left_model} + {pair_config.right_model}'
                     )
                     pair_hitIndex, pair_paired, pair_unpaired = (
@@ -1786,7 +1788,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         )
                     )
                 else:
-                    logging.info(
+                    logger.info(
                         f'Using symmetric pairing with orientation {pair_config.orientation}'
                     )
                     pair_hitIndex, pair_paired, pair_unpaired = iterateGetPairsCustom(
@@ -1807,7 +1809,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 pair_hit_models = {left_feature, right_feature}
                 pair_hitTable_tirs = hitTable[hitTable['model'].isin(pair_hit_models)]
                 if not args.no_hits:
-                    logging.info(f'Writing individual hits for pair {pair_label}...')
+                    logger.info(f'Writing individual hits for pair {pair_label}...')
                     writeTIRs(
                         outDir=pair_outDir,
                         hitTable=pair_hitTable_tirs,
@@ -1921,7 +1923,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     pair_unpairedTIRs = None
                     if args.gff_report in ['all', 'unpaired']:
                         pair_unpairedTIRs = fetchUnpaired(hitIndex=pair_hitIndex)
-                        logging.info(
+                        logger.info(
                             f'Pair {pair_label}: {len(pair_unpairedTIRs)} unpaired termini'
                         )
 
@@ -1934,7 +1936,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             pair_outDir, f'{pair_label}.gff3'
                         )
 
-                    logging.info(f'Writing GFF3 output: {pair_gffOutPath}')
+                    logger.info(f'Writing GFF3 output: {pair_gffOutPath}')
                     gffWrite(
                         outpath=pair_gffOutPath,
                         featureList=pair_pairedEles,
@@ -1943,7 +1945,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         prefix=args.prefix,
                     )
 
-                logging.info(f'Pair {pair_label}: wrote output to {pair_outDir}')
+                logger.info(f'Pair {pair_label}: wrote output to {pair_outDir}')
 
                 # Accumulate paired results
                 for model, pairs in pair_paired.items():
@@ -1956,7 +1958,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 # Log this pairing's results
                 total_pairs = sum(len(pairs) for pairs in pair_paired.values())
-                logging.info(
+                logger.info(
                     f'Pairing procedure {pair_idx} completed: {total_pairs} pairs found'
                 )
 
@@ -1975,13 +1977,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Log final pairing results
             total_pairs = sum(len(pairs) for pairs in paired.values())
             total_unpaired = len(unpaired)
-            logging.info(
+            logger.info(
                 f'All pairing procedures completed: {total_pairs} total pairs, {total_unpaired} unpaired hits'
             )
 
         else:
             # Single pairing procedure (original logic)
-            logging.info('Searching for candidate pairings...')
+            logger.info('Searching for candidate pairings...')
             hitIndex = parseHitsGeneral(
                 hitsDict=hitsDict,
                 hitIndex=hitIndex,
@@ -1989,16 +1991,16 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 config=config,
             )
 
-            logging.info('Performing iterative pairing...')
+            logger.info('Performing iterative pairing...')
             if config.is_asymmetric:
-                logging.info(
+                logger.info(
                     f'Using asymmetric pairing: {config.left_model} + {config.right_model}'
                 )
                 hitIndex, paired, unpaired = iterateGetPairsAsymmetric(
                     hitIndex, config, stableReps=args.stable_reps
                 )
             else:
-                logging.info(
+                logger.info(
                     f'Using symmetric pairing with orientation {config.orientation}'
                 )
                 hitIndex, paired, unpaired = iterateGetPairsCustom(
@@ -2008,7 +2010,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             # Log pairing results
             total_pairs = sum(len(pairs) for pairs in paired.values())
             total_unpaired = len(unpaired)
-            logging.info(
+            logger.info(
                 f'Pairing completed: {total_pairs} pairs, {total_unpaired} unpaired'
             )
 
@@ -2018,7 +2020,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         if not pairing_map:
             # Write paired TIRs
             if args.gff_report in ['all', 'paired']:
-                logging.info('Writing paired termini to FASTA...')
+                logger.info('Writing paired termini to FASTA...')
                 writePairedTIRs(
                     outDir=outDir,
                     paired=paired,
@@ -2033,7 +2035,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Extract and write elements
             if not args.no_elements:
-                logging.info('Extracting paired elements...')
+                logger.info('Extracting paired elements...')
                 pairedEles = fetchElements(
                     paired=paired,
                     hitIndex=hitIndex,
@@ -2042,7 +2044,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     blastdb=args.blastdb if args.blastdb else None,
                 )
 
-                logging.info('Writing paired elements to FASTA...')
+                logger.info('Writing paired elements to FASTA...')
                 writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
             else:
                 pairedEles = {}
@@ -2067,7 +2069,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Extract and write external flanks if requested
             if args.flanks or args.flanks_paired:
-                logging.info('Extracting external flanking sequences...')
+                logger.info('Extracting external flanking sequences...')
                 writeFlanks(
                     outDir=outDir,
                     hitTable=hitTable,
@@ -2088,7 +2090,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 # Reconstruct target sites if explicitly requested
                 if args.insertion_site:
-                    logging.info('Reconstructing target sites...')
+                    logger.info('Reconstructing target sites...')
 
                     # Load TSD length map if provided
                     tsd_length_map = None
@@ -2120,7 +2122,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 unpairedTIRs = None
                 if args.gff_report in ['all', 'unpaired']:
                     unpairedTIRs = fetchUnpaired(hitIndex=hitIndex)
-                    logging.info(f'Found {len(unpairedTIRs)} unpaired termini')
+                    logger.info(f'Found {len(unpairedTIRs)} unpaired termini')
 
                 # Set GFF output path
                 if args.prefix:
@@ -2128,7 +2130,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 else:
                     gffOutPath = os.path.join(outDir, 'tirmite_pair_report.gff3')
 
-                logging.info(f'Writing GFF3 output: {gffOutPath}')
+                logger.info(f'Writing GFF3 output: {gffOutPath}')
                 gffWrite(
                     outpath=gffOutPath,
                     featureList=pairedEles,
@@ -2137,14 +2139,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     prefix=args.prefix,
                 )
 
-        logging.info('TIRmite-pair analysis completed successfully')
+        logger.info('TIRmite-pair analysis completed successfully')
 
     except KeyboardInterrupt:
-        logging.info('Analysis interrupted by user')
+        logger.info('Analysis interrupted by user')
         sys.exit(130)
     except Exception as e:
-        logging.error(f'Unexpected error: {e}')
-        logging.exception('Full traceback:')  # This will log the full stack trace
+        logger.error(f'Unexpected error: {e}')
+        logger.exception('Full traceback:')  # This will log the full stack trace
         sys.exit(1)
     finally:
         if 'tempDir' in locals():
@@ -2152,7 +2154,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Log completion message with logfile location if enabled
         if 'logfile_path' in locals() and logfile_path and args.logfile:
-            logging.info(f'Log file saved to: {logfile_path}')
+            logger.info(f'Log file saved to: {logfile_path}')
 
     return 0
 

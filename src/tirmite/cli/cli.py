@@ -4,9 +4,12 @@ TIRmite command-line interface with subcommands.
 """
 
 import argparse
+import logging
 import sys
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
+
+logger = logging.getLogger(__name__)
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -120,6 +123,11 @@ def main() -> int:
         result = validate_main(args)
         return int(result) if result is not None else 0
     else:
+        # Reached when argparse accepted the arguments but dispatch found no
+        # matching handler, i.e. a subcommand was registered on the parser but
+        # never wired up here. Logged so the mismatch is visible rather than
+        # looking like an ordinary no-arguments invocation.
+        logger.debug(f'No dispatch handler for command: {args.command!r}')
         parser.print_help()
         sys.exit(1)
 

@@ -20,6 +20,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import pandas as pd  # type: ignore[import-untyped]
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 def table2dict(
     hitTable: pd.DataFrame,
@@ -563,37 +569,37 @@ def parseHitsGeneral(
     assert hitsDict is not None, 'hitsDict cannot be None'
     assert hitIndex is not None, 'hitIndex cannot be None'
     assert config is not None, 'config cannot be None'
-    logging.debug('=== ENTERING parseHitsGeneral ===')
-    logging.debug(
+    logger.debug('=== ENTERING parseHitsGeneral ===')
+    logger.debug(
         f'Config: orientation={config.orientation}, left_strand={config.left_strand}, right_strand={config.right_strand}'
     )
-    logging.debug(f'Is asymmetric: {config.is_asymmetric}')
+    logger.debug(f'Is asymmetric: {config.is_asymmetric}')
 
     if not maxDist:
         maxDist_value: float = float('inf')
-        logging.debug('Using infinite maxDist')
+        logger.debug('Using infinite maxDist')
     else:
         maxDist_value = float(maxDist)
-        logging.debug(f'Using maxDist: {maxDist_value}')
+        logger.debug(f'Using maxDist: {maxDist_value}')
 
     model_pairs = config.get_model_pairs()
-    logging.debug(f'Model pairs to process: {model_pairs}')
+    logger.debug(f'Model pairs to process: {model_pairs}')
 
     for left_model, right_model in model_pairs:
-        logging.debug(f'Processing pair: {left_model} -> {right_model}')
+        logger.debug(f'Processing pair: {left_model} -> {right_model}')
 
         if left_model == right_model:
             # Symmetric pairing - enhanced logic for custom orientations
-            logging.debug(f'=== SYMMETRIC PAIRING for {left_model} ===')
+            logger.debug(f'=== SYMMETRIC PAIRING for {left_model} ===')
 
             if left_model in hitIndex:
-                logging.debug(
+                logger.debug(
                     f'Found {len(hitIndex[left_model])} hits for model {left_model}'
                 )
 
                 for UID in hitIndex[left_model].keys():
                     ref = hitIndex[left_model][UID]['rec']
-                    logging.debug(
+                    logger.debug(
                         f'Processing hit {UID}: {ref.strand}:{ref.hitStart}-{ref.hitEnd}'
                     )
 
@@ -624,7 +630,7 @@ def parseHitsGeneral(
                     )
 
                     if can_be_left:
-                        logging.debug(
+                        logger.debug(
                             f'Hit {UID} acting as LEFT terminus, searching {left_direction} for RIGHT partners on {config.right_strand} strand'
                         )
                         _find_candidates(
@@ -638,7 +644,7 @@ def parseHitsGeneral(
                         )
 
                     if can_be_right:
-                        logging.debug(
+                        logger.debug(
                             f'Hit {UID} acting as RIGHT terminus, searching {right_direction} for LEFT partners on {config.left_strand} strand'
                         )
                         _find_candidates(
@@ -652,12 +658,12 @@ def parseHitsGeneral(
                         )
 
                     if not (can_be_left or can_be_right):
-                        logging.debug(
+                        logger.debug(
                             f'Hit {UID} on strand {ref.strand} does not match required orientations ({config.left_strand}, {config.right_strand})'
                         )
         else:
             # FIXED: Asymmetric pairing with strand combination handling
-            logging.debug(f'=== ASYMMETRIC PAIRING: {left_model} + {right_model} ===')
+            logger.debug(f'=== ASYMMETRIC PAIRING: {left_model} + {right_model} ===')
 
             # Get all valid strand combinations for this orientation
             strand_combinations = []
@@ -675,10 +681,10 @@ def parseHitsGeneral(
                 # R,R can appear as: (-,-) on pos strand OR (+,+) on neg strand
                 strand_combinations = [('-', '-'), ('+', '+')]
 
-            logging.debug(f'Processing strand combinations: {strand_combinations}')
+            logger.debug(f'Processing strand combinations: {strand_combinations}')
 
             for left_strand, right_strand in strand_combinations:
-                logging.debug(
+                logger.debug(
                     f'Processing strand combination: left={left_strand}, right={right_strand}'
                 )
 
@@ -696,7 +702,7 @@ def parseHitsGeneral(
                                     'right_to_left'  # Search upstream (neg strand)
                                 )
 
-                            logging.debug(
+                            logger.debug(
                                 f'Left model hit {UID} ({left_strand}) searching {search_direction} for right model on {right_strand}'
                             )
 
@@ -727,7 +733,7 @@ def parseHitsGeneral(
                             else:
                                 search_direction = 'left_to_right'
 
-                            logging.debug(
+                            logger.debug(
                                 f'Right model hit {UID} ({right_strand}) searching {search_direction} for left model on {left_strand}'
                             )
 
@@ -741,7 +747,7 @@ def parseHitsGeneral(
                                 search_direction,
                             )
 
-    logging.debug('=== COMPLETED parseHitsGeneral ===')
+    logger.debug('=== COMPLETED parseHitsGeneral ===')
     return hitIndex
 
 
@@ -820,19 +826,19 @@ def _check_distance(
     """
     distance = inter_hit_distance(ref_hit, candidate, direction)
 
-    logging.debug('=== DISTANCE CHECK DEBUG ===')
-    logging.debug(f'Direction: {direction}')
-    logging.debug(
+    logger.debug('=== DISTANCE CHECK DEBUG ===')
+    logger.debug(f'Direction: {direction}')
+    logger.debug(
         f'Ref hit: {ref_hit.model} strand={ref_hit.strand} coords=({ref_hit.hitStart}, {ref_hit.hitEnd})'
     )
-    logging.debug(
+    logger.debug(
         f'Candidate: {candidate.model} strand={candidate.strand} coords=({candidate.hitStart}, {candidate.hitEnd})'
     )
-    logging.debug(f'Calculated distance: {distance}')
+    logger.debug(f'Calculated distance: {distance}')
 
     # Check for negative distances (invalid pairing)
     if distance < 0:
-        logging.debug(
+        logger.debug(
             f'Negative distance ({distance}) between {ref_hit.model} and {candidate.model} '
             f'on {ref_hit.target}. Ref: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}, '
             f'Candidate: {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
@@ -841,7 +847,7 @@ def _check_distance(
 
     # Check if within max distance
     valid = distance >= 0 and distance <= maxDist
-    logging.debug(
+    logger.debug(
         f'Valid distance check: {valid} (distance: {distance}, maxDist: {maxDist})'
     )
 
@@ -892,19 +898,18 @@ def _find_candidates(
     same model on the same strand, so without this the hit would be offered as
     its own partner and could be "paired" with itself.
     """
-    import logging
 
-    logging.debug('=== _find_candidates DEBUG ===')
-    logging.debug(
+    logger.debug('=== _find_candidates DEBUG ===')
+    logger.debug(
         f'Ref hit: {ref_hit.model} {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd}'
     )
-    logging.debug(
+    logger.debug(
         f'Looking for target_model: {target_model}, target_strand: {target_strand}'
     )
-    logging.debug(f'Direction: {direction}, maxDist: {maxDist}')
+    logger.debug(f'Direction: {direction}, maxDist: {maxDist}')
 
     if target_model not in hitsDict or ref_hit.target not in hitsDict[target_model]:
-        logging.debug(
+        logger.debug(
             f'No hits found for target_model {target_model} on {ref_hit.target}'
         )
         return
@@ -924,7 +929,7 @@ def _find_candidates(
             continue
 
         if candidate.strand == target_strand:
-            logging.debug(
+            logger.debug(
                 f'Checking candidate: {candidate.model} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
             )
 
@@ -934,11 +939,11 @@ def _find_candidates(
             if valid_distance:
                 hitIndex[model_key][uid_key]['candidates'].append(candidate)
                 candidates_found += 1
-                logging.debug(
+                logger.debug(
                     f'Added valid candidate: {candidate.model}_{candidate.idx}'
                 )
 
-    logging.debug(
+    logger.debug(
         f'Found {candidates_found} valid candidates for {ref_hit.model}_{ref_hit.idx}'
     )
 
@@ -952,7 +957,7 @@ def _find_candidates(
             key=lambda x: inter_hit_distance(ref_hit, x, direction),
         )
 
-        logging.debug(
+        logger.debug(
             f'Sorted {len(hitIndex[model_key][uid_key]["candidates"])} candidates by distance'
         )
 
@@ -987,10 +992,9 @@ def iterateGetPairsAsymmetric(
     Handles multiple strand combinations for each orientation configuration.
     Iterates until convergence or stable iteration limit reached.
     """
-    import logging
 
-    logging.debug('=== ENTERING iterateGetPairsAsymmetric ===')
-    logging.debug(
+    logger.debug('=== ENTERING iterateGetPairsAsymmetric ===')
+    logger.debug(
         f'Config: {config.left_model} ({config.left_strand}) + {config.right_model} ({config.right_strand})'
     )
 
@@ -1008,7 +1012,7 @@ def iterateGetPairsAsymmetric(
     # Count remaining unpaired hits
     countUP = countUnpairedAsymmetric(hitIndex, config)
 
-    logging.debug(f'Initial unpaired count: {countUP}')
+    logger.debug(f'Initial unpaired count: {countUP}')
 
     # Iterate pairing procedure until either no unpaired remain
     # OR max number of iterations without new pairing is reached
@@ -1023,9 +1027,7 @@ def iterateGetPairsAsymmetric(
         # Update unpaired hit count
         countUP = countUnpairedAsymmetric(hitIndex, config)
 
-        logging.debug(
-            f'Iteration {reps + 1}: unpaired count {lastCountUP} -> {countUP}'
-        )
+        logger.debug(f'Iteration {reps + 1}: unpaired count {lastCountUP} -> {countUP}')
 
         # If no change in unpaired hit count, iterate stable rep counter
         if lastCountUP == countUP:
@@ -1035,7 +1037,7 @@ def iterateGetPairsAsymmetric(
     unpaired = listunpairedAsymmetric(hitIndex, config)
 
     total_pairs = sum(len(pairs) for pairs in paired.values())
-    logging.debug(
+    logger.debug(
         f'Asymmetric pairing completed: {total_pairs} pairs, {len(unpaired)} unpaired'
     )
 
@@ -1073,7 +1075,6 @@ def getPairsAsymmetric(
     """
     assert hitIndex is not None, 'hitIndex cannot be None'
     assert config is not None, 'config cannot be None'
-    import logging
 
     if not paired:
         paired_dict: Dict[str, List[Set[int]]] = {config.left_model: []}
@@ -1090,13 +1091,13 @@ def getPairsAsymmetric(
 
                 # REMOVED: Strand restriction check
                 # The parseHitsGeneral already populated candidates with valid combinations
-                logging.debug(
+                logger.debug(
                     f'Processing left hit {leftID}: {left_hit.strand}:{left_hit.hitStart}-{left_hit.hitEnd}'
                 )
 
                 # Look through candidates (which should be from right model)
                 for candidate in hitIndex[config.left_model][leftID]['candidates']:
-                    logging.debug(
+                    logger.debug(
                         f'Checking candidate: {candidate.model}_{candidate.idx} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
                     )
 
@@ -1132,12 +1133,12 @@ def getPairsAsymmetric(
                             )
                             pairs_found += 1
 
-                            logging.debug(
+                            logger.debug(
                                 f'Paired: {config.left_model}_{leftID} + {config.right_model}_{candidate.idx}'
                             )
                             break
 
-    logging.debug(f'Found {pairs_found} new asymmetric pairs')
+    logger.debug(f'Found {pairs_found} new asymmetric pairs')
     return hitIndex, paired_dict
 
 
@@ -1177,7 +1178,6 @@ def checkAsymmetricReciprocity(
     Asymmetric reciprocity requires left hit to be the first valid unpaired
     candidate in right hit's candidate list, accounting for strand compatibility.
     """
-    import logging
 
     # Check if left hit is the best candidate for the right hit
     right_candidates = hitIndex[right_model][right_id]['candidates']
@@ -1190,17 +1190,17 @@ def checkAsymmetricReciprocity(
             and hitIndex[left_model][candidate.idx]['partner'] is None
         ):
             if candidate.idx == left_id:
-                logging.debug(
+                logger.debug(
                     f'Reciprocal match: {left_model}_{left_id} <-> {right_model}_{right_id}'
                 )
                 return True  # Reciprocal match found
             else:
-                logging.debug(
+                logger.debug(
                     f'Better candidate exists for {right_model}_{right_id}: {candidate.idx}'
                 )
                 return False  # A better candidate exists
 
-    logging.debug(
+    logger.debug(
         f'No reciprocal match for {left_model}_{left_id} -> {right_model}_{right_id}'
     )
     return False  # No valid candidates
@@ -1235,17 +1235,16 @@ def iterateGetPairsCustom(
     Handles non-standard orientations (F,F or R,R) for symmetric model pairing.
     Useful for elements with non-canonical TIR orientations or inverted structures.
     """
-    import logging
 
-    logging.debug('=== ENTERING iterateGetPairsCustom ===')
-    logging.debug(
+    logger.debug('=== ENTERING iterateGetPairsCustom ===')
+    logger.debug(
         f'Config: {config.left_model} orientation {config.left_strand},{config.right_strand}'
     )
 
     model_name = config.left_model
 
     if model_name not in hitIndex:
-        logging.error(f'Model {model_name} not found in hitIndex')
+        logger.error(f'Model {model_name} not found in hitIndex')
         return hitIndex, {model_name: []}, []
 
     # Initialize pairing structures
@@ -1260,7 +1259,7 @@ def iterateGetPairsCustom(
     # Count remaining unpaired hits
     countUP = countUnpairedSymmetric(hitIndex, model_name, config)
 
-    logging.debug(f'Initial unpaired count: {countUP}')
+    logger.debug(f'Initial unpaired count: {countUP}')
 
     # Iterate pairing procedure
     while countUP > 0 and reps < stableReps:
@@ -1271,9 +1270,7 @@ def iterateGetPairsCustom(
         lastCountUP = countUP
         countUP = countUnpairedSymmetric(hitIndex, model_name, config)
 
-        logging.debug(
-            f'Iteration {reps + 1}: unpaired count {lastCountUP} -> {countUP}'
-        )
+        logger.debug(f'Iteration {reps + 1}: unpaired count {lastCountUP} -> {countUP}')
 
         if lastCountUP == countUP:
             reps += 1
@@ -1282,7 +1279,7 @@ def iterateGetPairsCustom(
     unpaired = listunpairedSymmetric(hitIndex, model_name, config)
 
     total_pairs = len(paired[model_name])
-    logging.debug(
+    logger.debug(
         f'Symmetric pairing completed: {total_pairs} pairs, {len(unpaired)} unpaired'
     )
 
@@ -1325,7 +1322,6 @@ def getPairsSymmetric(
     assert hitIndex is not None, 'hitIndex cannot be None'
     assert model_name is not None, 'model_name cannot be None'
     assert config is not None, 'config cannot be None'
-    import logging
 
     if model_name not in hitIndex:
         if paired is None:
@@ -1348,18 +1344,18 @@ def getPairsSymmetric(
             can_be_right = ref_hit.strand == config.right_strand
 
             if not (can_be_left or can_be_right):
-                logging.debug(
+                logger.debug(
                     f"Hit {refID} on strand {ref_hit.strand} doesn't match orientation {config.left_strand},{config.right_strand}"
                 )
                 continue
 
-            logging.debug(
+            logger.debug(
                 f'Processing hit {refID}: {ref_hit.strand}:{ref_hit.hitStart}-{ref_hit.hitEnd} (can_be_left: {can_be_left}, can_be_right: {can_be_right})'
             )
 
             # Check candidates for this hit
             for candidate in hitIndex[model_name][refID]['candidates']:
-                logging.debug(
+                logger.debug(
                     f'Checking candidate: {candidate.model}_{candidate.idx} {candidate.strand}:{candidate.hitStart}-{candidate.hitEnd}'
                 )
 
@@ -1377,12 +1373,12 @@ def getPairsSymmetric(
                     compatible = False
                     if can_be_left and candidate_can_be_right:
                         compatible = True
-                        logging.debug(
+                        logger.debug(
                             f'Compatible: {refID} (left) + {candidate.idx} (right)'
                         )
                     elif can_be_right and candidate_can_be_left:
                         compatible = True
-                        logging.debug(
+                        logger.debug(
                             f'Compatible: {refID} (right) + {candidate.idx} (left)'
                         )
 
@@ -1399,12 +1395,12 @@ def getPairsSymmetric(
                             paired_dict[model_name].append({refID, candidate.idx})
                             pairs_found += 1
 
-                            logging.debug(
+                            logger.debug(
                                 f'Paired: {model_name}_{refID} + {model_name}_{candidate.idx}'
                             )
                             break
 
-    logging.debug(f'Found {pairs_found} new symmetric pairs')
+    logger.debug(f'Found {pairs_found} new symmetric pairs')
     return hitIndex, paired_dict
 
 
@@ -1441,7 +1437,6 @@ def checkSymmetricReciprocity(
     Verifies ref_id appears as first valid unpaired candidate in candidate_id's
     candidate list, with both hits having complementary strand roles.
     """
-    import logging
 
     # Check if ref_id is the best unpaired candidate for candidate_id
     for mate_candidate in hitIndex[model_name][candidate_id]['candidates']:
@@ -1466,12 +1461,12 @@ def checkSymmetricReciprocity(
 
             if strand_compatible:
                 reciprocal = bool(mate_candidate.idx == ref_id)
-                logging.debug(
+                logger.debug(
                     f'Reciprocal check: {candidate_id} -> {mate_candidate.idx} == {ref_id}? {reciprocal}'
                 )
                 return reciprocal
 
-    logging.debug(f'No reciprocal match found for {ref_id} -> {candidate_id}')
+    logger.debug(f'No reciprocal match found for {ref_id} -> {candidate_id}')
     return False
 
 

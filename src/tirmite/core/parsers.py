@@ -20,6 +20,12 @@ from typing import Optional
 from Bio import AlignIO  # type: ignore[import-not-found]
 import pandas as pd  # type: ignore[import-untyped]
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 def convertAlign(
     alnDir: Optional[str] = None,
@@ -72,7 +78,7 @@ def convertAlign(
     # Do conversion on each
     for infile in alignments:
         # Log file being processed
-        logging.info(f'Converting alignment file: {infile}')
+        logger.info(f'Converting alignment file: {infile}')
         # Get basename
         inBase = os.path.splitext(os.path.basename(infile))[0]
         # Make outpath
@@ -83,9 +89,9 @@ def convertAlign(
         # Read alignment
         alignments = AlignIO.parse(input_handle, inFormat)
         # Log count of sequences in 'alignments' object generated with Align.IO.parse
-        logging.info(f'Number of sequences in alignment: {len({alignments})}')
+        logger.info(f'Number of sequences in alignment: {len({alignments})}')
         # Write as stockholm
-        logging.info(f'Writing converted alignment to: {outAln}')
+        logger.info(f'Writing converted alignment to: {outAln}')
         AlignIO.write(alignments, output_handle, 'stockholm')
         # Close handles
         output_handle.close()
@@ -335,7 +341,7 @@ def import_blast(
             li_split = li.split('\t')
             # BLAST tabular format has 12 columns minimum
             if len(li_split) < 12:
-                logging.warning(f'Skipping malformed BLAST line: {li}')
+                logger.warning(f'Skipping malformed BLAST line: {li}')
                 continue
 
             query_id = li_split[0]
@@ -475,11 +481,11 @@ def detect_input_format(infile: str) -> str:
                         pass
 
                 # If we got here, couldn't determine format from first line
-                logging.warning('Could not determine format from first data line')
+                logger.warning('Could not determine format from first data line')
                 return 'unknown'
 
     except Exception as e:
-        logging.error(f'Error reading file {infile}: {e}')
+        logger.error(f'Error reading file {infile}: {e}')
         return 'unknown'
 
     # Empty file or no data lines

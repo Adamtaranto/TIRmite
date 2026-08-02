@@ -31,6 +31,12 @@ from tirmite.utils.extract import (
 )
 from tirmite.utils.utils import cleanID
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 def fetch_padded_hit(
     source: SequenceSource,
@@ -88,7 +94,7 @@ def fetch_padded_hit(
     # a valid-looking span, so reject it here rather than emit a nonsense
     # arrangement of lowercase flanks around nothing.
     if start > end:
-        logging.debug(f'Inverted hit window for {seqid}: {start}-{end}, skipping')
+        logger.debug(f'Inverted hit window for {seqid}: {start}-{end}, skipping')
         return None
 
     pad_start = start - padlen
@@ -155,7 +161,7 @@ def _model_extension(
     """
     model_len = model_lengths.get(model) if model_lengths else None
     if model_len is None:
-        logging.warning(
+        logger.warning(
             f'Model length not found for {model}; cannot extend hits to model '
             'length, extracting the aligned region only'
         )
@@ -165,7 +171,7 @@ def _model_extension(
         hmm_start = int(row['hmmStart'])
         hmm_end = int(row['hmmEnd'])
     except (ValueError, TypeError, KeyError):
-        logging.debug(f'HMM coordinates unavailable for a {model} hit, not extending')
+        logger.debug(f'HMM coordinates unavailable for a {model} hit, not extending')
         return None
 
     start_deficit = _model_deficit(
@@ -252,7 +258,7 @@ def extractTIRs(
         (hitTable['model'] == model) & (hitTable['evalue'].astype(float) <= maxeval)
     ]
     total_eligible = len(eligible_hits)
-    logging.info(
+    logger.info(
         f'Extracting {total_eligible} hits for model "{model}" '
         f'from {source.describe()}...'
     )
@@ -261,7 +267,7 @@ def extractTIRs(
     for index, row in eligible_hits.iterrows():
         hitcount += 1
         if hitcount % _log_step == 0 or hitcount == total_eligible:
-            logging.info(
+            logger.info(
                 f'  Extracted {hitcount}/{total_eligible} hits for model "{model}"'
             )
 
@@ -289,7 +295,7 @@ def extractTIRs(
         )
 
         if hit_seq_str is None:
-            logging.warning(f'Failed to extract sequence for {model}_{index}, skipping')
+            logger.warning(f'Failed to extract sequence for {model}_{index}, skipping')
             continue
 
         # Create SeqRecord
@@ -529,7 +535,7 @@ def fetchElements(
             TIRelements[model] = []
             model_counter = 0
             total_pairs = len(paired[model])
-            logging.info(
+            logger.info(
                 f'Extracting sequences for {total_pairs} paired elements (model "{model}")...'
             )
             _log_step = max(1, min(100, total_pairs // 10)) if total_pairs > 0 else 1
@@ -537,7 +543,7 @@ def fetchElements(
             for pair in paired[model]:
                 model_counter += 1
                 if model_counter % _log_step == 0 or model_counter == total_pairs:
-                    logging.info(
+                    logger.info(
                         f'  Extracted {model_counter}/{total_pairs} elements for model "{model}"'
                     )
                 # Convert set to list for indexing
@@ -563,7 +569,7 @@ def fetchElements(
                     int(rightHit.hitEnd),
                 )
                 if ele_seq_str is None:
-                    logging.warning(f'Failed to extract element {eleID}, skipping')
+                    logger.warning(f'Failed to extract element {eleID}, skipping')
                     continue
 
                 eleSeq = SeqRecord(Seq.Seq(ele_seq_str))
@@ -760,7 +766,7 @@ def writePairedTIRs(
             left_seqList: List[Any] = []  # Left terminus hit sequences
             right_seqList: List[Any] = []  # Right terminus hit sequences
             total_pairs = len(paired[model])
-            logging.info(
+            logger.info(
                 f'Extracting TIR sequences for {total_pairs} pairs (model "{model}")...'
             )
             _log_step = max(1, min(100, total_pairs // 10)) if total_pairs > 0 else 1
@@ -768,7 +774,7 @@ def writePairedTIRs(
             for pair in paired[model]:
                 model_counter += 1
                 if model_counter % _log_step == 0 or model_counter == total_pairs:
-                    logging.info(
+                    logger.info(
                         f'  Extracted {model_counter}/{total_pairs} TIR pairs for model "{model}"'
                     )
                 # Convert set to list for indexing
@@ -803,7 +809,7 @@ def writePairedTIRs(
                 )
 
                 if left_seq_str is None or right_seq_str is None:
-                    logging.warning(f'Failed to extract TIRs for {eleID}, skipping')
+                    logger.warning(f'Failed to extract TIRs for {eleID}, skipping')
                     continue
 
                 # Create SeqRecords for FASTA output only

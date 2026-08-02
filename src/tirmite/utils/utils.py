@@ -21,6 +21,12 @@ from typing import Any, Generator, Optional, Tuple, Union
 
 from pyfaidx import Fasta  # type: ignore[import-not-found]
 
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
 
 @contextmanager
 def temporary_directory(
@@ -77,9 +83,8 @@ def temporary_directory(
                 shutil.rmtree(temp_dir)
             except OSError as e:
                 # Log warning but don't fail the entire operation
-                import logging
 
-                logging.warning(
+                logger.warning(
                     f'Failed to clean up temporary directory {temp_dir}: {e}'
                 )
 
@@ -174,9 +179,7 @@ def validate_input_files(args: Any) -> None:
 
         path = Path(file_path)
         if not path.exists():
-            import logging
-
-            logging.warning(f'Optional {file_type} not found: {file_path}')
+            logger.warning(f'Optional {file_type} not found: {file_path}')
 
 
 def setup_directories(args: Any) -> Tuple[Path, Path]:
@@ -260,21 +263,16 @@ def cleanup_temp_directory(temp_dir: Union[str, Path], keep_temp: bool = False) 
     temp_path = Path(temp_dir)
 
     if keep_temp:
-        import logging
-
-        logging.info(f'Temporary directory preserved: {temp_path}')
+        logger.info(f'Temporary directory preserved: {temp_path}')
         return
 
     if temp_path.exists() and temp_path.is_dir():
         try:
             shutil.rmtree(temp_path)
-            import logging
 
-            logging.debug(f'Cleaned up temporary directory: {temp_path}')
+            logger.debug(f'Cleaned up temporary directory: {temp_path}')
         except OSError as e:
-            import logging
-
-            logging.warning(f'Failed to clean up temporary directory {temp_path}: {e}')
+            logger.warning(f'Failed to clean up temporary directory {temp_path}: {e}')
 
 
 def cleanID(s: str) -> str:
@@ -385,8 +383,8 @@ def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
     # Extract descriptions
     descriptions = extract_genome_descriptions(genome_path)
 
-    logging.info(f'Indexed genome with {len(genome.keys())} sequences')
-    logging.debug(f'Extracted descriptions for {len(descriptions)} sequences')
+    logger.info(f'Indexed genome with {len(genome.keys())} sequences')
+    logger.debug(f'Extracted descriptions for {len(descriptions)} sequences')
 
     return genome, descriptions
 
@@ -426,7 +424,7 @@ def extract_genome_descriptions(genome_path: Union[str, Path]) -> dict:
                     descriptions[seq_id] = description
 
     except Exception as e:
-        logging.warning(f'Could not extract genome descriptions: {e}')
+        logger.warning(f'Could not extract genome descriptions: {e}')
 
     return descriptions
 
@@ -515,14 +513,14 @@ def decompress_genome(
 
     output_path = output_dir / output_name
 
-    logging.info(f'Decompressing {genome_path.name} to {output_path}')
+    logger.info(f'Decompressing {genome_path.name} to {output_path}')
 
     try:
         with gzip.open(genome_path, 'rb') as f_in:
             with open(output_path, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
-        logging.debug(f'Decompression complete: {output_path}')
+        logger.debug(f'Decompression complete: {output_path}')
         return output_path
 
     except Exception as e:
@@ -567,7 +565,7 @@ def prepare_genome_file(
 
     # Check if file is gzipped
     if is_gzipped_file(genome_path):
-        logging.info(f'Detected gzip-compressed genome: {genome_path.name}')
+        logger.info(f'Detected gzip-compressed genome: {genome_path.name}')
         return decompress_genome(genome_path, temp_dir)
     else:
         return genome_path

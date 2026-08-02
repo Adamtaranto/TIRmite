@@ -47,23 +47,64 @@ pass that follows it — about 35x. The iterate functions loop until stability a
 look like the expensive part; they are not. Optimisation effort on the
 asymmetric path belongs in `_find_candidates`.
 
-### The symmetric pairing path is orders of magnitude slower
+Most of that 0.6 s turned out to be logging. `_check_distance` runs once per
+(hit, candidate) pair and built five f-strings on every call, passed as
+arguments and therefore evaluated whether or not DEBUG was enabled: 941,261
+`logger.debug` calls per invocation at 250 elements. Guarding the hot call sites
+with `logger.isEnabledFor` brought `parseHitsGeneral` from 0.6 s to 0.136 s at
+250 elements, and from ~18 s to 7.9 s at 2000. It remains quadratic by design.
 
-| Elements | `iterateGetPairsCustom` (F,F) | `iterateGetPairsAsymmetric` (F,R) | Ratio |
-|---|---|---|---|
-| 50 | 0.96 s | 0.0016 s | ~600x |
-| 100 | 12.4 s | 0.0040 s | ~3,100x |
-| 250 | 427 s | 0.0168 s | ~25,000x |
+### The `tirmite search` filters were dominated by pandas row access
 
-Growth is far worse than quadratic: a 2.5x increase in input (100 → 250) costs
-35x more time. `F,F` and `R,R` are the documented LTR configuration, so this is
-the path users are directed to for LTR elements, and it is effectively unusable
-beyond a few hundred elements. A real LTR search on a whole genome would produce
-thousands of hits.
+`remove_nested_paired_hits` and `filter_best_model_per_locus` did a
+`DataFrame.loc[label]` lookup per inner-loop iteration — ~67 µs each, which is
+89% and 79% of their runtime, against nanoseconds for the integer comparisons
+they exist to perform. Pulling each group's columns out as numpy arrays once:
 
-This has not been fixed. The symmetric sweep is capped at 50 elements so the
-suite stays runnable, and these benchmarks will show the improvement when
-someone takes it on.
+| Hits | `remove_nested_paired_hits` | `filter_best_model_per_locus` |
+|---|---|---|
+| 500 | 0.90 s → 0.015 s | 0.63 s → 0.028 s |
+| 2000 | 14.8 s → 0.15 s | 11.1 s → 0.49 s |
+| 5000 | 93 s → 1.07 s | 81 s → 3.17 s |
+
+Both remain O(n²); only the constant changed, and neither the algorithm nor the
+comparison order did. `filter_best_model_per_locus` is deliberately *not*
+converted to a sorted sweep: it skips hits already marked for removal, so the
+result depends on traversal order, and a coordinate-ordered sweep would silently
+change which hits survive.
+
+`check_cross_cluster_overlaps` had the same defect but is genuinely sweepable —
+its group is already sorted by start, so the inner loop can break once a
+candidate begins after the current hit ends. 0.33 s → 0.004 s at 500 hits, and
+0.011 s at 5000: effectively linear.
+
+### The symmetric pairing path was orders of magnitude slower — now fixed
+
+These benchmarks were written to measure the problem and did their job: they
+located it precisely enough to find the cause, which turned out to be a
+correctness bug rather than an algorithmic one.
+
+`_find_candidates` appended into a candidate list shared by both direction
+searches and then re-sorted the *whole* list by the current direction. Under
+`F,F` and `R,R` both searches run for every hit, so the other direction's
+entries received a negative sort key — most negative for the farthest hit — and
+`candidates[0]` became the globally farthest hit rather than the nearest. That
+inverted the reciprocal-best-match test, so one pair formed per iteration and
+convergence took M/2 rounds instead of 1.
+
+| Elements | `iterateGetPairsCustom` before | after |
+|---|---|---|
+| 50 | 0.96 s | 0.0003 s |
+| 100 | 12.4 s | 0.0005 s |
+| 250 | 427 s | 0.0013 s |
+
+It was also a user-visible correctness bug: with the CLI default of
+`--stable-reps 0` the run stopped after that single pair, so
+`tirmite pair --orientation F,F` returned one pair regardless of input size.
+
+The symmetric sweep in `bench_pairing.py` is still capped at 50 elements. It no
+longer needs to be, and raising it would give better coverage of the fixed
+path.
 
 ## CI
 

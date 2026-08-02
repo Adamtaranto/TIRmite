@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "tirmite"
 description = "Map profile HMMs of transposon termini to genomic sequences for annotation of cryptic transposon variants."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Adam Taranto", email = "adam.p.taranto@gmail.com" }]
 
@@ -95,9 +95,8 @@ markers = [
 ]
 
 [tool.ruff]
-# Must match `requires-python` above. The CI matrix runs the full test suite on
-# 3.9, so linting against a newer target would let 3.10-only syntax through.
-target-version = "py39"
+# Must match `requires-python` above.
+target-version = "py310"
 line-length = 88
 fix = true
 
@@ -170,7 +169,7 @@ exclude_files = [
 [tool.mypy]
 # Type hint strictness settings.
 # Must match `requires-python`; see the note on [tool.ruff] target-version.
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

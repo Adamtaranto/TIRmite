@@ -9,22 +9,18 @@ Two things measurement established here, both contrary to the obvious guess:
    they are not. Optimisation effort for the asymmetric path belongs in
    ``_find_candidates``.
 
-2. **The symmetric path is orders of magnitude slower than the asymmetric
-   one**, and getting worse with size:
+2. **The symmetric path used to be orders of magnitude slower** -- 0.96 s,
+   12.4 s and 427 s at 50, 100 and 250 elements, against 0.0016 s, 0.0040 s and
+   0.0168 s for the asymmetric equivalent. These benchmarks located that, and
+   the cause turned out to be a correctness bug rather than an algorithmic one:
+   ``_find_candidates`` ranked candidates farthest-first under the same-strand
+   orientations, so one pair formed per iteration and convergence took M/2
+   rounds instead of 1. After the fix the same three sizes take 0.0003 s,
+   0.0005 s and 0.0013 s.
 
-   =========  =========================  =============================
-   Elements   ``iterateGetPairsCustom``  ``iterateGetPairsAsymmetric``
-   =========  =========================  =============================
-   50         0.96 s                     0.0016 s
-   100        12.4 s                     0.0040 s
-   250        427 s                      0.0168 s
-   =========  =========================  =============================
-
-   That is a 600x gap at 50 elements widening to 25,000x at 250, and the
-   symmetric growth is far worse than quadratic. ``F,F`` and ``R,R`` are the
-   documented LTR use case, so this is the configuration users are pointed at
-   for LTR elements. The symmetric sweep is therefore capped well below the
-   asymmetric one to keep this suite runnable.
+   ``SYMMETRIC_ELEMENT_COUNTS`` is still capped well below the asymmetric
+   sweep. That is no longer necessary and raising it would give better coverage
+   of the fixed path.
 
 Setup is excluded from every measurement via ``benchmark.pedantic(setup=...)``:
 the ``iterateGetPairs*`` functions mutate the hit index they are given, so each
@@ -49,8 +45,8 @@ from tirmite.core.pairing import (
 # ~0.08 s at 100, ~0.6 s at 250.
 ELEMENT_COUNTS = [50, 100, 250]
 
-# Symmetric sweep, deliberately smaller. iterateGetPairsCustom takes ~12 s at
-# 100 elements and ~427 s at 250, so anything above 50 is unusable in CI.
+# Symmetric sweep, kept small from when iterateGetPairsCustom took ~427 s at
+# 250 elements. That is now ~0.0013 s, so this cap could safely be raised.
 SYMMETRIC_ELEMENT_COUNTS = [25, 50]
 
 

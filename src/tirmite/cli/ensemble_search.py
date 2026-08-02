@@ -26,6 +26,7 @@ import pandas as pd  # type: ignore[import-untyped]
 from tirmite.cli._argtypes import (
     validate_evalue,
     validate_identity,
+    validate_score_ratio,
     validate_threads,
     validate_word_size,
 )
@@ -679,7 +680,8 @@ def filter_hits_to_pairing_map_models(
 def merge_overlapping_cluster_hits(
     hit_table: pd.DataFrame,
     cluster_map: Dict[str, List[str]],
-    min_overlap: int = 1,
+    max_gap: int = 1,
+    min_overlap: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Merge overlapping hits from component features within the same cluster.
@@ -690,8 +692,14 @@ def merge_overlapping_cluster_hits(
         Hit table with 'model', 'target', 'hitStart', 'hitEnd', 'strand', 'score' columns.
     cluster_map : dict
         Dictionary mapping cluster names to lists of component feature names.
-    min_overlap : int, default 1
-        Minimum overlap in base pairs to trigger merging.
+    max_gap : int, default 1
+        Largest gap, in base pairs, between two adjacent same-cluster hits that
+        will still be bridged into one merged region. ``0`` requires the hits to
+        abut or overlap. Larger values merge *more* aggressively.
+    min_overlap : int, optional
+        Deprecated alias for ``max_gap``, accepted for one release. This
+        parameter was misnamed: it never required an overlap, and increasing it
+        made merging more permissive rather than less.
 
     Returns
     -------
@@ -699,6 +707,14 @@ def merge_overlapping_cluster_hits(
         Hit table with overlapping same-cluster hits merged.
         Merged hits inherit properties from highest-scoring component.
     """
+    if min_overlap is not None:
+        logger.warning(
+            'merge_overlapping_cluster_hits(min_overlap=...) is deprecated and '
+            'will be removed; use max_gap instead. The old name was misleading: '
+            'the value is a gap tolerance, so a larger number merges more.'
+        )
+        max_gap = min_overlap
+
     if hit_table.empty:
         return hit_table
 
@@ -713,13 +729,30 @@ def merge_overlapping_cluster_hits(
     unclustered_hits = hit_table[hit_table['cluster'].isna()].copy()
 
     if unclustered_hits.shape[0] > 0:
-        logger.warning(
-            f'{len(unclustered_hits)} hits from unclustered features will be ignored'
+        # Naming the offending models matters: the usual cause is a cluster map
+        # written with the columns transposed, or built against a different set
+        # of query names, and both are invisible from a bare count.
+        dropped_models = sorted(unclustered_hits['model'].unique())
+        shown = ', '.join(dropped_models[:10])
+        if len(dropped_models) > 10:
+            shown += f', ... ({len(dropped_models) - 10} more)'
+        logger.error(
+            f'{len(unclustered_hits)} hits from {len(dropped_models)} model(s) '
+            f'absent from the cluster map will be DISCARDED: {shown}'
         )
 
     if clustered_hits.empty:
-        logger.warning('No clustered hits to merge')
-        return pd.DataFrame(columns=hit_table.columns.drop('cluster'))
+        # Returning an empty table here used to leave the run to exit 0 with an
+        # empty output file, which reads as "no hits found" rather than "your
+        # cluster map matched nothing".
+        present = sorted(hit_table['model'].unique())
+        raise EnsembleSearchError(
+            f'The cluster map matched none of the {len(present)} model(s) present '
+            f'in the hits ({", ".join(present[:10])}'
+            f'{", ..." if len(present) > 10 else ""}). Check that the cluster map '
+            'uses the same model names as the search queries, and that its '
+            'columns are cluster-first: cluster<TAB>component1<TAB>component2...'
+        )
 
     # Group by target, strand, and cluster for merging
     merged_records: List[Dict[str, Any]] = []
@@ -752,8 +785,9 @@ def merge_overlapping_cluster_hits(
                 current_end = hit_end
                 current_hits = [hit]
                 is_first_hit = False
-            elif hit_start <= current_end + min_overlap:
-                # Overlapping or adjacent - extend region
+            elif hit_start <= current_end + max_gap:
+                # Overlapping, abutting, or separated by no more than max_gap:
+                # extend the current region to cover this hit too.
                 current_end = max(current_end, hit_end)
                 current_hits.append(hit)
             else:
@@ -902,9 +936,12 @@ def check_cross_cluster_overlaps(
                 start2 = int(hit2['hitStart_int'])
                 end2 = int(hit2['hitEnd_int'])
 
+                # Coordinates are 1-based and inclusive at both ends, so two
+                # hits sharing a single base overlap by 1, not 0. Without the
+                # +1 this understated every overlap by one base.
                 overlap_start = max(start1, start2)
                 overlap_end = min(end1, end2)
-                overlap = overlap_end - overlap_start
+                overlap = max(0, overlap_end - overlap_start + 1)
 
                 if overlap >= min_overlap:
                     if warnings_reported < 10:  # Limit warnings
@@ -1263,7 +1300,10 @@ def filter_best_model_per_locus(
                 score2 = float(hit2['score_float'])
 
                 # Compute overlap
-                overlap = min(end1, end2) - max(start1, start2)
+                # Coordinates are 1-based and inclusive at both ends, matching
+                # write_hits_table's use of abs(end - start) + 1 for length, so
+                # two hits sharing a single base overlap by 1.
+                overlap = max(0, min(end1, end2) - max(start1, start2) + 1)
                 if overlap < min_overlap:
                     continue
 
@@ -1870,6 +1910,32 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
             'Default: F,R'
         ),
     )
+    filter_group.add_argument(
+        '--min-score-ratio',
+        type=validate_score_ratio,
+        default=1.5,
+        dest='min_score_ratio',
+        help=(
+            'How decisively one hit must outscore another before the weaker one '
+            'is discarded, as a ratio of the better score to the worse. Applies '
+            'both to nested hits between paired models and to overlapping hits '
+            'from competing models. Increase to keep more borderline hits; '
+            'values below 1.0 are meaningless. Requires --pairing-map. '
+            'Default: 1.5'
+        ),
+    )
+    filter_group.add_argument(
+        '--merge-max-gap',
+        type=int,
+        default=1,
+        dest='merge_max_gap',
+        help=(
+            'Largest gap (in bases) between two adjacent hits from the same '
+            'cluster that will still be merged into one region. 0 requires the '
+            'hits to abut or overlap; larger values merge more aggressively. '
+            'Requires --cluster-map. Default: 1'
+        ),
+    )
 
     # Output options
     output_group = parser.add_argument_group('Output Options')
@@ -2399,7 +2465,9 @@ def _process_hits(
         check_cross_cluster_overlaps(hit_table, cluster_map)
 
         # Merge overlapping hits within clusters
-        hit_table = merge_overlapping_cluster_hits(hit_table, cluster_map)
+        hit_table = merge_overlapping_cluster_hits(
+            hit_table, cluster_map, max_gap=getattr(args, 'merge_max_gap', 1)
+        )
 
         # Report post-merge statistics
         report_hit_statistics(hit_table, stage='(after merging)')
@@ -2409,6 +2477,9 @@ def _process_hits(
     # without expansion.
     if pairing_map:
         filter_summary = SearchFilterSummary()
+        # Both filter steps share one threshold: they answer the same question
+        # (is one hit decisively better than another?) in different contexts.
+        min_score_ratio = getattr(args, 'min_score_ratio', 1.5)
 
         # Step 0: restrict output to models listed in the pairing map only.
         hit_table = filter_hits_to_pairing_map_models(
@@ -2421,7 +2492,10 @@ def _process_hits(
         # Step 1: remove hits from a paired model that are completely nested within
         # hits of its direct left/right partner and score significantly worse.
         hit_table = remove_nested_paired_hits(
-            hit_table, pairing_map, summary=filter_summary
+            hit_table,
+            pairing_map,
+            min_score_ratio=min_score_ratio,
+            summary=filter_summary,
         )
 
         # Report statistics after nested hit removal
@@ -2432,7 +2506,10 @@ def _process_hits(
         # related element families hit the same locus: at each overlapping locus the
         # best-scoring model is retained and weaker cross-model hits are discarded.
         hit_table = filter_best_model_per_locus(
-            hit_table, pairing_map, summary=filter_summary
+            hit_table,
+            pairing_map,
+            min_score_ratio=min_score_ratio,
+            summary=filter_summary,
         )
 
         # Report final statistics

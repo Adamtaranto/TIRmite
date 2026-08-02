@@ -2260,3 +2260,209 @@ class TestFilterBestModelPerLocusSummary:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ---------------------------------------------------------------------------
+# Overlap arithmetic, merge gap semantics, and the exposed filter thresholds
+# ---------------------------------------------------------------------------
+
+
+def _locus_hit(model, target, start, end, score, strand='+'):
+    """Build one hit row for the cross-model locus filter."""
+    return {
+        'model': model,
+        'target': target,
+        'hitStart': str(start),
+        'hitEnd': str(end),
+        'strand': strand,
+        'evalue': '1e-10',
+        'score': str(score),
+        'bias': 'NA',
+        'hmmStart': '1',
+        'hmmEnd': '100',
+    }
+
+
+class TestOverlapArithmetic:
+    """Hit coordinates are 1-based and inclusive at both ends."""
+
+    def test_hits_sharing_exactly_one_base_overlap(self):
+        """A single shared base is an overlap of 1, not 0.
+
+        `write_hits_table` computes length as abs(end - start) + 1, so the
+        overlap calculation must use the same convention. Without the +1 two
+        hits sharing exactly one base scored 0 and were treated as disjoint.
+        """
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('ModelA', 'chr1', 1000, 1100, 300),
+                # Starts on the last base of ModelA's span.
+                _locus_hit('ModelB', 'chr1', 1100, 1200, 100),
+            ]
+        )
+        pairing_map = {'ModelA': 'RightA', 'ModelB': 'RightB'}
+
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'ModelA'
+
+    def test_abutting_hits_do_not_overlap(self):
+        """Adjacent but non-touching hits share no base and are both kept."""
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('ModelA', 'chr1', 1000, 1100, 300),
+                _locus_hit('ModelB', 'chr1', 1101, 1200, 100),
+            ]
+        )
+        pairing_map = {'ModelA': 'RightA', 'ModelB': 'RightB'}
+
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+
+        assert len(result) == 2
+
+
+class TestMergeMaxGap:
+    """max_gap is a gap tolerance: larger values merge more."""
+
+    def _cluster_hits(self, gap):
+        """Two same-cluster hits separated by `gap` bases."""
+        second_start = 1101 + gap
+        return pd.DataFrame(
+            [
+                _locus_hit('Comp1', 'chr1', 1000, 1100, 200),
+                _locus_hit('Comp2', 'chr1', second_start, second_start + 100, 150),
+            ]
+        )
+
+    def test_zero_gap_requires_abutting_or_overlapping(self):
+        """With max_gap=0 a one-base gap is not bridged."""
+        result = merge_overlapping_cluster_hits(
+            self._cluster_hits(gap=1), {'ClusterA': ['Comp1', 'Comp2']}, max_gap=0
+        )
+        assert len(result) == 2
+
+    def test_larger_gap_bridges_more(self):
+        """Raising max_gap merges hits that a smaller value left separate."""
+        cluster_map = {'ClusterA': ['Comp1', 'Comp2']}
+
+        assert (
+            len(
+                merge_overlapping_cluster_hits(
+                    self._cluster_hits(gap=50), cluster_map, max_gap=10
+                )
+            )
+            == 2
+        )
+        assert (
+            len(
+                merge_overlapping_cluster_hits(
+                    self._cluster_hits(gap=50), cluster_map, max_gap=100
+                )
+            )
+            == 1
+        )
+
+    def test_min_overlap_alias_still_works_and_warns(self, caplog):
+        """The old parameter name is honoured for one release, with a warning."""
+        import logging
+
+        cluster_map = {'ClusterA': ['Comp1', 'Comp2']}
+        with caplog.at_level(logging.WARNING):
+            result = merge_overlapping_cluster_hits(
+                self._cluster_hits(gap=50), cluster_map, min_overlap=100
+            )
+
+        assert len(result) == 1
+        assert 'deprecated' in caplog.text
+
+
+class TestClusterMapMatchesNothing:
+    """A cluster map that matches no model is an error, not an empty result."""
+
+    def test_raises_when_no_model_matches(self):
+        """Exiting 0 with an empty file reads as 'no hits found'.
+
+        That is indistinguishable from a genuine empty result, and the usual
+        cause is a transposed or mismatched cluster map.
+        """
+        hit_table = pd.DataFrame([_locus_hit('ActualModel', 'chr1', 1000, 1100, 200)])
+
+        with pytest.raises(EnsembleSearchError, match='matched none of'):
+            merge_overlapping_cluster_hits(hit_table, {'ClusterA': ['SomethingElse']})
+
+    def test_error_names_the_models_present(self):
+        """The message lists what the hits actually contained."""
+        hit_table = pd.DataFrame([_locus_hit('ActualModel', 'chr1', 1000, 1100, 200)])
+
+        with pytest.raises(EnsembleSearchError, match='ActualModel'):
+            merge_overlapping_cluster_hits(hit_table, {'ClusterA': ['SomethingElse']})
+
+    def test_partially_unclustered_hits_are_reported_by_name(self, caplog):
+        """Dropped models are named, not just counted."""
+        import logging
+
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('Comp1', 'chr1', 1000, 1100, 200),
+                _locus_hit('Stray', 'chr1', 5000, 5100, 150),
+            ]
+        )
+
+        with caplog.at_level(logging.ERROR):
+            result = merge_overlapping_cluster_hits(hit_table, {'ClusterA': ['Comp1']})
+
+        assert len(result) == 1
+        assert 'Stray' in caplog.text
+        assert 'DISCARDED' in caplog.text
+
+
+class TestThresholdFlagsAreReachable:
+    """--min-score-ratio and --merge-max-gap actually reach the filters."""
+
+    def test_parser_exposes_the_flags(self):
+        """The documented knobs exist on the search parser."""
+        from tirmite.cli.ensemble_search import create_search_parser
+
+        options = {
+            option
+            for action in create_search_parser()._actions
+            for option in action.option_strings
+        }
+        assert '--min-score-ratio' in options
+        assert '--merge-max-gap' in options
+
+    def test_min_score_ratio_changes_nested_removal(self):
+        """A higher ratio keeps hits that the default would discard."""
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('LeftA', 'chr1', 1000, 1200, 200),
+                _locus_hit('RightA', 'chr1', 1020, 1080, 100),
+            ]
+        )
+        pairing_map = {'LeftA': 'RightA'}
+
+        # 200/100 = 2.0: decisive at the 1.5 default, not at 3.0.
+        assert len(remove_nested_paired_hits(hit_table, pairing_map)) == 1
+        assert (
+            len(remove_nested_paired_hits(hit_table, pairing_map, min_score_ratio=3.0))
+            == 2
+        )
+
+    def test_min_score_ratio_changes_cross_model_filtering(self):
+        """The same threshold governs the cross-model step."""
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('ModelA', 'chr1', 1000, 1100, 200),
+                _locus_hit('ModelB', 'chr1', 1050, 1150, 100),
+            ]
+        )
+        pairing_map = {'ModelA': 'RightA', 'ModelB': 'RightB'}
+
+        assert len(filter_best_model_per_locus(hit_table, pairing_map)) == 1
+        assert (
+            len(
+                filter_best_model_per_locus(hit_table, pairing_map, min_score_ratio=3.0)
+            )
+            == 2
+        )

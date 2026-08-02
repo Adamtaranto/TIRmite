@@ -130,6 +130,45 @@ def validate_coverage(value: str) -> float:
     return fvalue
 
 
+def validate_score_ratio(value: str) -> float:
+    """
+    Validate a score-ratio threshold.
+
+    Parameters
+    ----------
+    value : str
+        Raw argument string from argparse.
+
+    Returns
+    -------
+    float
+        The parsed ratio.
+
+    Raises
+    ------
+    argparse.ArgumentTypeError
+        If the value is not a number of at least 1.0.
+
+    Notes
+    -----
+    The ratio is always expressed as ``better_score / weaker_score``, so it
+    cannot sensibly be below 1.0: that would mean discarding the *better* of
+    two hits.
+    """
+    try:
+        fvalue = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"score ratio must be a number, got '{value}'"
+        ) from None
+
+    if fvalue < 1.0:
+        raise argparse.ArgumentTypeError(
+            f'score ratio must be at least 1.0, got {fvalue}'
+        )
+    return fvalue
+
+
 def validate_threads(value: str) -> int:
     """
     Validate a thread count.

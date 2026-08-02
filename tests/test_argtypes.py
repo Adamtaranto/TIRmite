@@ -13,6 +13,7 @@ from tirmite.cli._argtypes import (
     validate_coverage,
     validate_evalue,
     validate_identity,
+    validate_score_ratio,
     validate_threads,
     validate_word_size,
 )
@@ -81,6 +82,26 @@ class TestValidateCoverage:
         """80 is a percentage, and is correctly rejected as a fraction."""
         with pytest.raises(argparse.ArgumentTypeError, match='between 0.0 and 1.0'):
             validate_coverage(raw)
+
+
+class TestValidateScoreRatio:
+    """Score ratios are better/weaker, so they cannot be below 1.0."""
+
+    @pytest.mark.parametrize('raw,expected', [('1', 1.0), ('1.5', 1.5), ('10', 10.0)])
+    def test_accepts_at_least_one(self, raw, expected):
+        """1.0 means 'any difference is decisive' and is the lower bound."""
+        assert validate_score_ratio(raw) == expected
+
+    @pytest.mark.parametrize('raw', ['0.9', '0', '-2'])
+    def test_rejects_below_one(self, raw):
+        """A ratio below 1.0 would discard the better of two hits."""
+        with pytest.raises(argparse.ArgumentTypeError, match='at least 1.0'):
+            validate_score_ratio(raw)
+
+    def test_rejects_non_numeric(self):
+        """Non-numeric input reports a type error."""
+        with pytest.raises(argparse.ArgumentTypeError, match='must be a number'):
+            validate_score_ratio('strict')
 
 
 class TestValidateThreads:

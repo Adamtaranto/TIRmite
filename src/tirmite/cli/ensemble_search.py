@@ -22,6 +22,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple, cast
 from Bio import SeqIO  # type: ignore[import-not-found]
 import pandas as pd  # type: ignore[import-untyped]
 
+from tirmite.cli._argtypes import (
+    validate_evalue,
+    validate_identity,
+    validate_threads,
+    validate_word_size,
+)
 from tirmite.runners.hmmer_wrappers import build_nhmmer_command
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
@@ -1854,120 +1860,6 @@ def run_blastn_search(
 # -----------------------------------------------------------------------------
 # Argument Validation
 # -----------------------------------------------------------------------------
-
-
-def validate_evalue(value: str) -> float:
-    """
-    Validate e-value argument.
-
-    Parameters
-    ----------
-    value : str
-        Raw argument string from argparse.
-
-    Returns
-    -------
-    float
-        The parsed e-value.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If the value is not a positive number.
-    """
-    try:
-        fvalue = float(value)
-        if fvalue <= 0:
-            raise argparse.ArgumentTypeError(f'E-value must be positive: {value}')
-        return fvalue
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(f'Invalid e-value: {value}') from err
-
-
-def validate_identity(value: str) -> float:
-    """
-    Validate identity percentage argument.
-
-    Parameters
-    ----------
-    value : str
-        Raw argument string from argparse.
-
-    Returns
-    -------
-    float
-        The parsed identity percentage.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If the value is not a number between 0 and 100.
-    """
-    try:
-        fvalue = float(value)
-        if not 0 <= fvalue <= 100:
-            raise argparse.ArgumentTypeError(
-                f'Identity must be between 0 and 100: {value}'
-            )
-        return fvalue
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(f'Invalid identity value: {value}') from err
-
-
-def validate_threads(value: str) -> int:
-    """
-    Validate threads argument.
-
-    Parameters
-    ----------
-    value : str
-        Raw argument string from argparse.
-
-    Returns
-    -------
-    int
-        The parsed thread count.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If the value is not an integer of at least 1.
-    """
-    try:
-        ivalue = int(value)
-        if ivalue < 1:
-            raise argparse.ArgumentTypeError(f'Threads must be at least 1: {value}')
-        return ivalue
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(f'Invalid threads value: {value}') from err
-
-
-def validate_word_size(value: str) -> int:
-    """
-    Validate word_size argument.
-
-    Parameters
-    ----------
-    value : str
-        Raw argument string from argparse.
-
-    Returns
-    -------
-    int
-        The parsed word size.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If the value is not an integer of at least 4.
-    """
-    try:
-        ivalue = int(value)
-        if ivalue < 4:
-            raise argparse.ArgumentTypeError(f'Word size must be at least 4: {value}')
-        return ivalue
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(f'Invalid word_size value: {value}') from err
 
 
 # -----------------------------------------------------------------------------

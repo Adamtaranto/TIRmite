@@ -12,7 +12,6 @@ and using list-form commands.
 import logging
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
 import tempfile
@@ -41,25 +40,6 @@ class CommandError(Exception):
         self.returncode = returncode
         self.output = output
         super().__init__(self.message)
-
-
-def cleanID(s: str) -> str:
-    """
-    Remove non-alphanumeric characters and normalize whitespace in string.
-
-    Parameters
-    ----------
-    s : str
-        Input string to clean.
-
-    Returns
-    -------
-    str
-        Cleaned string with only alphanumeric characters and underscores.
-    """
-    s = re.sub(r'[^\w\s]', '', s)
-    s = re.sub(r'\s+', '_', s)
-    return s
 
 
 def run_command(

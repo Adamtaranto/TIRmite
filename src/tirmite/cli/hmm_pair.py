@@ -28,6 +28,7 @@ from tirmite.utils.extract import check_ids, make_source
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
+    extract_model_name_from_path,
     indexGenome,
     setup_directories,
 )
@@ -420,35 +421,6 @@ def filter_hits_by_anchor(
         for model_name, count in sorted(removed_per_model.items()):
             logging.info(f'  {model_name}: {count} hit(s) excluded by anchor filter')
     return result
-
-
-def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
-    """
-    Extract model name from HMM file path by reading the HMM file.
-
-    Parameters
-    ----------
-    model_path : str or Path
-        Path to HMM file.
-
-    Returns
-    -------
-    str or None
-        Model name from NAME field, filename stem if not found, or None if no path.
-    """
-    if not model_path:
-        return None
-
-    try:
-        with open(model_path, 'r') as f:
-            for line in f:
-                if line.startswith('NAME  '):
-                    return line.split()[1].strip()
-    except (FileNotFoundError, IOError):
-        # Fallback to basename without extension
-        return Path(model_path).stem
-
-    return Path(model_path).stem
 
 
 def load_pairing_map(pairing_map_file: str) -> list[tuple[str, str]]:

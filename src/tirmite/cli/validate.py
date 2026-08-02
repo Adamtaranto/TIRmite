@@ -21,11 +21,12 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, cast
 
-from Bio import AlignIO, SeqIO  # type: ignore[import-not-found]
+from Bio import SeqIO  # type: ignore[import-not-found]
 from Bio.Seq import Seq  # type: ignore[import-not-found]
 from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
 
 from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite.runners.mafft import align_in_memory
 from tirmite.utils.extract import (
     BlastDBSource,
     blastdbcmd_available,
@@ -208,14 +209,14 @@ def _configure_validate_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def run_blastn(
+def _run_validation_blastn(
     query_fasta: str,
     blastdb: str,
     output_file: str,
     evalue: float = 1e-5,
 ) -> None:
     """
-    Run blastn search of query sequences against a BLAST database.
+    Run the blastn search specific to target-site validation.
 
     Parameters
     ----------
@@ -232,6 +233,23 @@ def run_blastn(
     ------
     RuntimeError
         If blastn is not found or fails.
+
+    Notes
+    -----
+    Deliberately does not delegate to
+    :func:`tirmite.runners.runBlastn.run_blastn`, despite the overlap. That
+    function always applies ``-word_size 4 -perc_identity 60``, which suit
+    finding diverged transposon termini but are wrong here: validation looks
+    for a near-identical empty target site, and a 60% identity floor combined
+    with a 4-base word size would both admit spurious hits and run far slower
+    than needed.
+
+    This search also requires the extended 15-column ``-outfmt`` (adding
+    ``qlen slen sstrand``), which :func:`parse_blast_results` depends on, and
+    ``-dust no`` so that low-complexity target sites are not masked away.
+
+    Renamed from ``run_blastn`` to remove the name collision with the runners
+    module; it is private because nothing outside this workflow should use it.
     """
     if not shutil.which('blastn'):
         raise RuntimeError('blastn not found in PATH. Please install NCBI BLAST+.')
@@ -432,59 +450,6 @@ def extract_hit_sequence(
     return seq if seq else None
 
 
-def run_mafft_alignment(
-    sequences: List[SeqRecord],
-    tmpdir: str,
-) -> Optional[List[SeqRecord]]:
-    """
-    Align sequences using MAFFT.
-
-    Parameters
-    ----------
-    sequences : list of SeqRecord
-        Sequences to align. First should be the query.
-    tmpdir : str
-        Temporary directory for intermediate files.
-
-    Returns
-    -------
-    list of SeqRecord or None
-        Aligned sequences, or None if alignment failed.
-    """
-    if not shutil.which('mafft'):
-        logging.error('mafft not found in PATH. Please install MAFFT.')
-        return None
-
-    input_file = os.path.join(tmpdir, 'mafft_input.fasta')
-    output_file = os.path.join(tmpdir, 'mafft_output.fasta')
-
-    with open(input_file, 'w') as handle:
-        SeqIO.write(sequences, handle, 'fasta')
-
-    cmd = [
-        'mafft',
-        '--auto',
-        '--quiet',
-        input_file,
-    ]
-
-    with open(output_file, 'w') as out_handle:
-        result = subprocess.run(
-            cmd, stdout=out_handle, stderr=subprocess.PIPE, text=True
-        )
-
-    if result.returncode != 0:
-        logging.warning(f'MAFFT alignment failed: {result.stderr}')
-        return None
-
-    try:
-        alignment = list(AlignIO.read(output_file, 'fasta'))
-        return alignment
-    except Exception as e:
-        logging.warning(f'Failed to parse MAFFT output: {e}')
-        return None
-
-
 def check_tsd_gaps(
     query_aligned: str,
     target_aligned: str,
@@ -625,7 +590,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 blast_file = args.blast_results
             else:
                 blast_file = os.path.join(tmpdir, 'blast_results.txt')
-                run_blastn(
+                _run_validation_blastn(
                     query_fasta=args.target_sites,
                     blastdb=args.blastdb,
                     output_file=blast_file,
@@ -718,7 +683,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 if len(alignment_seqs) > 1:
                     # Run MAFFT alignment
-                    aligned = run_mafft_alignment(alignment_seqs, tmpdir)
+                    aligned = align_in_memory(alignment_seqs, tmpdir)
 
                     if aligned:
                         all_alignments[qid] = aligned

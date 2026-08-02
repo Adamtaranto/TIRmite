@@ -13,37 +13,11 @@ temporary file management.
 
 import logging
 from pathlib import Path
-import re
 import shutil
 from typing import List, Optional, Tuple, Union
 
 from tirmite.runners.wrapping import run_commands_sequential
-
-
-def cleanID(sequence_id: str) -> str:
-    """
-    Remove non-alphanumeric characters and normalize whitespace in string.
-
-    Parameters
-    ----------
-    sequence_id : str
-        Input string to clean (typically a model or sequence name).
-
-    Returns
-    -------
-    str
-        Cleaned string with only alphanumeric characters and underscores.
-
-    Examples
-    --------
-    >>> cleanID("My Model-Name 1")
-    'My_Model_Name_1'
-    """
-    # Remove non-alphanumeric characters except whitespace
-    cleaned = re.sub(r'[^\w\s]', '', sequence_id)
-    # Replace whitespace with underscores
-    cleaned = re.sub(r'\s+', '_', cleaned)
-    return cleaned
+from tirmite.utils.utils import cleanID
 
 
 def build_hmmbuild_command(

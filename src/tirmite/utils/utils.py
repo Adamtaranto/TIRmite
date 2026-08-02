@@ -302,6 +302,52 @@ def cleanID(s: str) -> str:
     return s
 
 
+def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
+    """
+    Extract HMM model name from file path by parsing the HMM file header.
+
+    Parameters
+    ----------
+    model_path : str or Path, optional
+        Path to an HMM file. May be None.
+
+    Returns
+    -------
+    str or None
+        Model name taken from the ``NAME`` field in the HMM file. Falls back
+        to the filename stem if the field is absent or the file cannot be
+        read. Returns None if ``model_path`` is None.
+
+    Notes
+    -----
+    An HMMER3 model file declares its name on a line beginning with ``NAME``
+    followed by two spaces, e.g. ``NAME  MY_TIR``. The name recorded inside
+    the file is authoritative: it, not the filename, is what nhmmer reports in
+    its output, so hit tables must be keyed on it for the pairing and anchor
+    filters to match models to hits.
+
+    Examples
+    --------
+    >>> extract_model_name_from_path(None) is None
+    True
+    """
+    if not model_path:
+        return None
+
+    try:
+        with open(model_path, 'r') as f:
+            for line in f:
+                if line.startswith('NAME  '):
+                    return line.split()[1].strip()
+    except (FileNotFoundError, IOError):
+        # An unreadable model file is not fatal here; the caller only needs a
+        # label, and the filename stem is a reasonable approximation.
+        return Path(model_path).stem
+
+    # File was readable but carried no NAME field.
+    return Path(model_path).stem
+
+
 def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
     """
     Index genome FASTA file and extract sequence descriptions.

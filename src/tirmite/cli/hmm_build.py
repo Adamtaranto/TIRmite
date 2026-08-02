@@ -13,7 +13,6 @@ transposon terminus models.
 """
 
 import argparse
-import io
 import logging
 import os
 from pathlib import Path
@@ -35,11 +34,18 @@ from pyhmmer.plan7 import (  # type: ignore[import-not-found]
     Builder,
 )
 
+from tirmite.cli._argtypes import (
+    validate_coverage,
+    validate_evalue,
+    validate_identity,
+    validate_threads,
+)
 from tirmite.runners.hmmer_wrappers import (
     build_hmmalign_command,
     build_hmmpress_command,
     build_nhmmer_command,
 )
+from tirmite.runners.mafft import MafftError, align_to_file
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
 from tirmite.tirmitetools import import_nhmmer
@@ -1242,74 +1248,36 @@ def run_mafft_alignment(
     sequences: List[SeqRecord], output_file: Path, threads: int = 1
 ) -> Path:
     """
-    Run MAFFT multiple sequence alignment with default parameters.
+    Align sequences with MAFFT, reporting failures as :class:`HMMBuildError`.
 
     Parameters
     ----------
     sequences : list of Bio.SeqRecord.SeqRecord
-        List of sequences to align.
+        Sequences to align.
     output_file : Path
-        Path to write alignment output file.
+        Path to write the alignment to, in FASTA format.
     threads : int, default 1
-        Number of CPU threads for MAFFT.
+        Number of CPU threads to pass to MAFFT.
 
     Returns
     -------
     Path
-        Path to output alignment file.
+        ``output_file``.
 
     Raises
     ------
     HMMBuildError
-        If fewer than 2 sequences provided or MAFFT fails.
+        If the alignment could not be produced.
+
+    Notes
+    -----
+    Thin adapter over :func:`tirmite.runners.mafft.align_to_file`. It exists so
+    that every failure inside the seed workflow surfaces as a single exception
+    type, which ``main`` catches and turns into a clean CLI error.
     """
-    if len(sequences) < 2:
-        raise HMMBuildError('Need at least 2 sequences for alignment')
-
-    # Write sequences to temporary file
-    temp_fasta = output_file.parent / f'{output_file.stem}_input.fasta'
-
-    with open(temp_fasta, 'w') as f:
-        SeqIO.write(sequences, f, 'fasta')
-
-    # Run MAFFT with default parameters
-    cmd = [
-        'mafft',
-        '--thread',
-        str(threads),
-        str(temp_fasta),
-    ]
-
-    logging.info(f'Running MAFFT alignment on {len(sequences)} sequences')
-
     try:
-        # Run MAFFT and capture output
-        result = run_command(cmd, verbose=True)
-
-        if result.returncode != 0:
-            raise HMMBuildError(f'MAFFT failed: {result.stderr}')
-
-        # Parse MAFFT output and convert to uppercase
-        alignment_records = []
-        for record in SeqIO.parse(io.StringIO(result.stdout), 'fasta'):
-            uppercase_record = SeqRecord(
-                Seq(str(record.seq).upper()),
-                id=record.id,
-                description=record.description,
-            )
-            alignment_records.append(uppercase_record)
-
-        # Write the uppercase alignment to output file
-        with open(output_file, 'w') as outfile:
-            SeqIO.write(alignment_records, outfile, 'fasta')
-
-        # Clean up temporary file
-        temp_fasta.unlink()
-
-        logging.info(f'Alignment written to {output_file}')
-        return output_file
-
-    except Exception as e:
+        return align_to_file(sequences, output_file, threads=threads)
+    except MafftError as e:
         raise HMMBuildError(f'MAFFT alignment failed: {e}') from e
 
 
@@ -2394,130 +2362,6 @@ def hits_overlap(hit1: BlastHit, hit2: BlastHit, min_overlap: int = 50) -> bool:
     overlap_length = max(0, overlap_end - overlap_start)
 
     return overlap_length >= min_overlap
-
-
-def validate_coverage(value: str) -> float:
-    """
-    Custom type validator for coverage argument.
-
-    Parameters
-    ----------
-    value : str
-        Coverage value to validate.
-
-    Returns
-    -------
-    float
-        Validated coverage value.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If value is not a float between 0.0 and 1.0.
-    """
-    try:
-        fval = float(value)
-        if not (0.0 <= fval <= 1.0):
-            raise argparse.ArgumentTypeError(
-                f'min-coverage must be between 0.0 and 1.0, got {fval}'
-            )
-        return fval
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"min-coverage must be a number, got '{value}'"
-        ) from None
-
-
-def validate_identity(value: str) -> float:
-    """
-    Custom type validator for identity argument.
-
-    Parameters
-    ----------
-    value : str
-        Identity value to validate.
-
-    Returns
-    -------
-    float
-        Validated identity value.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If value is not a float between 0.0 and 100.0.
-    """
-    try:
-        fval = float(value)
-        if not (0.0 <= fval <= 100.0):
-            raise argparse.ArgumentTypeError(
-                f'min-identity must be between 0.0 and 100.0, got {fval}'
-            )
-        return fval
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"min-identity must be a number, got '{value}'"
-        ) from None
-
-
-def validate_threads(value: str) -> int:
-    """
-    Custom type validator for threads argument.
-
-    Parameters
-    ----------
-    value : str
-        Thread count value to validate.
-
-    Returns
-    -------
-    int
-        Validated thread count.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If value is not an integer >= 1.
-    """
-    try:
-        ival = int(value)
-        if ival < 1:
-            raise argparse.ArgumentTypeError(f'threads must be >= 1, got {ival}')
-        return ival
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"threads must be an integer, got '{value}'"
-        ) from None
-
-
-def validate_evalue(value: str) -> float:
-    """
-    Custom type validator for evalue argument.
-
-    Parameters
-    ----------
-    value : str
-        E-value to validate.
-
-    Returns
-    -------
-    float
-        Validated e-value.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If value is not a positive float.
-    """
-    try:
-        fval = float(value)
-        if fval <= 0:
-            raise argparse.ArgumentTypeError(f'evalue must be positive, got {fval}')
-        return fval
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"evalue must be a number, got '{value}'"
-        ) from None
 
 
 def update_hmm_with_genome_hits(

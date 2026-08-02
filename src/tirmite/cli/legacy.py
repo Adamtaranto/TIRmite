@@ -14,7 +14,6 @@ import argparse
 import glob
 import logging
 import os
-from pathlib import Path
 import shutil
 import sys
 import traceback
@@ -26,6 +25,7 @@ import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
+    extract_model_name_from_path,
     indexGenome,
     setup_directories,
 )
@@ -461,41 +461,6 @@ def validate_pairbed_compatibility(hitTable: Any, config: Any, args: Any) -> boo
 
 
 # Extract model names from file paths for validation
-def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
-    """
-    Extract HMM model name from file path by parsing HMM file header.
-
-    Parameters
-    ----------
-    model_path : str or Path
-        Path to HMM file.
-
-    Returns
-    -------
-    str or None
-        Model name extracted from NAME field in HMM file.
-        Falls back to filename stem if NAME not found or file unreadable.
-        Returns None if model_path is None.
-
-    Notes
-    -----
-    Reads HMM file looking for 'NAME  ' line which specifies model name.
-    """
-    if not model_path:
-        return None
-
-    try:
-        with open(model_path, 'r') as f:
-            for line in f:
-                if line.startswith('NAME  '):
-                    return line.split()[1].strip()
-    except (FileNotFoundError, IOError):
-        # Fallback to basename without extension
-        return Path(model_path).stem
-
-    return Path(model_path).stem
-
-
 def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main entry point for legacy TIRmite workflow.

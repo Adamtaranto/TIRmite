@@ -794,6 +794,43 @@ def inter_hit_distance(ref_hit: Any, candidate: Any, direction: str) -> int:
     return int(downstream.hitStart) - int(upstream.hitEnd)
 
 
+def candidate_separation(ref_hit: Any, candidate: Any) -> int:
+    """
+    Genomic gap between two hits, independent of which side the candidate is on.
+
+    Parameters
+    ----------
+    ref_hit : namedtuple
+        Reference hit with hitStart and hitEnd attributes.
+    candidate : namedtuple
+        Candidate partner hit with hitStart and hitEnd attributes.
+
+    Returns
+    -------
+    int
+        The non-negative separation between the two hits when they do not
+        overlap. Negative only when they do overlap, in which case
+        :func:`_check_distance` will already have rejected the candidate.
+
+    Notes
+    -----
+    :func:`inter_hit_distance` is signed and direction-relative: for a
+    downstream candidate ``left_to_right`` is non-negative and
+    ``right_to_left`` is negative, and vice versa. Exactly one of the two is
+    therefore non-negative for any accepted candidate, and taking the larger
+    recovers the true gap without needing to remember which direction found it.
+
+    That matters because a hit can accumulate candidates from *both* direction
+    searches. Under the same-strand orientations F,F and R,R every hit searches
+    upstream and downstream, so a single sort key that works for both is
+    required to rank them all as "nearest first".
+    """
+    return max(
+        inter_hit_distance(ref_hit, candidate, 'left_to_right'),
+        inter_hit_distance(ref_hit, candidate, 'right_to_left'),
+    )
+
+
 def _check_distance(
     ref_hit: Any, candidate: Any, direction: str, maxDist: float
 ) -> bool:
@@ -947,14 +984,24 @@ def _find_candidates(
         f'Found {candidates_found} valid candidates for {ref_hit.model}_{ref_hit.idx}'
     )
 
-    # Sort candidates by distance using the same logic as _check_distance
-    # This ensures closest valid partners are prioritized
+    # Rank candidates nearest-first.
+    #
+    # This must use the direction-agnostic separation, NOT
+    # inter_hit_distance(ref, x, direction). This function appends into a list
+    # it shares with the other direction's search, and under the same-strand
+    # orientations F,F and R,R both searches run for every hit. Sorting the
+    # whole accumulated list by the *current* direction gave the other
+    # direction's candidates a negative key, most negative for the farthest, so
+    # candidates[0] became the globally FARTHEST hit rather than the nearest.
+    #
+    # That inverted the reciprocal-best-match test: hits almost never agreed on
+    # each other, so only one pair formed per iteration. With the CLI default of
+    # --stable-reps 0 the run stopped after that single pair, and with a larger
+    # value it took M/2 iterations, which is where the O(M^4) blow-up came from.
     if hitIndex[model_key][uid_key]['candidates']:
-        # Sort by the same measure the distance filter uses, so "closest" means
-        # the same thing when ranking candidates as when accepting them.
         hitIndex[model_key][uid_key]['candidates'] = sorted(
             hitIndex[model_key][uid_key]['candidates'],
-            key=lambda x: inter_hit_distance(ref_hit, x, direction),
+            key=lambda x: candidate_separation(ref_hit, x),
         )
 
         logger.debug(

@@ -69,6 +69,7 @@ EXPECTED_HOME = {
         'PairingConfig',
         'parseHitsGeneral',
         'inter_hit_distance',
+        'candidate_separation',
         '_check_distance',
         '_find_candidates',
         'iterateGetPairsAsymmetric',

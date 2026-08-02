@@ -625,8 +625,12 @@ if __name__ == '__main__':
 # ---------------------------------------------------------------------------
 
 
-def _run_symmetric_pairing(hit_rows, orientation, model, maxdist=None):
-    """Set up and run the full SYMMETRIC pairing pipeline (one model, both ends)."""
+def _run_symmetric_pairing(hit_rows, orientation, model, maxdist=None, stable_reps=5):
+    """Set up and run the full SYMMETRIC pairing pipeline (one model, both ends).
+
+    ``stable_reps`` is exposed so tests can exercise the CLI default of 0 as
+    well as the generous value the rest of this file uses.
+    """
     hitTable = _make_hit_table(hit_rows)
     hitsDict, hitIndex = tirmite.table2dict(hitTable)
 
@@ -639,7 +643,9 @@ def _run_symmetric_pairing(hit_rows, orientation, model, maxdist=None):
         config=config,
     )
 
-    _, paired, unpaired = tirmite.iterateGetPairsCustom(hitIndex, config, stableReps=5)
+    _, paired, unpaired = tirmite.iterateGetPairsCustom(
+        hitIndex, config, stableReps=stable_reps
+    )
     return paired, unpaired
 
 
@@ -934,3 +940,191 @@ class TestInterHitDistance:
         ref = self.Hit(4000, 4100)
         cand = self.Hit(100, 200)
         assert tirmite.inter_hit_distance(ref, cand, 'left_to_right') < 0
+
+
+class TestSymmetricCandidateOrdering:
+    """Candidates must be ranked nearest-first across BOTH search directions.
+
+    Under F,F and R,R every hit searches upstream *and* downstream, and both
+    searches append into one shared candidate list. `_find_candidates` used to
+    re-sort that whole list by the current call's direction, which gave the
+    other direction's entries a negative key -- most negative for the farthest
+    hit. `candidates[0]` therefore became the globally FARTHEST hit.
+
+    That inverted the reciprocal-best-match test, so only one pair formed per
+    iteration. Two consequences, both fixed by ranking on the direction-agnostic
+    separation:
+
+    * With the CLI default of ``--stable-reps 0`` the run stopped after a single
+      pair, no matter how many elements were present.
+    * With a larger value it needed M/2 iterations, which is where the O(M^4)
+      cost came from (427 s for 250 elements, now ~0.001 s).
+    """
+
+    def _elements(self, n, spacing=5000, element_length=2000):
+        """Build n well-separated, individually pairable F,F elements."""
+        rows = []
+        for i in range(n):
+            base = 1000 + (i * spacing)
+            rows.append(
+                {
+                    'model': 'LTR',
+                    'target': 'chr1',
+                    'hit_start': base,
+                    'hit_end': base + 100,
+                    'strand': '+',
+                }
+            )
+            rows.append(
+                {
+                    'model': 'LTR',
+                    'target': 'chr1',
+                    'hit_start': base + element_length,
+                    'hit_end': base + element_length + 100,
+                    'strand': '+',
+                }
+            )
+        return rows
+
+    def test_nearest_candidate_is_first(self):
+        """The closest hit ranks ahead of a farther one on the other side.
+
+        The reference sits between a near downstream hit and a far upstream
+        one. Ranking by the current direction put the far upstream hit first.
+        """
+        rows = [
+            # Far upstream, gap 10000.
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': 1000,
+                'hit_end': 1100,
+                'strand': '+',
+            },
+            # Reference.
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': 11100,
+                'hit_end': 11200,
+                'strand': '+',
+            },
+            # Near downstream, gap 100.
+            {
+                'model': 'LTR',
+                'target': 'chr1',
+                'hit_start': 11300,
+                'hit_end': 11400,
+                'strand': '+',
+            },
+        ]
+        hitTable = _make_hit_table(rows)
+        hitsDict, hitIndex = tirmite.table2dict(hitTable)
+        config = tirmite.PairingConfig(orientation='F,F', single_model='LTR')
+        hitIndex = tirmite.parseHitsGeneral(
+            hitsDict=hitsDict, hitIndex=hitIndex, config=config
+        )
+
+        # Hit index 1 is the reference; its nearest partner is hit 2.
+        candidates = hitIndex['LTR'][1]['candidates']
+        assert len(candidates) == 2
+        assert candidates[0].idx == 2, (
+            'nearest candidate should rank first, got the farther one'
+        )
+
+    @pytest.mark.parametrize('n_elements', [2, 5, 20])
+    def test_all_pairs_found_with_cli_default_stable_reps(self, n_elements):
+        """--stable-reps defaults to 0; every element must still pair.
+
+        This is the regression test for the headline bug: `tirmite pair
+        --orientation F,F` previously returned exactly one pair regardless of
+        how many elements were present.
+        """
+        paired, unpaired = _run_symmetric_pairing(
+            self._elements(n_elements), 'F,F', 'LTR', stable_reps=0
+        )
+
+        assert len(paired.get('LTR', [])) == n_elements
+        assert unpaired == []
+
+    def test_converges_in_a_single_round(self):
+        """Correct ranking means one pass suffices.
+
+        stable_reps=0 stops as soon as a round adds no new pairs, so finding
+        every pair at that setting proves round 1 converged.
+        """
+        paired, unpaired = _run_symmetric_pairing(
+            self._elements(10), 'F,F', 'LTR', stable_reps=0
+        )
+
+        assert len(paired['LTR']) == 10
+        assert unpaired == []
+
+    def test_rr_orientation_also_converges(self):
+        """R,R takes the same code path and must behave identically."""
+        rows = self._elements(10)
+        for row in rows:
+            row['strand'] = '-'
+
+        paired, unpaired = _run_symmetric_pairing(rows, 'R,R', 'LTR', stable_reps=0)
+
+        assert len(paired['LTR']) == 10
+        assert unpaired == []
+
+    def test_elements_pair_with_their_own_partner(self):
+        """Pairing must be nearest-neighbour, not arbitrary.
+
+        With three well-separated elements the pairs are (0,1), (2,3), (4,5).
+        Farthest-first ranking produced cross-element pairings.
+        """
+        paired, _ = _run_symmetric_pairing(
+            self._elements(3), 'F,F', 'LTR', stable_reps=0
+        )
+
+        assert {frozenset(p) for p in paired['LTR']} == {
+            frozenset({0, 1}),
+            frozenset({2, 3}),
+            frozenset({4, 5}),
+        }
+
+
+class TestCandidateSeparation:
+    """The direction-agnostic distance used to rank candidates."""
+
+    def _hit(self, start, end):
+        """Build a minimal hit-like object with the needed coordinates."""
+        from collections import namedtuple
+
+        H = namedtuple('H', 'hitStart hitEnd')
+        return H(str(start), str(end))
+
+    def test_downstream_candidate_gap(self):
+        """A candidate after the reference reports the gap between them."""
+        assert (
+            tirmite.candidate_separation(self._hit(100, 200), self._hit(300, 400))
+            == 100
+        )
+
+    def test_upstream_candidate_gap(self):
+        """A candidate before the reference reports the same gap."""
+        assert (
+            tirmite.candidate_separation(self._hit(300, 400), self._hit(100, 200))
+            == 100
+        )
+
+    def test_symmetric_in_both_directions(self):
+        """Separation does not depend on which hit is the reference."""
+        a, b = self._hit(100, 200), self._hit(1000, 1100)
+        assert tirmite.candidate_separation(a, b) == tirmite.candidate_separation(b, a)
+
+    def test_abutting_hits_have_zero_gap(self):
+        """Hits that touch have no interior between them."""
+        assert (
+            tirmite.candidate_separation(self._hit(100, 200), self._hit(201, 300)) == 1
+        )
+
+    def test_overlapping_hits_are_negative(self):
+        """Overlap yields a negative value, which _check_distance rejects."""
+        assert (
+            tirmite.candidate_separation(self._hit(100, 300), self._hit(200, 400)) < 0
+        )

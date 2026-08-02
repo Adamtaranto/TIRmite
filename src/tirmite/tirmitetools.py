@@ -56,6 +56,7 @@ from tirmite.core.pairing import (  # noqa: F401
     PairingConfig,
     _check_distance,
     _find_candidates,
+    candidate_separation,
     checkAsymmetricReciprocity,
     checkSymmetricReciprocity,
     countUnpaired,
@@ -102,6 +103,7 @@ from tirmite.core.tsd import (  # noqa: F401
 )
 
 __all__ = [
+    'candidate_separation',
     'FlankResult',
     'PairingConfig',
     'TerminusAssignment',

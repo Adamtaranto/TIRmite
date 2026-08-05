@@ -25,6 +25,22 @@
   --accent: #2a78d6;
   --neutral-pad: #8a8a86;
 
+  /*
+   * Nucleotide colours for the alignment panels. The conventional A-green
+   * C-blue G-orange T-red scheme puts green beside red, which is the one pair
+   * a deuteranope cannot separate. These four were chosen by validating every
+   * four-hue subset of the report palette against all-pairs colour-vision
+   * separation in both modes; only two subsets pass, and this is the one that
+   * keeps A green and C blue. T takes magenta rather than red.
+   * Base letters are drawn whenever the cells are large enough, so identity
+   * never rests on hue alone.
+   */
+  --base-a: #008300;
+  --base-c: #2a78d6;
+  --base-g: #eda100;
+  --base-t: #e87ba4;
+  --base-other: #55554f;
+
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
@@ -47,6 +63,13 @@
     --rule-strong: #4a4a47;
     --accent: #3987e5;
     --neutral-pad: #6e6e6a;
+
+    /* The same four hues re-stepped for the dark surface, validated as a set. */
+    --base-a: #008300;
+    --base-c: #3987e5;
+    --base-g: #c98500;
+    --base-t: #d55181;
+    --base-other: #b0b0a8;
   }
 }
 

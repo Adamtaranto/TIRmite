@@ -509,6 +509,11 @@ class PairReportAccumulator:
         max_seq_bytes: int = 20 * 1024 * 1024,
         elements_fasta_path: str = '',
         generated: Optional[str] = None,
+        source: Any = None,
+        tempdir: Optional[str] = None,
+        msa_mode: str = 'off',
+        msa_max_rows: int = 500,
+        msa_max_cells: int = 2_000_000,
     ) -> ReportData:
         """
         Produce the finished report data.
@@ -525,6 +530,20 @@ class PairReportAccumulator:
             embedded.
         generated : str, optional
             ISO-8601 timestamp. Defaults to now, in UTC.
+        source : SequenceSource, optional
+            Sequence source used to read hit sequences for the alignment
+            panels. Without one, no panels are built.
+        tempdir : str, optional
+            Directory for MAFFT's intermediate files. Should be inside the
+            run's own temporary directory so it is removed with everything
+            else.
+        msa_mode : {'off', 'auto', 'mafft', 'anchor'}, default 'off'
+            Alignment strategy for the panels. Defaults to off so that callers
+            that do not want them pay nothing.
+        msa_max_rows : int, default 500
+            Row cap per alignment panel.
+        msa_max_cells : int, default 2000000
+            Cell budget per alignment panel.
 
         Returns
         -------
@@ -575,6 +594,16 @@ class PairReportAccumulator:
             elements, embed_sequences, max_seq_bytes, elements_fasta_path
         )
         groups = self._build_groups(hits, elements, colours)
+        msa = self._build_msa(
+            hits,
+            groups,
+            models,
+            source=source,
+            tempdir=tempdir,
+            mode=msa_mode,
+            max_rows=msa_max_rows,
+            max_cells=msa_max_cells,
+        )
 
         return ReportData(
             kind='pair',
@@ -592,8 +621,83 @@ class PairReportAccumulator:
             ),
             elements=elements,
             sequences=sequences,
+            msa=msa,
             warnings=list(self.warnings),
         )
+
+    def _build_msa(
+        self,
+        hits: Sequence[HitRecord],
+        groups: Sequence[PairingGroup],
+        models: Sequence[ModelInfo],
+        *,
+        source: Any,
+        tempdir: Optional[str],
+        mode: str,
+        max_rows: int,
+        max_cells: int,
+    ) -> List[Any]:
+        """
+        Build the terminus alignment panels, tolerating failure.
+
+        Parameters
+        ----------
+        hits : sequence of HitRecord
+            The hits in the report.
+        groups : sequence of PairingGroup
+            Pairing groups.
+        models : sequence of ModelInfo
+            Models in the report.
+        source : SequenceSource or None
+            Sequence source.
+        tempdir : str or None
+            Directory for MAFFT's intermediate files.
+        mode : str
+            Alignment mode.
+        max_rows, max_cells : int
+            Panel caps.
+
+        Returns
+        -------
+        list of MsaPanel
+            The panels, or an empty list when they could not be built.
+
+        Notes
+        -----
+        Alignment reads sequence and may shell out to MAFFT, so it is the part
+        of report building most likely to fail on a given run. A failure costs
+        the panels and nothing else -- the rest of the report is already
+        computed by this point.
+        """
+        if mode == 'off' or source is None:
+            return []
+        if tempdir is None:
+            logger.warning(
+                'No temporary directory available; skipping terminus alignments'
+            )
+            return []
+
+        from tirmite.report.msa import build_msa_panels
+
+        try:
+            return list(
+                build_msa_panels(
+                    hits,
+                    groups,
+                    models,
+                    source=source,
+                    tmpdir=tempdir,
+                    mode=mode,
+                    max_rows=max_rows,
+                    max_cells=max_cells,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - panels are not worth a run
+            logger.warning(f'Could not build terminus alignments: {exc}')
+            self.warnings.append(
+                'Terminus alignment panels could not be built for this run.'
+            )
+            return []
 
     def _build_groups(
         self,

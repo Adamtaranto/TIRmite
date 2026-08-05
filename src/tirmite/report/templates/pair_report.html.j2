@@ -68,9 +68,18 @@
   <h2>Terminus alignments</h2>
   <p class="note">
     Every hit for each terminus model, aligned. Grey marks model positions the
-    hit did not match; blank marks sequence that does not exist because the
-    contig ended.
+    hit did not match although the genome continues; blank marks sequence that
+    does not exist because the contig ended. Hover a row for its hit, click to
+    show it on its contig.
   </p>
+  <div class="legend">
+    <span class="legend-item"><span class="swatch" style="background: var(--base-a)"></span>A</span>
+    <span class="legend-item"><span class="swatch" style="background: var(--base-c)"></span>C</span>
+    <span class="legend-item"><span class="swatch" style="background: var(--base-g)"></span>G</span>
+    <span class="legend-item"><span class="swatch" style="background: var(--base-t)"></span>T</span>
+    <span class="legend-item"><span class="swatch" style="background: var(--base-other)"></span>other base</span>
+    <span class="legend-item"><span class="swatch clipped"></span>model not matched</span>
+  </div>
   <div id="msa-panels"></div>
 </section>
 {% endif %}

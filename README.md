@@ -210,31 +210,6 @@ symmetric element.
 Running any subcommand with no arguments prints that subcommand's help. Usage
 errors exit with status 2.
 
-## Contributing
-
-If you would like to add a new feature or fix a bug, please see our [contribution guidelines](https://github.com/Adamtaranto/TIRmite?tab=contributing-ov-file#readme).
-
-- Open an issue
-- Fork the repo
-- Follow the dev env setup instructions below
-
-```bash
-# Clone this repo (or your own fork)
-git clone https://github.com/Adamtaranto/TIRmite.git && cd TIRmite
-# Install custom conda env
-conda env create -f environment.yml
-# Activate conda env
-conda activate tirmite
-# Install an editable copy of the package
-pip install -e '.[dev]'
-# Enable pre-commit checks
-pre-commit install
-```
-
-## Issues
-
-Submit feedback to the [Issue Tracker](https://github.com/Adamtaranto/TIRmite/issues)
-
 ## License
 
 Software provided under GPL-3 license.

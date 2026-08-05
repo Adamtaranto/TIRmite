@@ -72,7 +72,7 @@ To set up your development environment:
 
   ```bash
   # Install in editable mode with dev dependencies
-  pip install -e ".[dev]"
+  pip install -e ".[dev,test,bench,docs]"
   ```
 
 4. Enable pre-commit hooks
@@ -106,6 +106,8 @@ mypy src/
 # Validate docstrings
 pydocstyle # fussy
 numpydoc lint src/**/*.py # essential
+# Pre-commit checks
+pre-commit run --all-files
 ```
 
 ## Testing

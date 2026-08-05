@@ -229,6 +229,24 @@
     this.svg.addEventListener(
       'wheel',
       function (event) {
+        // A horizontal swipe means pan; a vertical one means zoom. Reading
+        // only deltaY treated a pure horizontal swipe as deltaY === 0 and
+        // zoomed in on every event, which is the opposite of what the gesture
+        // asks for. Pinch-zoom arrives as ctrl+wheel and stays a zoom.
+        var horizontal =
+          !event.ctrlKey && Math.abs(event.deltaX) > Math.abs(event.deltaY);
+
+        if (horizontal) {
+          if (!event.deltaX) return;
+          event.preventDefault();
+          var span = self.view.end - self.view.start;
+          var box = self.svg.getBoundingClientRect();
+          var shift = (event.deltaX / Math.max(1, box.width)) * span;
+          self.setView(self.view.start + shift, self.view.end + shift);
+          return;
+        }
+
+        if (!event.deltaY) return;
         event.preventDefault();
         var anchor = self.bpAt(event.clientX);
         self.zoomBy(event.deltaY > 0 ? 1.18 : 1 / 1.18, anchor);
@@ -266,9 +284,6 @@
     this.svg.addEventListener('pointerup', endDrag);
     this.svg.addEventListener('pointercancel', endDrag);
     this.svg.addEventListener('pointerleave', function () {
-      // A pinned box is the user's, not the pointer's: leaving the track must
-      // not take it away.
-      if (pinned) return;
       hideTooltip();
       self.unhighlight();
     });
@@ -294,22 +309,16 @@
       self.schedule();
     });
 
-    // Clicking pins the info box open so it can be read and its buttons used.
-    // Hovering alone cannot do that: moving the pointer towards the box leaves
-    // the glyph, which is what made the copy button unreachable.
+    // Clicking opens the feature popup. A hover tooltip cannot carry working
+    // buttons -- moving the pointer towards it leaves the glyph that produced
+    // it -- so anything the reader needs to act on lives in the popup.
     this.svg.addEventListener('click', function (event) {
       var target = event.target.closest('.glyph');
-      if (!target) {
-        unpinTooltip(self);
-        return;
-      }
+      if (!target) return;
       var h = T.hitByUid(+target.dataset.uid);
       if (!h) return;
-      // Clear any previous pin first, so its highlight does not linger on
-      // whichever track it belonged to.
-      unpinTooltip(null);
-      self.highlight(h);
-      pinTooltip(h, event, self);
+      hideTooltip();
+      openFeature(h);
     });
 
     this.svg.addEventListener('dblclick', function (event) {
@@ -621,8 +630,6 @@
   /* ---- hover ---------------------------------------------------------- */
 
   Track.prototype.hover = function (event) {
-    // While a box is pinned, hovering must not replace or dismiss it.
-    if (pinned) return;
     var target = event.target.closest ? event.target.closest('.glyph') : null;
     if (!target) {
       hideTooltip();
@@ -743,7 +750,11 @@
     if (h.overflow) {
       notes.push('Track row limit reached; this hit shares a row with others.');
     }
-    if (h.element) notes.push('Click to keep this open and copy the sequence.');
+    notes.push(
+      h.element
+        ? 'Click for details and the element sequence.'
+        : 'Click for details.'
+    );
     if (notes.length) {
       var hint = document.createElement('div');
       hint.className = 'hint';
@@ -769,263 +780,338 @@
   function hideTooltip() {
     if (tooltip) tooltip.dataset.show = '0';
   }
-
-  /* ---- pinned info box ------------------------------------------------- */
+  /* ---- feature popup --------------------------------------------------- */
 
   /*
-   * A pinned box is the same element as the hover tooltip, promoted: it stops
-   * following the pointer, becomes clickable, and grows a close button and the
-   * actions for its element. Hover cannot carry those actions, because moving
-   * towards the box leaves the glyph that produced it.
+   * One popup serves every route into a feature: clicking an annotation,
+   * clicking an element name in a table, or following a coordinate link. It is
+   * a native <dialog> so it survives the pointer leaving the track -- the
+   * reason a hover tooltip could never carry a working copy button.
+   *
+   * Metadata and sequence live in separate tabs rather than one long panel:
+   * the sequence can be tens of kilobases and would bury the details that
+   * identify the feature.
    */
-  var pinned = null;
 
-  function pinTooltip(h, event, track) {
-    if (!tooltip) return;
-    showTooltip(h, event);
-    pinned = { hit: h, track: track };
-    tooltip.dataset.pinned = '1';
+  var lastFocus = null;
 
-    var head = tooltip.querySelector('h4');
-    if (head) {
-      var close = document.createElement('button');
-      close.type = 'button';
-      close.className = 'tooltip-close';
-      close.textContent = '×';
-      close.title = 'Close';
-      close.setAttribute('aria-label', 'Close details');
-      close.addEventListener('click', function (clickEvent) {
-        clickEvent.stopPropagation();
-        unpinTooltip(track);
-      });
-      head.appendChild(close);
-    }
-
-    if (h.element) tooltip.appendChild(elementActions(h));
-
-    // The hover hint told the reader to click; they have, so drop it.
-    var hint = tooltip.querySelector('.hint');
-    if (hint) {
-      hint.textContent = hint.textContent
-        .replace('Click to keep this open and copy the sequence.', '')
-        .trim();
-      if (!hint.textContent) hint.remove();
-    }
-  }
-
-  function unpinTooltip(track) {
-    if (!pinned) return;
-    var owner = pinned.track || track;
-    pinned = null;
-    if (tooltip) {
-      tooltip.dataset.pinned = '0';
-      tooltip.dataset.show = '0';
-    }
-    if (owner) owner.unhighlight();
-  }
-
-  /* Copy actions for a pinned paired terminus, plus the full element view. */
-  function elementActions(h) {
+  function openFeature(h) {
+    if (!modal || !h) return;
     var element = h.element;
-    var sequence = (data.sequences.seq || {})[element.pair_id] || null;
+    var sequence = element
+      ? (data.sequences.seq || {})[element.pair_id] || null
+      : null;
 
-    var box = document.createElement('div');
-    box.className = 'tooltip-actions';
-
-    var status = document.createElement('span');
-    status.className = 'status';
-    status.setAttribute('role', 'status');
-
-    if (sequence) {
-      var copy = document.createElement('button');
-      copy.type = 'button';
-      copy.textContent = 'Copy sequence';
-      copy.addEventListener('click', function () {
-        report(status, T.copyText(sequence), 'Copied ' + sequence.length + ' bp.');
-      });
-
-      var fasta = document.createElement('button');
-      fasta.type = 'button';
-      fasta.textContent = 'Copy FASTA';
-      fasta.addEventListener('click', function () {
-        var header =
-          '>' + element.element_id + ' ' + h.contig.name + ':' +
-          element.start + '-' + element.end;
-        report(
-          status,
-          T.copyText(header + '\n' + T.wrapSequence(sequence, 60) + '\n'),
-          'Copied FASTA.'
-        );
-      });
-
-      box.appendChild(copy);
-      box.appendChild(fasta);
-      status.textContent = 'Plus strand.';
-    } else {
-      status.textContent = 'Sequence not embedded in this report.';
-    }
-
-    var details = document.createElement('button');
-    details.type = 'button';
-    details.textContent = 'Details…';
-    details.addEventListener('click', function () {
-      openElement(h);
-    });
-    box.appendChild(details);
-    box.appendChild(status);
-    return box;
-  }
-
-  // Escape closes a pinned box, matching the modal.
-  document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') unpinTooltip(null);
-  });
-
-  /* ---- element modal --------------------------------------------------- */
-
-  function openElement(h) {
-    if (!modal) return;
-    var element = h.element;
-    var left = T.hitByUid(element.left_uid);
-    var right = T.hitByUid(element.right_uid);
-    var sequence = (data.sequences.seq || {})[element.pair_id] || null;
-    var reversed = false;
-
+    lastFocus = document.activeElement;
     modal.innerHTML = '';
 
-    var head = document.createElement('div');
-    head.className = 'modal-head';
-    var titles = document.createElement('div');
-    var h3 = document.createElement('h3');
-    h3.textContent = element.element_id;
-    var sub = document.createElement('div');
-    sub.className = 'sub';
-    sub.textContent =
-      h.contig.name +
-      ':' +
-      element.start.toLocaleString() +
-      '–' +
-      element.end.toLocaleString() +
-      ' · ' +
-      T.formatBp(element.length);
-    titles.appendChild(h3);
-    titles.appendChild(sub);
-    var close = document.createElement('button');
-    close.type = 'button';
-    close.textContent = 'Close';
-    close.addEventListener('click', function () {
-      modal.close();
-    });
-    head.appendChild(titles);
-    head.appendChild(close);
-    modal.appendChild(head);
+    modal.appendChild(featureHead(h, element));
 
     var body = document.createElement('div');
     body.className = 'modal-body';
 
+    var panels = [{ id: 'details', label: 'Details', build: function () {
+      return detailsPanel(h, element);
+    } }];
+
+    if (element) {
+      panels.push({
+        id: 'sequence',
+        label: sequence ? 'Element sequence' : 'Element sequence (not embedded)',
+        build: function () {
+          return sequencePanel(h, element, sequence);
+        },
+      });
+    }
+
+    body.appendChild(tabs(panels));
+    modal.appendChild(body);
+
+    if (typeof modal.showModal === 'function') modal.showModal();
+    else modal.setAttribute('open', '');
+  }
+
+  function featureHead(h, element) {
+    var head = document.createElement('div');
+    head.className = 'modal-head';
+
+    var titles = document.createElement('div');
+    var h3 = document.createElement('h3');
+    var group = h.groups[0];
+    if (group) {
+      var swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = T.groupColour(group);
+      swatch.style.marginRight = '7px';
+      h3.appendChild(swatch);
+    }
+    h3.appendChild(
+      document.createTextNode(element ? element.element_id : h.model.name)
+    );
+
+    var sub = document.createElement('div');
+    sub.className = 'sub';
+    sub.textContent = element
+      ? h.contig.name + ':' + element.start.toLocaleString() + '–' +
+        element.end.toLocaleString() + ' · ' + T.formatBp(element.length)
+      : h.contig.name + ':' + h.start.toLocaleString() + '–' +
+        h.end.toLocaleString() + ' · ' + T.formatBp(h.length) + ' · unpaired';
+
+    titles.appendChild(h3);
+    titles.appendChild(sub);
+
+    var actions = document.createElement('div');
+    actions.className = 'modal-head-actions';
+
+    var show = document.createElement('button');
+    show.type = 'button';
+    show.textContent = 'Show on track';
+    show.addEventListener('click', function () {
+      closeModal();
+      if (element) {
+        goToLocus(h.contig.name, element.start, element.end);
+      } else {
+        goToLocus(h.contig.name, h.start, h.end);
+      }
+    });
+
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'Close';
+    close.addEventListener('click', closeModal);
+
+    actions.appendChild(show);
+    actions.appendChild(close);
+    head.appendChild(titles);
+    head.appendChild(actions);
+    return head;
+  }
+
+  function closeModal() {
+    if (!modal) return;
+    if (typeof modal.close === 'function' && modal.open) modal.close();
+    else modal.removeAttribute('open');
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+    lastFocus = null;
+  }
+
+  /* A minimal tab strip: no dependency, and the roles keep it navigable. */
+  function tabs(panels) {
+    var wrap = document.createElement('div');
+
+    if (panels.length < 2) {
+      wrap.appendChild(panels[0].build());
+      return wrap;
+    }
+
+    var strip = document.createElement('div');
+    strip.className = 'tabs';
+    strip.setAttribute('role', 'tablist');
+
+    var bodies = [];
+    var buttons = [];
+
+    panels.forEach(function (panel, index) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tab';
+      button.textContent = panel.label;
+      button.setAttribute('role', 'tab');
+      button.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+
+      var content = document.createElement('div');
+      content.className = 'tab-panel';
+      content.setAttribute('role', 'tabpanel');
+      // Panels are built lazily: rendering a 30 kb sequence into the DOM for a
+      // tab the reader may never open is wasted work on every popup.
+      if (index === 0) content.appendChild(panel.build());
+      else content.hidden = true;
+
+      button.addEventListener('click', function () {
+        buttons.forEach(function (other, otherIndex) {
+          other.setAttribute('aria-selected', otherIndex === index ? 'true' : 'false');
+          bodies[otherIndex].hidden = otherIndex !== index;
+        });
+        if (!content.firstChild) content.appendChild(panel.build());
+      });
+
+      buttons.push(button);
+      bodies.push(content);
+      strip.appendChild(button);
+    });
+
+    wrap.appendChild(strip);
+    bodies.forEach(function (content) {
+      wrap.appendChild(content);
+    });
+    return wrap;
+  }
+
+  function detailsPanel(h, element) {
     var dl = document.createElement('dl');
-    row(dl, 'Pairing group', data.groups[element.group_i].label);
-    if (left) {
+
+    row(dl, 'Model', h.model.name);
+    row(
+      dl,
+      'Hit location',
+      h.contig.name + ':' + h.start.toLocaleString() + '–' + h.end.toLocaleString()
+    );
+    row(dl, 'Hit length', T.formatBp(h.length));
+    row(dl, 'Strand', h.strand);
+    row(dl, 'E-value', T.formatEvalue(h.evalue));
+    row(dl, 'Score', h.score == null ? null : String(h.score));
+
+    if (h.hmmStart != null && h.hmmEnd != null) {
       row(
         dl,
-        'Left terminus',
-        left.model.name + ' ' + left.start.toLocaleString() + '–' + left.end.toLocaleString() + ' (' + left.strand + ')'
+        'Model match',
+        h.hmmStart + '–' + h.hmmEnd +
+          (h.model.length ? ' of ' + h.model.length : '') +
+          (h.modelCoverage != null ? ' (' + T.formatPercent(h.modelCoverage) + ')' : '')
       );
-    }
-    if (right) {
-      row(
-        dl,
-        'Right terminus',
-        right.model.name + ' ' + right.start.toLocaleString() + '–' + right.end.toLocaleString() + ' (' + right.strand + ')'
-      );
-    }
-    row(dl, 'Between termini', T.formatBp(element.inner_distance));
-    body.appendChild(dl);
-
-    if (sequence) {
-      var actions = document.createElement('div');
-      actions.className = 'modal-actions';
-      var copy = document.createElement('button');
-      copy.type = 'button';
-      copy.textContent = 'Copy sequence';
-      var fasta = document.createElement('button');
-      fasta.type = 'button';
-      fasta.textContent = 'Copy as FASTA';
-      var flip = document.createElement('button');
-      flip.type = 'button';
-      flip.textContent = 'Reverse complement';
-      var status = document.createElement('span');
-      status.className = 'status';
-      status.setAttribute('role', 'status');
-      // The strand matters: extraction always takes the plus strand, whatever
-      // strand the termini were found on.
-      status.textContent = 'Plus strand, as extracted.';
-      actions.appendChild(copy);
-      actions.appendChild(fasta);
-      actions.appendChild(flip);
-      actions.appendChild(status);
-      body.appendChild(actions);
-
-      var pre = document.createElement('pre');
-      pre.className = 'seq';
-      pre.textContent = T.wrapSequence(sequence, 60);
-      body.appendChild(pre);
-
-      var current = function () {
-        return reversed ? T.reverseComplement(sequence) : sequence;
-      };
-      var header = function () {
-        return (
-          '>' +
-          element.element_id +
-          ' ' +
-          h.contig.name +
-          ':' +
-          element.start +
-          '-' +
-          element.end +
-          (reversed ? ' (reverse complement)' : '')
-        );
-      };
-
-      flip.addEventListener('click', function () {
-        reversed = !reversed;
-        pre.textContent = T.wrapSequence(current(), 60);
-        status.textContent = reversed
-          ? 'Reverse complement of the extracted sequence.'
-          : 'Plus strand, as extracted.';
-      });
-      copy.addEventListener('click', function () {
-        report(status, T.copyText(current()), 'Sequence copied.');
-      });
-      fasta.addEventListener('click', function () {
-        report(
-          status,
-          T.copyText(header() + '\n' + T.wrapSequence(current(), 60) + '\n'),
-          'FASTA copied.'
-        );
-      });
     } else {
+      row(dl, 'Model match', 'coordinates unavailable for this input format');
+    }
+    if (h.spanCoverage != null) {
+      row(dl, 'Span / model', h.spanCoverage.toFixed(2) + '×');
+    }
+
+    [T.truncationNote(h, 'left'), T.truncationNote(h, 'right')]
+      .filter(Boolean)
+      .forEach(function (note, index) {
+        row(dl, index === 0 ? 'Completeness' : ' ', note);
+      });
+
+    row(
+      dl,
+      'Pairing group',
+      h.groups.map(function (g) { return g.label; }).join(', ') || 'none'
+    );
+
+    if (element) {
+      var left = T.hitByUid(element.left_uid);
+      var right = T.hitByUid(element.right_uid);
+      row(dl, 'Terminus', h.role || '—');
+      if (left) {
+        row(
+          dl,
+          'Left terminus',
+          left.model.name + ' ' + left.start.toLocaleString() + '–' +
+            left.end.toLocaleString() + ' (' + left.strand + ')'
+        );
+      }
+      if (right) {
+        row(
+          dl,
+          'Right terminus',
+          right.model.name + ' ' + right.start.toLocaleString() + '–' +
+            right.end.toLocaleString() + ' (' + right.strand + ')'
+        );
+      }
+      row(dl, 'Between termini', T.formatBp(element.inner_distance));
+      row(dl, 'Element length', T.formatBp(element.length));
+    } else {
+      row(dl, 'Pairing', 'unpaired');
+    }
+
+    return dl;
+  }
+
+  function sequencePanel(h, element, sequence) {
+    var panel = document.createElement('div');
+
+    if (!sequence) {
       var missing = document.createElement('div');
       missing.className = 'seq-missing';
       missing.textContent = data.sequences.embedded
-        ? 'This element’s sequence was too large to embed in the report. Extract it from the run’s output:'
-        : 'Sequences were not embedded in this report. Extract this element from the run’s output:';
+        ? 'This element’s sequence was too large to embed in the report. ' +
+          'Extract it from the run’s output:'
+        : 'Sequences were not embedded in this report. Extract this element ' +
+          'from the run’s output:';
       var code = document.createElement('code');
       code.textContent =
-        'samtools faidx <genome.fa> ' +
-        h.contig.name +
-        ':' +
-        element.start +
-        '-' +
-        element.end;
+        'samtools faidx <genome.fa> ' + h.contig.name + ':' +
+        element.start + '-' + element.end;
       missing.appendChild(code);
-      body.appendChild(missing);
+      panel.appendChild(missing);
+      return panel;
     }
 
-    modal.appendChild(body);
-    if (typeof modal.showModal === 'function') modal.showModal();
-    else modal.setAttribute('open', '');
+    var reversed = false;
+    var actions = document.createElement('div');
+    actions.className = 'modal-actions';
+
+    var copy = document.createElement('button');
+    copy.type = 'button';
+    copy.textContent = 'Copy sequence';
+
+    var fasta = document.createElement('button');
+    fasta.type = 'button';
+    fasta.textContent = 'Copy as FASTA';
+
+    var download = document.createElement('button');
+    download.type = 'button';
+    download.textContent = 'Download FASTA';
+
+    var flip = document.createElement('button');
+    flip.type = 'button';
+    flip.textContent = 'Reverse complement';
+
+    var status = document.createElement('span');
+    status.className = 'status';
+    status.setAttribute('role', 'status');
+    // Extraction always takes the plus strand, whichever strand the termini
+    // were found on, so the panel says which strand is on screen.
+    status.textContent = 'Plus strand, as extracted · ' + sequence.length + ' bp';
+
+    actions.appendChild(copy);
+    actions.appendChild(fasta);
+    actions.appendChild(download);
+    actions.appendChild(flip);
+    actions.appendChild(status);
+    panel.appendChild(actions);
+
+    var pre = document.createElement('pre');
+    pre.className = 'seq';
+    pre.textContent = T.wrapSequence(sequence, 60);
+    panel.appendChild(pre);
+
+    function current() {
+      return reversed ? T.reverseComplement(sequence) : sequence;
+    }
+    function header() {
+      return (
+        '>' + element.element_id + ' ' + h.contig.name + ':' +
+        element.start + '-' + element.end +
+        (reversed ? ' (reverse complement)' : '')
+      );
+    }
+
+    flip.addEventListener('click', function () {
+      reversed = !reversed;
+      pre.textContent = T.wrapSequence(current(), 60);
+      status.textContent =
+        (reversed ? 'Reverse complement' : 'Plus strand, as extracted') +
+        ' · ' + sequence.length + ' bp';
+    });
+    copy.addEventListener('click', function () {
+      report(status, T.copyText(current()), 'Sequence copied.');
+    });
+    fasta.addEventListener('click', function () {
+      report(
+        status,
+        T.copyText(header() + '\n' + T.wrapSequence(current(), 60) + '\n'),
+        'FASTA copied.'
+      );
+    });
+    download.addEventListener('click', function () {
+      T.downloadText(
+        header() + '\n' + T.wrapSequence(current(), 60) + '\n',
+        element.element_id + '.fasta'
+      );
+    });
+
+    return panel;
   }
 
   function report(status, promise, message) {
@@ -1042,6 +1128,67 @@
       }
     );
   }
+
+  /* ---- navigation ------------------------------------------------------ */
+
+  /*
+   * Reveal a locus on its track and frame it. Called from the popup and from
+   * the coordinate links in the tables, so a reader can move from a row to the
+   * picture without hunting for the contig.
+   */
+  function goToLocus(contigName, start, end) {
+    var host = container.querySelector(
+      '.track[data-contig="' + cssEscape(contigName) + '"]'
+    );
+
+    if (!host) {
+      // The track is filtered out. Clear the filters that hide it rather than
+      // silently doing nothing.
+      var search = document.getElementById('contig-search');
+      var toggle = document.getElementById('show-empty');
+      if (search && search.value) {
+        search.value = '';
+        search.dispatchEvent(new Event('input'));
+      }
+      if (toggle && !toggle.checked) {
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change'));
+      }
+      host = container.querySelector(
+        '.track[data-contig="' + cssEscape(contigName) + '"]'
+      );
+      if (!host) return;
+    }
+
+    var track = host.__track;
+    if (!track) return;
+
+    var pad = Math.max(200, Math.round((end - start) * 0.25));
+    track.built = true;
+    track.setView(start - pad, end + pad);
+    track.draw();
+    host.scrollIntoView({ block: 'center', behavior: 'smooth' });
+
+    host.classList.add('track-flash');
+    setTimeout(function () {
+      host.classList.remove('track-flash');
+    }, 1200);
+  }
+
+  // Exposed so the tables and the alignment panels can drive the same popup
+  // and the same navigation rather than reimplementing either.
+  T.showFeature = function (uid) {
+    openFeature(T.hitByUid(uid));
+  };
+  T.showElement = function (pairId) {
+    for (var i = 0; i < data.elements.length; i++) {
+      if (data.elements[i].pair_id === pairId) {
+        openFeature(T.hitByUid(data.elements[i].left_uid));
+        return;
+      }
+    }
+  };
+  T.goToLocus = goToLocus;
 
   /* ---- assembly -------------------------------------------------------- */
 

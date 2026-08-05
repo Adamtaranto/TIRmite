@@ -400,8 +400,9 @@ select:focus-visible,
 .track svg {
   display: block;
   width: 100%;
-  /* The wheel is bound to zoom, so the page must not scroll under it. */
-  touch-action: none;
+  /* Horizontal gestures belong to the track (pan); vertical ones are left to
+     the browser so the page still scrolls past a track under a finger. */
+  touch-action: pan-y;
   cursor: grab;
 }
 
@@ -514,16 +515,6 @@ select:focus-visible,
   opacity: 1;
 }
 
-/* Pinned by a click: the box becomes the user's, so it accepts the pointer and
-   carries its own controls. A hover tooltip cannot, because moving towards it
-   leaves the mark that produced it. */
-.tooltip[data-pinned="1"] {
-  pointer-events: auto;
-  border-color: var(--accent);
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.2);
-  max-width: 400px;
-}
-
 .tooltip h4 {
   margin: 0 0 4px;
   font-size: 13px;
@@ -531,45 +522,6 @@ select:focus-visible,
   display: flex;
   align-items: center;
   gap: 6px;
-}
-
-.tooltip-close {
-  margin-left: auto;
-  border: none;
-  background: transparent;
-  color: var(--ink-muted);
-  font-size: 17px;
-  line-height: 1;
-  padding: 0 2px;
-  min-height: 0;
-  cursor: pointer;
-}
-
-.tooltip-close:hover {
-  color: var(--ink);
-  border: none;
-}
-
-.tooltip-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--rule);
-}
-
-.tooltip-actions button {
-  font-size: 12px;
-  padding: 4px 9px;
-  min-height: 26px;
-}
-
-.tooltip-actions .status {
-  font-size: 11.5px;
-  color: var(--ink-muted);
-  flex-basis: 100%;
 }
 
 .tooltip dl {
@@ -624,6 +576,100 @@ dialog.element-modal::backdrop {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.modal-head-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+/* Metadata and sequence are tabbed rather than stacked: an element sequence
+   can run to tens of kilobases and would bury the details identifying it. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 14px;
+}
+
+.tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 13px;
+  padding: 6px 10px;
+  min-height: 32px;
+}
+
+.tab:hover {
+  border-color: transparent;
+  border-bottom-color: var(--rule-strong);
+  color: var(--ink);
+}
+
+.tab[aria-selected="true"] {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* Marks the track a coordinate link just jumped to, so the reader can see
+   where they landed on a page full of near-identical tracks. */
+.track-flash {
+  animation: track-flash 1.2s ease-out;
+}
+
+@keyframes track-flash {
+  0% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgb(42 120 214 / 0.18);
+  }
+  100% {
+    border-color: var(--rule);
+    box-shadow: none;
+  }
+}
+
+/* A coordinate that navigates: styled as a link, but it is a button because
+   it moves the view rather than following a URL. */
+.locus-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  min-height: 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.locus-link:hover {
+  border: none;
+  text-decoration-style: solid;
+}
+
+.name-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  min-height: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.name-link:hover {
+  border: none;
 }
 
 .modal-head .sub {

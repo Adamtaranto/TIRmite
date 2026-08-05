@@ -169,6 +169,44 @@ class TestBuildFigures:
         assert 'span-based' in figure.caption
 
 
+class TestLegendPlacement:
+    def test_legend_is_anchored_above_the_axes(self):
+        # A legend inside the axes lands on the data -- in a distribution plot,
+        # exactly where the tallest bars are.
+        from tirmite.report.figures import _legend_outside
+
+        with plt.rc_context(nature_rcparams()):
+            fig, ax = plt.subplots()
+            ax.plot([0, 1], [0, 1], label='series')
+            _legend_outside(ax, 1)
+            anchor = ax.get_legend().get_bbox_to_anchor()
+            in_axes = anchor.transformed(ax.transAxes.inverted())
+            plt.close(fig)
+
+        assert in_axes.y0 >= 1.0
+
+    def test_no_figure_places_a_legend_inside_the_axes(self, report):
+        # Guards the whole set: a new figure added with a bare ax.legend()
+        # would put its key back over the data.
+        import tirmite.report.figures as figures_module
+
+        placements = []
+        real_legend = plt.Axes.legend
+
+        def record(self, *args, **kwargs):
+            placements.append(kwargs.get('bbox_to_anchor'))
+            return real_legend(self, *args, **kwargs)
+
+        plt.Axes.legend = record
+        try:
+            figures_module.build_figures(report)
+        finally:
+            plt.Axes.legend = real_legend
+
+        assert placements, 'expected at least one legend'
+        assert all(anchor is not None for anchor in placements)
+
+
 class TestDegenerateInputs:
     def test_empty_report_builds_no_figures_and_does_not_raise(self):
         from tirmite.report.model import ReportData

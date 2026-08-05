@@ -65,6 +65,30 @@
     return kinds;
   }
 
+  /*
+   * Serialise a panel as FASTA. Headers carry the hit's true genomic
+   * coordinates and strand, so a downloaded alignment can be traced back to
+   * the run rather than being an anonymous block of sequence.
+   */
+  function toFasta(spec, aligned) {
+    var lines = [];
+    spec.rows.forEach(function (row) {
+      var hit = T.hitByUid(row.uid);
+      var header = hit
+        ? '>' + spec.model + '_' + hit.contig.name + ':' + hit.start + '-' +
+          hit.end + '(' + hit.strand + ')' +
+          (row.role ? ' terminus=' + row.role : '') +
+          // Rows are shown in model orientation, so a minus-strand hit was
+          // reverse-complemented before it reached the panel.
+          (hit.strand === '-' ? ' reverse_complemented' : '')
+        : '>' + spec.model + '_hit' + row.uid;
+      var seq = aligned ? row.seq : row.seq.replace(/[-.]/g, '');
+      lines.push(header);
+      lines.push(T.wrapSequence(seq, 60));
+    });
+    return lines.join('\n') + '\n';
+  }
+
   function Panel(spec) {
     this.spec = spec;
     this.rowHeight = Math.max(
@@ -98,6 +122,42 @@
     head.appendChild(name);
     head.appendChild(stats);
     el.appendChild(head);
+
+    var actions = document.createElement('div');
+    actions.className = 'track-head';
+    var hint = document.createElement('span');
+    hint.className = 'track-view';
+    hint.textContent = 'Hover a row for its hit · click to show it on its contig';
+    var buttons = document.createElement('span');
+
+    var alignedBtn = document.createElement('button');
+    alignedBtn.type = 'button';
+    alignedBtn.textContent = 'Download aligned FASTA';
+    alignedBtn.addEventListener('click', function () {
+      T.downloadText(
+        toFasta(spec, true),
+        spec.model + '_termini_aligned.fasta',
+        'text/x-fasta'
+      );
+    });
+
+    var ungappedBtn = document.createElement('button');
+    ungappedBtn.type = 'button';
+    ungappedBtn.textContent = 'Unaligned';
+    ungappedBtn.title = 'The same rows with alignment gaps removed';
+    ungappedBtn.addEventListener('click', function () {
+      T.downloadText(
+        toFasta(spec, false),
+        spec.model + '_termini.fasta',
+        'text/x-fasta'
+      );
+    });
+
+    buttons.appendChild(alignedBtn);
+    buttons.appendChild(ungappedBtn);
+    actions.appendChild(hint);
+    actions.appendChild(buttons);
+    el.appendChild(actions);
 
     var wrap = document.createElement('div');
     wrap.className = 'msa-canvas-wrap';
@@ -306,22 +366,11 @@
       if (rowIndex < 0 || rowIndex >= self.spec.rows.length) return;
       var hit = T.hitByUid(self.spec.rows[rowIndex].uid);
       if (!hit) return;
-      // Bring the corresponding annotation into view rather than duplicating
-      // the track browser's controls here.
-      var track = document.querySelector(
-        '.track[data-contig="' + cssEscape(hit.contig.name) + '"]'
-      );
-      if (!track || !track.__track) return;
-      track.__track.built = true;
-      track.__track.setView(hit.start - hit.length * 3, hit.end + hit.length * 3);
-      track.__track.draw();
-      track.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      // Reuses the track browser's navigation rather than duplicating it, so
+      // a row, a table coordinate and the popup all land the same way.
+      if (T.goToLocus) T.goToLocus(hit.contig.name, hit.start, hit.end);
     });
   };
-
-  function cssEscape(value) {
-    return window.CSS && CSS.escape ? CSS.escape(value) : value.replace(/"/g, '\\"');
-  }
 
   function showRowTooltip(tooltip, spec, row, col, event) {
     var hit = T.hitByUid(row.uid);

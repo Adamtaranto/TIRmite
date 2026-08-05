@@ -44,13 +44,15 @@ subdirectories.
 
 One track per sequence carrying at least one hit, drawn as a genome browser.
 
-- **Scroll** to zoom about the cursor, **drag** to pan, **double-click** an
+- **Swipe or drag sideways** to pan, or use the scrollbar under each track.
+  **Scroll vertically** to zoom about the cursor. **Double-click** an
   annotation to frame it. With a track focused, the arrow keys pan and
   <kbd>+</kbd>/<kbd>-</kbd> zoom.
-- **Hover** any annotation for its model, coordinates, strand, e-value, score,
-  model coverage, pairing group and partner.
-- **Click** a paired terminus to open its element: coordinates, both termini,
-  and the sequence with copy-to-clipboard and reverse-complement buttons.
+- **Hover** any annotation for a summary: model, coordinates, strand, e-value,
+  score, model coverage, pairing group and partner.
+- **Click** an annotation to open its details popup. For a paired terminus this
+  has two tabs — the metadata, and the element sequence with copy, download and
+  reverse-complement. The same popup opens from an element name in the tables.
 
 Each annotation encodes several things at once:
 
@@ -82,7 +84,9 @@ above:
   continues there. The sequence exists; the alignment did not claim it.
 - **Blank** — sequence that does not exist because the contig ended.
 
-Hover a row for its hit; click to jump to that hit on its contig track.
+Hover a row for its hit; click to jump to that hit on its contig track. Each
+panel can be downloaded as FASTA, either aligned (gaps kept) or unaligned, with
+headers carrying each hit's genomic coordinates and strand.
 
 Alignment uses **MAFFT** when it is on your `PATH`. Without it, hits are placed
 by their model coordinates instead, which is exact wherever those coordinates
@@ -106,6 +110,17 @@ distribution is legible: everything below the line was removed before pairing.
     `--mincov` filter uses a different quantity — the hit's genomic span divided
     by the model length — which can exceed 1 when a hit contains insertions.
     Both are reported, labelled distinctly.
+
+### Hits and elements
+
+Every terminus hit and every predicted element, filterable and sortable.
+Coordinates are links: clicking one reveals that locus on its contig track.
+Element names open the same details popup as clicking the annotation. Both
+tables download in full as TSV.
+
+Large tables render only their first rows, but that is a display limit alone —
+the filter searches every row, the count states the true total, and the
+download writes everything.
 
 ### Statistics
 

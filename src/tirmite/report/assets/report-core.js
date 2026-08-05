@@ -209,6 +209,24 @@
     });
   }
 
+  /*
+   * Save text to a file. A blob URL keeps this working from file://, where
+   * these reports normally live; nothing leaves the machine.
+   */
+  function downloadText(text, filename, mime) {
+    var blob = new Blob([text], { type: mime || 'text/plain' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 0);
+  }
+
   function isDark() {
     return (
       window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
@@ -234,6 +252,7 @@
     reverseComplement: reverseComplement,
     wrapSequence: wrapSequence,
     copyText: copyText,
+    downloadText: downloadText,
     groupColour: groupColour,
     isDark: isDark,
   };

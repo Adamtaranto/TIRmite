@@ -194,6 +194,40 @@ def _model_series(
     return series
 
 
+def _legend_outside(ax: Any, n_entries: int) -> None:
+    """
+    Place a legend above the axes rather than inside them.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes to add the legend to.
+    n_entries : int
+        Number of legend entries, used to choose the column count.
+
+    Returns
+    -------
+    None
+        Modifies the axes in place.
+
+    Notes
+    -----
+    A legend inside the axes sits on top of the data, and in a distribution
+    plot it lands exactly where the tallest bars are. Anchoring it above the
+    axes costs a little height and obscures nothing. ``bbox_inches='tight'``
+    at save time keeps it inside the figure bounds.
+    """
+    ax.legend(
+        loc='lower left',
+        bbox_to_anchor=(0, 1.01, 1, 0.15),
+        mode='expand',
+        borderaxespad=0,
+        ncol=min(3, max(1, n_entries)),
+        handlelength=1.4,
+        columnspacing=1.2,
+    )
+
+
 def _finish(ax: Any) -> None:
     """
     Apply the shared axis treatment.
@@ -256,7 +290,7 @@ def _element_lengths(data: ReportData, plt: Any) -> Optional[FigureSpec]:
     ax.set_ylabel('Elements')
     # One series names itself in the title; two or more need a legend.
     if len(by_group) > 1:
-        ax.legend(loc='upper right')
+        _legend_outside(ax, len(by_group))
     _finish(ax)
 
     median_length = sorted(all_lengths)[len(all_lengths) // 2]
@@ -315,7 +349,7 @@ def _pairing_outcome(data: ReportData, plt: Any) -> Optional[FigureSpec]:
     ax.set_yticklabels(labels)
     ax.invert_yaxis()
     ax.set_xlabel('Terminus hits')
-    ax.legend(loc='lower right')
+    _legend_outside(ax, 2)
     _finish(ax)
 
     total_paired = sum(paired)
@@ -390,7 +424,7 @@ def _model_coverage(data: ReportData, plt: Any) -> Optional[FigureSpec]:
     ax.set_ylabel('Hits')
     ax.set_xlim(0, 1)
     if len(series) > 1:
-        ax.legend(loc='upper left')
+        _legend_outside(ax, len(series))
     _finish(ax)
 
     return FigureSpec(
@@ -500,7 +534,7 @@ def _evalues(data: ReportData, plt: Any) -> Optional[FigureSpec]:
     ax.set_xlabel('log$_{10}$(e-value)')
     ax.set_ylabel('Hits')
     if len(series) > 1:
-        ax.legend(loc='upper left')
+        _legend_outside(ax, len(series))
     _finish(ax)
 
     return FigureSpec(

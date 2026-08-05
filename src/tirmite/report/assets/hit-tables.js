@@ -37,12 +37,61 @@
     return parts.join(', ') || 'full length';
   }
 
+  /*
+   * A cell that navigates to a locus on its track. Rendered as a button rather
+   * than an anchor because it moves the viewport rather than following a URL,
+   * and a fake href would break opening the report in a new tab.
+   */
+  function locusCell(contigName, start, end, label) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'locus-link';
+    button.textContent = label;
+    button.title = 'Show ' + contigName + ':' + start + '–' + end + ' on its track';
+    button.addEventListener('click', function () {
+      if (T.goToLocus) T.goToLocus(contigName, start, end);
+    });
+    return button;
+  }
+
+  function nameCell(label, onOpen) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'name-link';
+    button.textContent = label;
+    button.title = 'Open details for ' + label;
+    button.addEventListener('click', onOpen);
+    return button;
+  }
+
   var HIT_COLUMNS = [
     { label: 'Hit', num: true, get: function (h) { return h.uid; } },
-    { label: 'Model', get: function (h) { return h.model.name; } },
+    {
+      label: 'Model',
+      get: function (h) { return h.model.name; },
+      render: function (h) {
+        return nameCell(h.model.name, function () {
+          T.showFeature(h.uid);
+        });
+      },
+    },
     { label: 'Sequence', get: function (h) { return h.contig.name; } },
-    { label: 'Start', num: true, get: function (h) { return h.start; } },
-    { label: 'End', num: true, get: function (h) { return h.end; } },
+    {
+      label: 'Start',
+      num: true,
+      get: function (h) { return h.start; },
+      render: function (h) {
+        return locusCell(h.contig.name, h.start, h.end, h.start.toLocaleString());
+      },
+    },
+    {
+      label: 'End',
+      num: true,
+      get: function (h) { return h.end; },
+      render: function (h) {
+        return locusCell(h.contig.name, h.start, h.end, h.end.toLocaleString());
+      },
+    },
     { label: 'Length', num: true, get: function (h) { return h.length; } },
     { label: 'Strand', get: function (h) { return h.strand; } },
     {
@@ -69,11 +118,25 @@
     {
       label: 'Element',
       get: function (h) { return h.element ? h.element.element_id : '—'; },
+      render: function (h) {
+        if (!h.element) return null;
+        return nameCell(h.element.element_id, function () {
+          T.showElement(h.element.pair_id);
+        });
+      },
     },
   ];
 
   var ELEMENT_COLUMNS = [
-    { label: 'Element', get: function (e) { return e.element_id; } },
+    {
+      label: 'Element',
+      get: function (e) { return e.element_id; },
+      render: function (e) {
+        return nameCell(e.element_id, function () {
+          T.showElement(e.pair_id);
+        });
+      },
+    },
     {
       label: 'Pairing group',
       get: function (e) { return data.groups[e.group_i].label; },
@@ -82,8 +145,26 @@
       label: 'Sequence',
       get: function (e) { return data.contigs[e.contig_i].name; },
     },
-    { label: 'Start', num: true, get: function (e) { return e.start; } },
-    { label: 'End', num: true, get: function (e) { return e.end; } },
+    {
+      label: 'Start',
+      num: true,
+      get: function (e) { return e.start; },
+      render: function (e) {
+        return locusCell(
+          data.contigs[e.contig_i].name, e.start, e.end, e.start.toLocaleString()
+        );
+      },
+    },
+    {
+      label: 'End',
+      num: true,
+      get: function (e) { return e.end; },
+      render: function (e) {
+        return locusCell(
+          data.contigs[e.contig_i].name, e.start, e.end, e.end.toLocaleString()
+        );
+      },
+    },
     { label: 'Length', num: true, get: function (e) { return e.length; } },
     {
       label: 'Left terminus',
@@ -256,7 +337,12 @@
       columns.forEach(function (column) {
         var td = document.createElement('td');
         if (column.num) td.className = 'num';
-        td.textContent = cellText(column, row);
+        // A column may render an interactive cell -- a coordinate that jumps
+        // to the track, a name that opens the popup -- and falls back to text
+        // when there is nothing to link to.
+        var node = column.render ? column.render(row) : null;
+        if (node) td.appendChild(node);
+        else td.textContent = cellText(column, row);
         tr.appendChild(td);
       });
       fragment.appendChild(tr);

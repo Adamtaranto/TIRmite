@@ -125,7 +125,8 @@ def render_report(
     data : ReportData
         The report to render.
     figures : sequence of FigureSpec, optional
-        Static figures to embed. Overrides any already on `data`.
+        Static figures to embed. Overrides any already on `data`. When omitted
+        and `data` carries none, they are built here.
     template : str, default 'pair_report.html.j2'
         Template to use.
 
@@ -136,6 +137,12 @@ def render_report(
     """
     if figures is not None:
         data.figures = list(figures)
+    elif not data.figures:
+        # Imported here, not at module scope: matplotlib is a heavy import and
+        # most runs never build a report.
+        from tirmite.report.figures import build_figures
+
+        data.figures = build_figures(data)
 
     env = _environment()
     context: Dict[str, Any] = {

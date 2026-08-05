@@ -88,7 +88,22 @@ class TestSelfContained:
         assert '<link rel="stylesheet"' not in html
         assert 'rel="stylesheet"' not in html
         assert '<script src=' not in html
-        assert 'https://' not in html.replace('http://www.w3.org/2000/svg', '')
+
+    def test_nothing_is_fetched_over_the_network(self, html):
+        # Any src/href pointing off-document is a resource the report would
+        # try to load. The SVG and XLink namespace URIs are declarations, not
+        # fetches, and are the only permitted absolute URLs.
+        allowed = {'http://www.w3.org/2000/svg', 'http://www.w3.org/1999/xlink'}
+        targets = re.findall(r'(?:src|href|xlink:href)="([^"]*)"', html)
+        remote = [
+            target
+            for target in targets
+            if target.startswith(('http://', 'https://', '//'))
+            and target not in allowed
+        ]
+        assert remote == []
+        assert '@import' not in html
+        assert 'url(http' not in html
 
     def test_styles_and_scripts_are_inlined(self, html):
         assert '<style>' in html

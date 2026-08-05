@@ -452,7 +452,7 @@ def filter_junction_spanning(
 
 
 def extract_hit_sequence(
-    blastdb: str,
+    source: BlastDBSource,
     subject_id: str,
     start: int,
     end: int,
@@ -463,8 +463,9 @@ def extract_hit_sequence(
 
     Parameters
     ----------
-    blastdb : str
-        Path to BLAST database.
+    source : BlastDBSource
+        Open sequence source for the BLAST database. Takes a source rather
+        than a path so its caches survive across hits; see Notes.
     subject_id : str
         Subject sequence identifier.
     start : int
@@ -484,12 +485,17 @@ def extract_hit_sequence(
     -----
     Delegates to :func:`tirmite.utils.extract.fetch_sequence`, which applies the
     same clamping and validation used for FASTA-indexed genomes.
-    """
-    if not blastdbcmd_available():
-        logger.error('blastdbcmd not found in PATH')
-        return None
 
-    seq = fetch_sequence(BlastDBSource(blastdb), subject_id, start, end)
+    This used to take a database *path* and construct a fresh
+    ``BlastDBSource`` on every call. That class caches contig lengths
+    precisely because each lookup costs a ``blastdbcmd`` subprocess, and
+    rebuilding it per hit threw the cache away every time -- so each hit paid
+    two subprocess spawns (one to resolve the contig length for clamping, one
+    to fetch the sequence) instead of amortising the first across every hit on
+    the same contig. ``blastdbcmd_available()`` was re-checked per hit too;
+    that is now pre-flighted once by :func:`_check_required_tools`.
+    """
+    seq = fetch_sequence(source, subject_id, start, end)
     if seq is None:
         return None
 
@@ -823,6 +829,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 all_hits, min_coverage=args.min_coverage
             )
 
+            # One sequence source for the whole run. BlastDBSource caches
+            # contig lengths and descriptions, and each cache miss costs a
+            # blastdbcmd subprocess, so this must outlive the per-hit loop.
+            blast_source = BlastDBSource(args.blastdb)
+
             # Process each query
             prefix_str = f'{args.prefix}_' if args.prefix else ''
             summary_rows: List[Dict[str, Any]] = []
@@ -951,7 +962,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         strand = sstrand
 
                     seq_str = extract_hit_sequence(
-                        args.blastdb, hit['sseqid'], sstart, send, strand
+                        blast_source, hit['sseqid'], sstart, send, strand
                     )
                     if seq_str is None:
                         continue

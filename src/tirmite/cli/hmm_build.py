@@ -880,23 +880,92 @@ def warn_multiple_queries(hits: List[BlastHit], context: str = '') -> None:
         )
 
 
-def check_targets_in_blastdb(hits: List[BlastHit], blast_db: Path) -> List[str]:
+class _LazySource:
+    """Build a sequence source on first use and reuse it thereafter.
+
+    Parameters
+    ----------
+    blast_db : Path or None
+        BLAST database to read from, if any.
+    genome_files : list of Path
+        Genome FASTAs to index when no BLAST database is given.
+
+    Notes
+    -----
+    A workflow needs the same source twice: once to check that every hit's
+    target ID resolves, and again to extract the sequences. Building it twice
+    meant indexing the genome twice, or -- for a BLAST database -- discarding
+    the contig-length cache that the ID check had just populated, so extraction
+    re-resolved every length at a ``blastdbcmd`` subprocess apiece.
+
+    Construction stays lazy so that a run which fails before extraction (no
+    hits passed thresholds, say) never pays to index a genome it will not read.
     """
-    Check that all target sequences in hits are present in a BLAST database.
+
+    def __init__(self, blast_db: Optional[Path], genome_files: List[Path]):
+        self._blast_db = blast_db
+        self._genome_files = genome_files
+        self._source: Optional[Any] = None
+
+    @property
+    def available(self) -> bool:
+        """
+        Report whether a source could be built at all.
+
+        Returns
+        -------
+        bool
+            True if a BLAST database or at least one genome was supplied.
+
+        Notes
+        -----
+        Lets a caller skip an optional pre-flight check without forcing
+        construction. Forcing it would raise "No genome or BLAST database
+        available for extraction" from the ID check, pre-empting the more
+        specific errors that come later -- a run with no hits above threshold
+        should say so, not complain about extraction it never reached.
+        """
+        return self._blast_db is not None or bool(self._genome_files)
+
+    def get(self) -> Any:
+        """
+        Return the shared source, building it on first call.
+
+        Returns
+        -------
+        FastaSource or BlastDBSource
+            The sequence source for this workflow.
+        """
+        if self._source is None:
+            self._source = _build_source(self._blast_db, self._genome_files)
+        return self._source
+
+
+def check_targets_in_blastdb(hits: List[BlastHit], source: Any) -> List[str]:
+    """
+    Check that all target sequences in hits are present in a sequence source.
 
     Parameters
     ----------
     hits : list of BlastHit
         BLAST hits whose subject IDs should be validated.
-    blast_db : Path
-        Path to BLAST database (without extension).
+    source : FastaSource or BlastDBSource
+        Open sequence source to resolve the IDs against.
 
     Returns
     -------
     list of str
-        Subject IDs that could NOT be found in the database.
+        Subject IDs that could NOT be found in the source.
+
+    Notes
+    -----
+    Takes an open source rather than a database path so the caller can reuse
+    the one it will extract with. This previously built its own
+    ``BlastDBSource``, populated its contig-length cache while checking every
+    ID, and then discarded it -- so extraction re-resolved every one of those
+    lengths, at a ``blastdbcmd`` subprocess apiece.
     """
-    return check_ids(BlastDBSource(blast_db), (h.subject_id for h in hits))
+    return check_ids(source, (h.subject_id for h in hits))
 
 
 def _build_source(blast_db: Optional[Path], genome_files: List[Path]):  # type: ignore[no-untyped-def]
@@ -1853,6 +1922,11 @@ def process_seed_sequences(
     """
     logger.info(f'Processing {model_name} seed: {seed_file.name}')
 
+    # One source per workflow, built on first use. Shared between the
+    # target-ID check and sequence extraction so the genome is indexed once
+    # and blastdbcmd's contig-length cache survives between them.
+    lazy_source = _LazySource(blast_db, genome_files)
+
     # ------------------------------------------------------------------ #
     # Step 1 – Obtain BLAST hits                                           #
     # ------------------------------------------------------------------ #
@@ -1870,27 +1944,17 @@ def process_seed_sequences(
         # Warn about multiple query names
         warn_multiple_queries(all_hits, context=model_name)
 
-        # Validate that all target sequences are reachable
-        if blast_db is not None:
-            missing = check_targets_in_blastdb(all_hits, blast_db)
+        # Validate that all target sequences are reachable, using the same
+        # source extraction will use. Building it here rather than later means
+        # the genome is indexed once instead of twice, and the contig lengths
+        # resolved by this check are still cached when extraction runs.
+        if lazy_source.available:
+            missing = check_targets_in_blastdb(all_hits, lazy_source.get())
             if missing:
                 logger.warning(
                     f'The following target sequences from the blast-hits table '
-                    f'could not be found in the blast database: '
-                    f'{", ".join(missing)}'
-                )
-        elif genome_files:
-            # Note: validation is performed against the first genome only; hits
-            # referencing sequences in other listed genomes are not checked here.
-            genome_index, _ = indexGenome(genome_files[0])
-            missing = [
-                h.subject_id for h in all_hits if h.subject_id not in genome_index
-            ]
-            if missing:
-                logger.warning(
-                    f'The following target sequences from the blast-hits table '
-                    f'could not be found in the genome index: '
-                    f'{", ".join(set(missing))}'
+                    f'could not be resolved in the sequence source: '
+                    f'{", ".join(sorted(set(missing)))}'
                 )
 
     elif blast_db is not None:
@@ -1949,7 +2013,7 @@ def process_seed_sequences(
     resolved_hits = resolve_overlapping_hits(filtered_hits)
 
     # Pre-compute the sequence source and single-element chains
-    source = _build_source(blast_db, genome_files)
+    source = lazy_source.get()
     # Each resolved hit forms its own independent chain (no fragmented-hit chaining)
     hit_chains = [[h] for h in resolved_hits]
 
@@ -2124,6 +2188,11 @@ def process_asymmetric_seeds(
     """
     logger.info(f'Processing asymmetric seeds for {model_name}')
 
+    # One source for BOTH seeds, built on first use. The left and right ID
+    # checks and both extraction passes previously built their own, so an
+    # asymmetric run indexed the genome three times over.
+    lazy_source = _LazySource(blast_db, genome_files)
+
     # ------------------------------------------------------------------ #
     # Step 1 – Obtain BLAST hits for left seed                             #
     # ------------------------------------------------------------------ #
@@ -2136,22 +2205,12 @@ def process_asymmetric_seeds(
                 f'No hits in provided left-blast-hits file: {left_blast_hits_file}'
             )
         warn_multiple_queries(all_left_hits, context=f'{model_name}_left')
-        if blast_db is not None:
-            missing = check_targets_in_blastdb(all_left_hits, blast_db)
+        if lazy_source.available:
+            missing = check_targets_in_blastdb(all_left_hits, lazy_source.get())
             if missing:
                 logger.warning(
-                    f'Left hit targets not found in blast database: '
-                    f'{", ".join(missing)}'
-                )
-        elif genome_files:
-            genome_index, _ = indexGenome(genome_files[0])
-            missing_left = [
-                h.subject_id for h in all_left_hits if h.subject_id not in genome_index
-            ]
-            if missing_left:
-                logger.warning(
-                    f'Left hit targets not found in genome: '
-                    f'{", ".join(set(missing_left))}'
+                    f'Left hit targets could not be resolved in the sequence '
+                    f'source: {", ".join(sorted(set(missing)))}'
                 )
     elif blast_db is not None:
         logger.info(f'Running left BLAST against pre-built database: {blast_db}')
@@ -2195,22 +2254,12 @@ def process_asymmetric_seeds(
                 f'No hits in provided right-blast-hits file: {right_blast_hits_file}'
             )
         warn_multiple_queries(all_right_hits, context=f'{model_name}_right')
-        if blast_db is not None:
-            missing = check_targets_in_blastdb(all_right_hits, blast_db)
+        if lazy_source.available:
+            missing = check_targets_in_blastdb(all_right_hits, lazy_source.get())
             if missing:
                 logger.warning(
-                    f'Right hit targets not found in blast database: '
-                    f'{", ".join(missing)}'
-                )
-        elif genome_files:
-            genome_index, _ = indexGenome(genome_files[0])
-            missing_right = [
-                h.subject_id for h in all_right_hits if h.subject_id not in genome_index
-            ]
-            if missing_right:
-                logger.warning(
-                    f'Right hit targets not found in genome: '
-                    f'{", ".join(set(missing_right))}'
+                    f'Right hit targets could not be resolved in the sequence '
+                    f'source: {", ".join(sorted(set(missing)))}'
                 )
     elif blast_db is not None:
         logger.info(f'Running right BLAST against pre-built database: {blast_db}')
@@ -2279,7 +2328,7 @@ def process_asymmetric_seeds(
     # Step 4 – Extract sequences                                           #
     # ------------------------------------------------------------------ #
     # Determine the sequence source for extraction
-    source = _build_source(blast_db, genome_files)
+    source = lazy_source.get()
     # Each resolved hit forms its own independent chain (no fragmented-hit chaining)
     left_chains = [[h] for h in resolved_left]
     right_chains = [[h] for h in resolved_right]

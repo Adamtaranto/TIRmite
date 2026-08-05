@@ -36,9 +36,6 @@ dev = [
     "pydocstyle",
     "numpydoc-validation",
     "pre-commit",
-    "pytest",
-    "pytest-codspeed",
-    "pytest-cov",
     "ruff",
 ]
 test = [

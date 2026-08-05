@@ -26,16 +26,13 @@ An iterative pairing algorithm is then used to annotate cryptic transposon varia
 
 The elements extracted by TIRmite generally represent structuaral variants derived from an autonomous ancestor and may be further clustered into families.
 
-# Table of contents
+## Table of contents
 
 * [About TIRmite](#about-tirmite)
 * [Options and usage](#options-and-usage)
   * [Installing TIRmite](#installing-tirmite)
   * [Example usage](#example-usage)
-  * [Standard options](#standard-options)
 * [Algorithm overview](#algorithm-overview)
-* [Contributing](#contributing)
-* [Issues](#issues)
 * [License](#license)
 
 ## About TIRmite
@@ -53,7 +50,7 @@ Three classes of output are produced:
 
 ### Installing TIRmite
 
-TIRmite requires Python >= v3.9
+TIRmite requires Python >= v3.10
 
 Dependencies:
 
@@ -94,7 +91,7 @@ Test installation.
 ```bash
 # Print version number and exit.
 % tirmite --version
-tirmite 1.4.0
+tirmite 1.5.0
 
 # Get usage information
 % tirmite --help
@@ -132,45 +129,6 @@ tirmite pair \
   --outdir MY_TIR_OUTPUT
 ```
 
-To also reconstruct target sites (see [tutorial](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-validate/)):
-
-```bash
-tirmite pair \
-  --genome $GENOME \
-  --nhmmer-file $NHMMERFILE \
-  --hmm-file $HMMFILE \
-  --orientation F,R \
-  --mincov 0.6 \
-  --maxdist 20000 \
-  --flank-len 30 \
-  --tsd-length 2 \
-  --outdir MY_TIR_OUTPUT \
-  --gff
-```
-
-### Standard options
-
-Run `tirmite --help` to view available subcommands:
-
-```
-tirmite --help
-usage: tirmite [-h] [--version] COMMAND ...
-
-TIRmite: Transposon Terminal Repeat detection suite
-
-positional arguments:
-  COMMAND     Available subcommands
-    legacy    Original TIRmite workflow (HMM search + pairing)
-    seed      Build HMM models from seed sequences
-    pair      Pair precomputed nhmmer hits
-    search    Ensemble search: merge hits from clustered features
-    validate  Validate reconstructed target sites
-
-options:
-  -h, --help  show this help message and exit
-  --version   show program's version number and exit
-```
-
 ## Algorithm overview
 
   1. Use nhmmer (or BLAST) to query genome with termini models/sequences.
@@ -206,9 +164,6 @@ The cluster map names the cluster **first**, followed by its component models:
 `cluster_name<TAB>component1<TAB>component2...`. The pairing map is two columns,
 `left_feature<TAB>right_feature`; a row naming the same feature twice describes a
 symmetric element.
-
-Running any subcommand with no arguments prints that subcommand's help. Usage
-errors exit with status 2.
 
 ## License
 

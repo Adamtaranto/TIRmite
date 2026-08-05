@@ -61,6 +61,11 @@ from tirmite.core.tsd import (
     load_tsd_length_map,
     writeTargetSites,
 )
+from tirmite.report.stats import (
+    PairSummary,
+    format_pair_summary,
+    pair_summary_stats,
+)
 from tirmite.utils.extract import check_ids, make_source
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
@@ -1006,7 +1011,7 @@ def _write_pair_summary(
     total_pairs: int,
     total_elements: int,
     filter_stats: Optional[Dict[str, Any]] = None,
-) -> None:
+) -> PairSummary:
     """
     Write a summary report for a single model pairing.
 
@@ -1038,106 +1043,33 @@ def _write_pair_summary(
 
     Returns
     -------
-    None
-        Writes summary text file to disk.
+    PairSummary
+        The counted summary that was written. Returned so callers that also
+        build the HTML report use exactly the numbers reported in the text
+        file rather than recomputing them.
+
+    Notes
+    -----
+    Counting and formatting live in :mod:`tirmite.report.stats`; this function
+    is the file-writing wrapper around them.
     """
-    prefix_str = f'{prefix}_' if prefix else ''
-    pair_label = (
-        f'{left_feature}_{right_feature}'
-        if left_feature != right_feature
-        else left_feature
+    summary = pair_summary_stats(
+        left_feature=left_feature,
+        right_feature=right_feature,
+        pair_paired=pair_paired,
+        pair_hitIndex=pair_hitIndex,
+        total_pairs=total_pairs,
+        total_elements=total_elements,
+        filter_stats=filter_stats,
     )
-    summary_path = os.path.join(outdir, f'{prefix_str}{pair_label}_summary.txt')
 
-    # Count hits per model in this pairing
-    models = set()
-    models.add(left_feature)
-    models.add(right_feature)
-
-    hits_per_model: Dict[str, int] = {}
-    for model in models:
-        if model in pair_hitIndex:
-            hits_per_model[model] = len(pair_hitIndex[model])
-        else:
-            hits_per_model[model] = 0
-
-    # Count paired hits
-    paired_hit_ids: set = set()
-    for _model, pairs in pair_paired.items():
-        for pair_set in pairs:
-            paired_hit_ids.update(pair_set)
-
-    total_hits = sum(hits_per_model.values())
-    total_unpaired = total_hits - len(paired_hit_ids)
-
+    prefix_str = f'{prefix}_' if prefix else ''
+    summary_path = os.path.join(outdir, f'{prefix_str}{summary.pair_label}_summary.txt')
     with open(summary_path, 'w') as f:
-        f.write('TIRmite Pair Summary Report\n')
-        f.write('===========================\n\n')
-        f.write(f'Model pair: {left_feature} <-> {right_feature}\n\n')
-
-        # --- Filtering criteria section ---
-        if filter_stats:
-            f.write('Filtering criteria applied\n')
-            f.write('--------------------------\n')
-            initial = filter_stats.get('initial_hits')
-            if initial is not None:
-                f.write(f'  Initial hits imported: {initial}\n')
-
-            # Pairing-map pre-filter
-            ignored_models = filter_stats.get('pairing_map_models_ignored')
-            if ignored_models:
-                f.write(
-                    f'  Pairing-map model filter: {len(ignored_models)} model(s) ignored '
-                    f'({", ".join(sorted(ignored_models))}), '
-                    f'{filter_stats.get("pairing_map_hits_ignored", 0)} hits excluded\n'
-                )
-
-            # Coverage filter
-            mincov = filter_stats.get('mincov')
-            cov_excluded = filter_stats.get('coverage_excluded', 0)
-            if mincov is not None:
-                f.write(
-                    f'  Coverage filter (min coverage >= {mincov}): '
-                    f'{cov_excluded} hit(s) excluded\n'
-                )
-
-            # E-value filter
-            maxeval = filter_stats.get('maxeval')
-            eval_excluded = filter_stats.get('evalue_excluded', 0)
-            if maxeval is not None:
-                f.write(
-                    f'  E-value filter (max e-value <= {maxeval}): '
-                    f'{eval_excluded} hit(s) excluded\n'
-                )
-
-            # Anchor offset filter
-            max_offset = filter_stats.get('max_offset')
-            anchor_excluded = filter_stats.get('anchor_excluded')
-            if max_offset is not None:
-                excl_str = (
-                    str(anchor_excluded) if anchor_excluded is not None else 'unknown'
-                )
-                f.write(
-                    f'  Anchor offset filter (max offset <= {max_offset}): '
-                    f'{excl_str} hit(s) excluded\n'
-                )
-
-            after_filtering = filter_stats.get('after_filtering')
-            if after_filtering is not None:
-                f.write(f'  Hits remaining after all filters: {after_filtering}\n')
-            f.write('\n')
-
-        # --- Pairing results section ---
-        f.write('Hits per model (after all filters)\n')
-        f.write('----------------------------------\n')
-        for model, count in sorted(hits_per_model.items()):
-            f.write(f'  {model}: {count}\n')
-        f.write(f'\nTotal hits for this pair: {total_hits}\n')
-        f.write(f'Total pairs found: {total_pairs}\n')
-        f.write(f'Total paired elements extracted: {total_elements}\n')
-        f.write(f'Total unpaired hits: {total_unpaired}\n')
+        f.write(format_pair_summary(summary))
 
     logger.info(f'Wrote summary report to {summary_path}')
+    return summary
 
 
 def main(args: Optional[argparse.Namespace] = None) -> int:

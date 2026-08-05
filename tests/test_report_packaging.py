@@ -17,6 +17,7 @@ EXPECTED_ASSETS = [
     'report-core.js',
     'track-browser.js',
     'stats-table.js',
+    'hit-tables.js',
     'msa-panel.js',
 ]
 EXPECTED_TEMPLATES = ['_base.html.j2', 'pair_report.html.j2', '_stats_table.html.j2']

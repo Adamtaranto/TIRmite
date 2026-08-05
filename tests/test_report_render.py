@@ -156,6 +156,24 @@ class TestContent:
         assert 'Terminus models' in html
         assert 'Sequences' in html
 
+    def test_hit_and_element_tables_have_mount_points(self, html):
+        # These are built in the browser from the payload: writing hundreds of
+        # thousands of rows into the document would make the file unusable.
+        assert 'id="all-hits-table"' in html
+        assert 'id="elements-table"' in html
+        assert 'All terminus hits' in html
+        assert 'Predicted elements' in html
+
+    def test_element_table_is_omitted_when_there_are_no_elements(
+        self, hit_table_factory
+    ):
+        table = hit_table_factory([{'model': 'TIR', 'target': 'chr1'}])
+        acc = PairReportAccumulator(hit_table=table, contig_length=lambda n: 1000)
+        acc.add_unpaired(make_index([make_hit(0, 'TIR', 'chr1', 100, 200)]))
+        html = render_report(acc.finalise())
+        assert 'id="all-hits-table"' in html
+        assert 'id="elements-table"' not in html
+
     def test_metadata_is_shown(self, html):
         assert 'Test report' in html
         assert '9.9.9' in html

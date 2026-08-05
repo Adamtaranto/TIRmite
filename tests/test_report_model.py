@@ -392,6 +392,49 @@ class TestMultipleGroups:
         assert data.hits.group_ix[0] == [0]
         assert data.groups[0].colour != data.groups[1].colour
 
+    def test_element_ids_are_unique_across_groups(self, hit_table_factory):
+        # fetchElements numbers per model, so two groups both produce an
+        # 'Element_1'. The report qualifies them the way gffWrite does.
+        hits = [
+            make_hit(0, 'A_L', 'chr1', 100, 200),
+            make_hit(1, 'A_R', 'chr1', 2000, 2100),
+            make_hit(2, 'B_L', 'chr1', 5000, 5100),
+            make_hit(3, 'B_R', 'chr1', 7000, 7100),
+        ]
+        table = hit_table_factory(
+            [
+                {'model': m, 'hitStart': str(s), 'hitEnd': str(e)}
+                for m, s, e in (
+                    ('A_L', 100, 200),
+                    ('A_R', 2000, 2100),
+                    ('B_L', 5000, 5100),
+                    ('B_R', 7000, 7100),
+                )
+            ]
+        )
+        acc = PairReportAccumulator(hit_table=table, contig_length=lambda name: 100_000)
+        index = make_index(hits)
+        for left, right, pair, members in (
+            ('A_L', 'A_R', {0, 1}, (hits[0], hits[1])),
+            ('B_L', 'B_R', {2, 3}, (hits[2], hits[3])),
+        ):
+            acc.add_group(
+                left_feature=left,
+                right_feature=right,
+                config=PairingConfig(
+                    orientation='F,R', left_model=left, right_model=right
+                ),
+                paired={left: [pair]},
+                hit_index=index,
+                # Both groups hand back an element called 'Element_1'.
+                elements={
+                    left: [make_element(members[0], members[1], element_id='Element_1')]
+                },
+            )
+        ids = [e.element_id for e in acc.finalise().elements]
+        assert ids == ['A_L_Element_1', 'B_L_Element_1']
+        assert len(set(ids)) == len(ids)
+
     def test_symmetric_group_id_does_not_collapse(self, hit_table_factory):
         table = hit_table_factory([{'model': 'TIR'}])
         acc = PairReportAccumulator(hit_table=table)

@@ -37,7 +37,13 @@ _ASSET_DIR = 'assets'
 _TEMPLATE_DIR = 'templates'
 
 # Loaded in order; later files may depend on earlier ones.
-_SCRIPTS = ('report-core.js', 'track-browser.js', 'stats-table.js', 'msa-panel.js')
+_SCRIPTS = (
+    'report-core.js',
+    'track-browser.js',
+    'stats-table.js',
+    'hit-tables.js',
+    'msa-panel.js',
+)
 _STYLES = ('report.css',)
 
 # Matches an end tag that would terminate the enclosing <script> or <style>

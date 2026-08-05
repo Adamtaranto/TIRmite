@@ -134,16 +134,36 @@
     head.appendChild(name);
     head.appendChild(stats);
 
+    var self = this;
     var bar = document.createElement('div');
     bar.className = 'track-head';
     var viewLabel = document.createElement('span');
     viewLabel.className = 'track-view';
     var buttons = document.createElement('span');
-    buttons.appendChild(this.button('−', 'Zoom out', this.zoomBy.bind(this, 2)));
-    buttons.appendChild(this.button('+', 'Zoom in', this.zoomBy.bind(this, 0.5)));
-    buttons.appendChild(this.button('Reset', 'Show whole contig', this.reset.bind(this)));
+    // Wrapped rather than bound: a bound factor would leave the click event
+    // arriving as the zoom anchor, which is how these buttons produced NaN.
+    buttons.appendChild(
+      this.button('−', 'Zoom out', function () {
+        self.zoomBy(2);
+      })
+    );
+    buttons.appendChild(
+      this.button('+', 'Zoom in', function () {
+        self.zoomBy(0.5);
+      })
+    );
+    buttons.appendChild(
+      this.button('Reset', 'Show whole contig', function () {
+        self.reset();
+      })
+    );
     bar.appendChild(viewLabel);
     bar.appendChild(buttons);
+
+    // The glyphs scroll vertically inside a fixed-height body; the axis lives
+    // in its own SVG below it so it stays visible on a tall track.
+    var body = document.createElement('div');
+    body.className = 'track-body';
 
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('role', 'img');
@@ -152,15 +172,38 @@
       'Terminus hits on ' + contig.name + '. Values are also listed in the tables below.'
     );
     svg.setAttribute('tabindex', '0');
-    svg.style.height = contig.n_rows * ROW_HEIGHT + AXIS_HEIGHT + PAD_TOP + 'px';
+    svg.style.height = contig.n_rows * ROW_HEIGHT + PAD_TOP * 2 + 'px';
+    body.appendChild(svg);
+
+    var axisSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    axisSvg.setAttribute('class', 'track-axis');
+    axisSvg.setAttribute('aria-hidden', 'true');
+    axisSvg.style.height = AXIS_HEIGHT + 'px';
+
+    // A real horizontal scrollbar, so panning is discoverable without knowing
+    // that the track can be dragged. The spacer's width encodes the zoom: at
+    // whole-contig view it matches the viewport and the bar disappears.
+    var hscroll = document.createElement('div');
+    hscroll.className = 'track-hscroll';
+    hscroll.setAttribute('aria-label', 'Scroll along ' + contig.name);
+    var spacer = document.createElement('div');
+    spacer.className = 'track-hspacer';
+    hscroll.appendChild(spacer);
 
     el.appendChild(head);
     el.appendChild(bar);
-    el.appendChild(svg);
+    el.appendChild(body);
+    el.appendChild(axisSvg);
+    el.appendChild(hscroll);
 
     this.el = el;
+    this.body = body;
     this.svg = svg;
+    this.axisSvg = axisSvg;
+    this.hscroll = hscroll;
+    this.spacer = spacer;
     this.viewLabel = viewLabel;
+    this.expectedScrollLeft = null;
     this.bind();
   }
 
@@ -223,15 +266,50 @@
     this.svg.addEventListener('pointerup', endDrag);
     this.svg.addEventListener('pointercancel', endDrag);
     this.svg.addEventListener('pointerleave', function () {
+      // A pinned box is the user's, not the pointer's: leaving the track must
+      // not take it away.
+      if (pinned) return;
       hideTooltip();
       self.unhighlight();
     });
 
+    // Dragging the track and dragging the scrollbar have to agree, so each
+    // one's update must not be read back as a fresh user action. The test is
+    // "is this the position we just wrote?" rather than a timed flag: a flag
+    // cleared on requestAnimationFrame stays set forever in a background tab,
+    // which would kill the scrollbar outright.
+    this.hscroll.addEventListener('scroll', function () {
+      if (
+        self.expectedScrollLeft !== null &&
+        Math.abs(self.hscroll.scrollLeft - self.expectedScrollLeft) < 1
+      ) {
+        return;
+      }
+      var span = self.view.end - self.view.start;
+      var travel = self.spacer.offsetWidth - self.hscroll.clientWidth;
+      if (travel <= 0) return;
+      var frac = self.hscroll.scrollLeft / travel;
+      var start = 1 + frac * Math.max(0, self.contig.length - span);
+      self.view = { start: start, end: start + span };
+      self.schedule();
+    });
+
+    // Clicking pins the info box open so it can be read and its buttons used.
+    // Hovering alone cannot do that: moving the pointer towards the box leaves
+    // the glyph, which is what made the copy button unreachable.
     this.svg.addEventListener('click', function (event) {
       var target = event.target.closest('.glyph');
-      if (!target) return;
+      if (!target) {
+        unpinTooltip(self);
+        return;
+      }
       var h = T.hitByUid(+target.dataset.uid);
-      if (h && h.element) openElement(h);
+      if (!h) return;
+      // Clear any previous pin first, so its highlight does not linger on
+      // whichever track it belonged to.
+      unpinTooltip(null);
+      self.highlight(h);
+      pinTooltip(h, event, self);
     });
 
     this.svg.addEventListener('dblclick', function (event) {
@@ -331,7 +409,6 @@
     if (!width) return;
     var view = this.view;
     var span = view.end - view.start;
-    var self = this;
 
     function x(bp) {
       return ((bp - view.start) / span) * width;
@@ -408,9 +485,6 @@
 
     this.svg.appendChild(linkGroup);
     this.svg.appendChild(glyphGroup);
-    this.svg.appendChild(
-      axis(width, top + this.contig.n_rows * ROW_HEIGHT, view, span)
-    );
 
     if (!indices.length) {
       var note = svgEl('text', {
@@ -423,7 +497,40 @@
       this.svg.appendChild(note);
     }
 
-    this.self = self;
+    // The axis has its own SVG below the scrolling body, so it stays put on a
+    // track too tall to show at once.
+    while (this.axisSvg.firstChild) {
+      this.axisSvg.removeChild(this.axisSvg.firstChild);
+    }
+    this.axisSvg.appendChild(axis(width, 1, view, span));
+
+    this.updateScrollProxy();
+  };
+
+  /*
+   * Resize the horizontal scrollbar to reflect the current zoom, and move its
+   * thumb to match the viewport.
+   */
+  Track.prototype.updateScrollProxy = function () {
+    var span = this.view.end - this.view.start;
+    var viewport = this.hscroll.clientWidth;
+    if (!viewport) return;
+
+    var ratio = this.contig.length / Math.max(1, span);
+    this.spacer.style.width = Math.round(viewport * ratio) + 'px';
+
+    var travel = this.spacer.offsetWidth - viewport;
+    if (travel <= 0) {
+      this.expectedScrollLeft = null;
+      return;
+    }
+    var room = Math.max(1, this.contig.length - span);
+    var frac = Math.min(1, Math.max(0, (this.view.start - 1) / room));
+
+    // Recorded, not flagged: the scroll handler compares against this to tell
+    // its own echo from a real user scroll.
+    this.expectedScrollLeft = frac * travel;
+    this.hscroll.scrollLeft = this.expectedScrollLeft;
   };
 
   function cap(x, y) {
@@ -514,6 +621,8 @@
   /* ---- hover ---------------------------------------------------------- */
 
   Track.prototype.hover = function (event) {
+    // While a box is pinned, hovering must not replace or dismiss it.
+    if (pinned) return;
     var target = event.target.closest ? event.target.closest('.glyph') : null;
     if (!target) {
       hideTooltip();
@@ -634,7 +743,7 @@
     if (h.overflow) {
       notes.push('Track row limit reached; this hit shares a row with others.');
     }
-    if (h.element) notes.push('Click to copy the element sequence.');
+    if (h.element) notes.push('Click to keep this open and copy the sequence.');
     if (notes.length) {
       var hint = document.createElement('div');
       hint.className = 'hint';
@@ -660,6 +769,117 @@
   function hideTooltip() {
     if (tooltip) tooltip.dataset.show = '0';
   }
+
+  /* ---- pinned info box ------------------------------------------------- */
+
+  /*
+   * A pinned box is the same element as the hover tooltip, promoted: it stops
+   * following the pointer, becomes clickable, and grows a close button and the
+   * actions for its element. Hover cannot carry those actions, because moving
+   * towards the box leaves the glyph that produced it.
+   */
+  var pinned = null;
+
+  function pinTooltip(h, event, track) {
+    if (!tooltip) return;
+    showTooltip(h, event);
+    pinned = { hit: h, track: track };
+    tooltip.dataset.pinned = '1';
+
+    var head = tooltip.querySelector('h4');
+    if (head) {
+      var close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'tooltip-close';
+      close.textContent = '×';
+      close.title = 'Close';
+      close.setAttribute('aria-label', 'Close details');
+      close.addEventListener('click', function (clickEvent) {
+        clickEvent.stopPropagation();
+        unpinTooltip(track);
+      });
+      head.appendChild(close);
+    }
+
+    if (h.element) tooltip.appendChild(elementActions(h));
+
+    // The hover hint told the reader to click; they have, so drop it.
+    var hint = tooltip.querySelector('.hint');
+    if (hint) {
+      hint.textContent = hint.textContent
+        .replace('Click to keep this open and copy the sequence.', '')
+        .trim();
+      if (!hint.textContent) hint.remove();
+    }
+  }
+
+  function unpinTooltip(track) {
+    if (!pinned) return;
+    var owner = pinned.track || track;
+    pinned = null;
+    if (tooltip) {
+      tooltip.dataset.pinned = '0';
+      tooltip.dataset.show = '0';
+    }
+    if (owner) owner.unhighlight();
+  }
+
+  /* Copy actions for a pinned paired terminus, plus the full element view. */
+  function elementActions(h) {
+    var element = h.element;
+    var sequence = (data.sequences.seq || {})[element.pair_id] || null;
+
+    var box = document.createElement('div');
+    box.className = 'tooltip-actions';
+
+    var status = document.createElement('span');
+    status.className = 'status';
+    status.setAttribute('role', 'status');
+
+    if (sequence) {
+      var copy = document.createElement('button');
+      copy.type = 'button';
+      copy.textContent = 'Copy sequence';
+      copy.addEventListener('click', function () {
+        report(status, T.copyText(sequence), 'Copied ' + sequence.length + ' bp.');
+      });
+
+      var fasta = document.createElement('button');
+      fasta.type = 'button';
+      fasta.textContent = 'Copy FASTA';
+      fasta.addEventListener('click', function () {
+        var header =
+          '>' + element.element_id + ' ' + h.contig.name + ':' +
+          element.start + '-' + element.end;
+        report(
+          status,
+          T.copyText(header + '\n' + T.wrapSequence(sequence, 60) + '\n'),
+          'Copied FASTA.'
+        );
+      });
+
+      box.appendChild(copy);
+      box.appendChild(fasta);
+      status.textContent = 'Plus strand.';
+    } else {
+      status.textContent = 'Sequence not embedded in this report.';
+    }
+
+    var details = document.createElement('button');
+    details.type = 'button';
+    details.textContent = 'Details…';
+    details.addEventListener('click', function () {
+      openElement(h);
+    });
+    box.appendChild(details);
+    box.appendChild(status);
+    return box;
+  }
+
+  // Escape closes a pinned box, matching the modal.
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') unpinTooltip(null);
+  });
 
   /* ---- element modal --------------------------------------------------- */
 

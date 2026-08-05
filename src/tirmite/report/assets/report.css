@@ -344,12 +344,86 @@ select:focus-visible,
   font-variant-numeric: tabular-nums;
 }
 
+/*
+ * Track scrollbars are forced to be always visible. macOS defaults to overlay
+ * scrollbars that fade out at rest, which would leave no indication that a
+ * track can be scrolled at all -- and scrolling is the primary way to move
+ * along a zoomed contig.
+ */
+/* Chrome and Safari honour ::-webkit-scrollbar only while the standard
+   scrollbar-width/scrollbar-color are left alone -- setting either makes them
+   ignore these rules and fall back to an overlay bar. So the standard
+   properties are given to the browsers that have no ::-webkit-scrollbar
+   instead, further down. */
+.track-body::-webkit-scrollbar,
+.track-hscroll::-webkit-scrollbar {
+  /* Opts out of the overlay style, so the bar keeps its space and stays put. */
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+}
+
+.track-body::-webkit-scrollbar-track,
+.track-hscroll::-webkit-scrollbar-track {
+  background: var(--surface-sunken);
+  border-radius: 5px;
+}
+
+.track-body::-webkit-scrollbar-thumb,
+.track-hscroll::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: 5px;
+}
+
+.track-body::-webkit-scrollbar-thumb:hover,
+.track-hscroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-muted);
+}
+
+/* Firefox and anything else without the webkit pseudo-elements. */
+@supports not selector(::-webkit-scrollbar) {
+  .track-body,
+  .track-hscroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-strong) var(--surface-sunken);
+  }
+}
+
+/* Tall tracks scroll rather than pushing the axis and everything below it
+   down the page. The axis lives outside this box so it stays visible. */
+.track-body {
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 .track svg {
   display: block;
   width: 100%;
   /* The wheel is bound to zoom, so the page must not scroll under it. */
   touch-action: none;
   cursor: grab;
+}
+
+.track svg.track-axis {
+  cursor: default;
+  touch-action: auto;
+}
+
+/* A real horizontal scrollbar for panning. The spacer inside it is sized to
+   the current zoom, so at whole-contig view there is nothing to scroll and the
+   bar disappears on its own. */
+.track-hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Height reserved whether or not the bar is needed, so a track does not
+     change height as it is zoomed. */
+  height: 12px;
+  margin-top: 4px;
+}
+
+.track-hspacer {
+  height: 1px;
 }
 
 .track svg.dragging {
@@ -440,6 +514,16 @@ select:focus-visible,
   opacity: 1;
 }
 
+/* Pinned by a click: the box becomes the user's, so it accepts the pointer and
+   carries its own controls. A hover tooltip cannot, because moving towards it
+   leaves the mark that produced it. */
+.tooltip[data-pinned="1"] {
+  pointer-events: auto;
+  border-color: var(--accent);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.2);
+  max-width: 400px;
+}
+
 .tooltip h4 {
   margin: 0 0 4px;
   font-size: 13px;
@@ -447,6 +531,45 @@ select:focus-visible,
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.tooltip-close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 17px;
+  line-height: 1;
+  padding: 0 2px;
+  min-height: 0;
+  cursor: pointer;
+}
+
+.tooltip-close:hover {
+  color: var(--ink);
+  border: none;
+}
+
+.tooltip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule);
+}
+
+.tooltip-actions button {
+  font-size: 12px;
+  padding: 4px 9px;
+  min-height: 26px;
+}
+
+.tooltip-actions .status {
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  flex-basis: 100%;
 }
 
 .tooltip dl {

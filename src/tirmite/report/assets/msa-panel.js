@@ -222,8 +222,9 @@
         for (c = 0; c < nCols; c++) {
           var ch = row.seq.charAt(c);
           if (!ch || ch === '-' || ch === '.') continue;
-          if (pads && pads[c] === 'm') continue;
-          var fill = cellColour(ch, null, colours);
+          // Grey marks a model position the hit did not match, but the base is
+          // real sequence and is still worth reading.
+          var fill = cellColour(ch, pads && pads[c], colours);
           // The palette spans a wide lightness range, so a fixed ink colour
           // would be unreadable on half of it.
           ctx.fillStyle = inkOn(fill);
@@ -267,10 +268,12 @@
   }
 
   function cellColour(char, pad, colours) {
-    // A model pad is real sequence the alignment did not claim: grey, not
-    // blank. A gap is sequence that does not exist: nothing is drawn.
-    if (pad === 'm') return colours.pad;
+    // Order matters. A model-pad run is recorded over a column range, and an
+    // aligner can put gaps inside that range; a gap column holds no base, so
+    // it must stay blank rather than claim to be unmatched sequence. Grey is
+    // reserved for columns that actually carry a base the model did not claim.
     if (!char || char === '-' || char === '.') return null;
+    if (pad === 'm') return colours.pad;
     return colours.bases[char.toUpperCase()] || colours.other;
   }
 

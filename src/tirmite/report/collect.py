@@ -946,6 +946,14 @@ class PairReportAccumulator:
             element_id = getattr(element, 'id', None)
             if element_id is None:
                 element_id = pair_id.rsplit(':', 1)[-1]
+            else:
+                # fetchElements numbers elements per model, so two pairing
+                # groups both produce an 'Element_1'. gffWrite qualifies the
+                # id with the model; matching that makes report ids unique and
+                # lets a reader cross-reference the GFF3 directly.
+                element_model = getattr(element, 'model', None)
+                if element_model:
+                    element_id = f'{element_model}_{element_id}'
 
             element_index[pair_id] = len(elements)
             self._pair_contig[pair_id] = left.target

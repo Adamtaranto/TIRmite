@@ -15,9 +15,10 @@
 <section id="tracks-section">
   <h2>Annotation tracks</h2>
   <p class="note">
-    Scroll to zoom, drag to pan, double-click an annotation to frame it. Arrow
-    keys pan and <kbd>+</kbd>/<kbd>-</kbd> zoom when a track has focus. Click a
-    paired terminus to copy its element sequence.
+    Scroll to zoom, drag or use the scrollbar to pan, double-click an
+    annotation to frame it. Arrow keys pan and <kbd>+</kbd>/<kbd>-</kbd> zoom
+    when a track has focus. Hover an annotation for its details; <strong>click
+    to keep them open</strong> and to copy the element sequence.
   </p>
 
   {# The legend is always present: colour alone never carries identity. #}
@@ -83,6 +84,23 @@
   <div id="msa-panels"></div>
 </section>
 {% endif %}
+
+<section id="hits-section">
+  <h2>Hits and elements</h2>
+  <p class="note">
+    Every terminus hit and every predicted element, filterable and sortable.
+    Large tables show their first rows only; the filter searches all of them,
+    and the download button writes the complete table as TSV.
+  </p>
+
+  <h3>All terminus hits</h3>
+  <div id="all-hits-table"></div>
+
+  {% if data.elements %}
+  <h3>Predicted elements</h3>
+  <div id="elements-table"></div>
+  {% endif %}
+</section>
 
 <section id="stats-section">
   <h2>Statistics</h2>

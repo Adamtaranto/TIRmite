@@ -21,17 +21,29 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, cast
 
-from Bio import AlignIO, SeqIO  # type: ignore[import-not-found]
-from Bio.Seq import Seq  # type: ignore[import-not-found]
-from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 
-from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite._version import __version__
+from tirmite.runners.mafft import align_in_memory, mafft_available
 from tirmite.utils.extract import (
     BlastDBSource,
     blastdbcmd_available,
     fetch_sequence,
 )
 from tirmite.utils.logs import init_logging
+
+logger = logging.getLogger(__name__)
+
+
+class ValidationError(Exception):
+    """Raised when validation cannot be performed as requested.
+
+    Used for conditions that must not be mistaken for "nothing to validate":
+    a missing or unparseable BLAST file, a missing external tool, or a run in
+    which no site could be checked at all.
+    """
 
 
 def add_validate_parser(subparsers: Any) -> argparse.ArgumentParser:
@@ -208,14 +220,14 @@ def _configure_validate_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def run_blastn(
+def _run_validation_blastn(
     query_fasta: str,
     blastdb: str,
     output_file: str,
     evalue: float = 1e-5,
 ) -> None:
     """
-    Run blastn search of query sequences against a BLAST database.
+    Run the blastn search specific to target-site validation.
 
     Parameters
     ----------
@@ -232,6 +244,23 @@ def run_blastn(
     ------
     RuntimeError
         If blastn is not found or fails.
+
+    Notes
+    -----
+    Deliberately does not delegate to
+    :func:`tirmite.runners.runBlastn.run_blastn`, despite the overlap. That
+    function always applies ``-word_size 4 -perc_identity 60``, which suit
+    finding diverged transposon termini but are wrong here: validation looks
+    for a near-identical empty target site, and a 60% identity floor combined
+    with a 4-base word size would both admit spurious hits and run far slower
+    than needed.
+
+    This search also requires the extended 15-column ``-outfmt`` (adding
+    ``qlen slen sstrand``), which :func:`parse_blast_results` depends on, and
+    ``-dust no`` so that low-complexity target sites are not masked away.
+
+    Renamed from ``run_blastn`` to remove the name collision with the runners
+    module; it is private because nothing outside this workflow should use it.
     """
     if not shutil.which('blastn'):
         raise RuntimeError('blastn not found in PATH. Please install NCBI BLAST+.')
@@ -252,11 +281,11 @@ def run_blastn(
         'no',
     ]
 
-    logging.info(f'Running blastn: {" ".join(cmd)}')
+    logger.info(f'Running blastn: {" ".join(cmd)}')
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        logging.error(f'blastn failed: {result.stderr}')
+        logger.error(f'blastn failed: {result.stderr}')
         raise RuntimeError(f'blastn failed with return code {result.returncode}')
 
 
@@ -299,36 +328,74 @@ def parse_blast_results(
     hits: List[Dict[str, Any]] = []
 
     if not os.path.exists(blast_file):
-        logging.warning(f'BLAST results file not found: {blast_file}')
-        return hits
+        # An unreadable results file must not look like "no empty sites found".
+        raise ValidationError(f'BLAST results file not found: {blast_file}')
+
+    skipped_short = 0
+    skipped_malformed = 0
+    data_rows = 0
 
     with open(blast_file, 'r') as f:
         reader = csv.reader(f, delimiter='\t')
         for row in reader:
-            if len(row) < len(columns):
+            # Comment and blank lines are legitimate in BLAST output.
+            if not row or row[0].startswith('#'):
                 continue
+            data_rows += 1
+
+            if len(row) < len(columns):
+                skipped_short += 1
+                continue
+
             hit: Dict[str, Any] = {}
-            for i, col in enumerate(columns):
-                val = row[i]
-                if col in (
-                    'qstart',
-                    'qend',
-                    'sstart',
-                    'send',
-                    'length',
-                    'mismatch',
-                    'gapopen',
-                    'qlen',
-                    'slen',
-                ):
-                    hit[col] = int(val)
-                elif col in ('pident', 'evalue', 'bitscore'):
-                    hit[col] = float(val)
-                else:
-                    hit[col] = val
+            try:
+                for i, col in enumerate(columns):
+                    val = row[i]
+                    if col in (
+                        'qstart',
+                        'qend',
+                        'sstart',
+                        'send',
+                        'length',
+                        'mismatch',
+                        'gapopen',
+                        'qlen',
+                        'slen',
+                    ):
+                        hit[col] = int(val)
+                    elif col in ('pident', 'evalue', 'bitscore'):
+                        hit[col] = float(val)
+                    else:
+                        hit[col] = val
+            except ValueError:
+                # A non-numeric value in a numeric column: report rather than
+                # crashing with a traceback from deep inside the parser.
+                skipped_malformed += 1
+                continue
+
             hits.append(hit)
 
-    logging.info(f'Parsed {len(hits)} hits from {blast_file}')
+    # A file whose every row was discarded is a format mismatch, not an empty
+    # result. The overwhelmingly common cause is a standard 12-column
+    # `-outfmt 6` file: TIRmite needs the 15-column form that adds
+    # qlen, slen and sstrand. Silently returning [] made that indistinguishable
+    # from "the genome contains no empty sites", and the run exited 0.
+    if data_rows and not hits:
+        raise ValidationError(
+            f'None of the {data_rows} data row(s) in {blast_file} could be parsed. '
+            f'{skipped_short} row(s) had fewer than {len(columns)} columns and '
+            f'{skipped_malformed} had unparseable values. TIRmite requires the '
+            "extended format: -outfmt '6 qseqid sseqid pident length mismatch "
+            "gapopen qstart qend sstart send evalue bitscore qlen slen sstrand'."
+        )
+
+    if skipped_short or skipped_malformed:
+        logger.warning(
+            f'Skipped {skipped_short} short and {skipped_malformed} malformed '
+            f'row(s) in {blast_file}'
+        )
+
+    logger.info(f'Parsed {len(hits)} hits from {blast_file}')
     return hits
 
 
@@ -377,7 +444,7 @@ def filter_junction_spanning(
         filtered[qid].append(hit)
 
     total_passing = sum(len(v) for v in filtered.values())
-    logging.info(
+    logger.info(
         f'Filtered to {total_passing} junction-spanning hits '
         f'across {len(filtered)} queries'
     )
@@ -385,7 +452,7 @@ def filter_junction_spanning(
 
 
 def extract_hit_sequence(
-    blastdb: str,
+    source: BlastDBSource,
     subject_id: str,
     start: int,
     end: int,
@@ -396,8 +463,9 @@ def extract_hit_sequence(
 
     Parameters
     ----------
-    blastdb : str
-        Path to BLAST database.
+    source : BlastDBSource
+        Open sequence source for the BLAST database. Takes a source rather
+        than a path so its caches survive across hits; see Notes.
     subject_id : str
         Subject sequence identifier.
     start : int
@@ -417,12 +485,17 @@ def extract_hit_sequence(
     -----
     Delegates to :func:`tirmite.utils.extract.fetch_sequence`, which applies the
     same clamping and validation used for FASTA-indexed genomes.
-    """
-    if not blastdbcmd_available():
-        logging.error('blastdbcmd not found in PATH')
-        return None
 
-    seq = fetch_sequence(BlastDBSource(blastdb), subject_id, start, end)
+    This used to take a database *path* and construct a fresh
+    ``BlastDBSource`` on every call. That class caches contig lengths
+    precisely because each lookup costs a ``blastdbcmd`` subprocess, and
+    rebuilding it per hit threw the cache away every time -- so each hit paid
+    two subprocess spawns (one to resolve the contig length for clamping, one
+    to fetch the sequence) instead of amortising the first across every hit on
+    the same contig. ``blastdbcmd_available()`` was re-checked per hit too;
+    that is now pre-flighted once by :func:`_check_required_tools`.
+    """
+    seq = fetch_sequence(source, subject_id, start, end)
     if seq is None:
         return None
 
@@ -432,57 +505,85 @@ def extract_hit_sequence(
     return seq if seq else None
 
 
-def run_mafft_alignment(
-    sequences: List[SeqRecord],
-    tmpdir: str,
-) -> Optional[List[SeqRecord]]:
+def parse_target_site_metadata(description: str) -> Dict[str, str]:
     """
-    Align sequences using MAFFT.
+    Parse the ``key=value`` metadata written into a target-site FASTA header.
 
     Parameters
     ----------
-    sequences : list of SeqRecord
-        Sequences to align. First should be the query.
-    tmpdir : str
-        Temporary directory for intermediate files.
+    description : str
+        The FASTA description line produced by ``tirmite pair``.
 
     Returns
     -------
-    list of SeqRecord or None
-        Aligned sequences, or None if alignment failed.
+    dict of str to str
+        Every ``key=value`` token found. Keys with no ``=`` are ignored.
+
+    Notes
+    -----
+    ``writeTargetSites`` records ``flank_len``, ``tsd_len``, ``tsd_in_model``,
+    the model names, the contig and the element orientation. Reading them makes
+    validation self-consistent with the run that produced the sites, instead of
+    relying on the user to re-supply matching ``--tsd-length`` and
+    ``--tsd-in-model`` values on the command line.
     """
-    if not shutil.which('mafft'):
-        logging.error('mafft not found in PATH. Please install MAFFT.')
-        return None
+    metadata: Dict[str, str] = {}
+    for token in description.split():
+        if '=' in token:
+            key, _, value = token.partition('=')
+            metadata[key] = value
+    return metadata
 
-    input_file = os.path.join(tmpdir, 'mafft_input.fasta')
-    output_file = os.path.join(tmpdir, 'mafft_output.fasta')
 
-    with open(input_file, 'w') as handle:
-        SeqIO.write(sequences, handle, 'fasta')
+def compute_junction_position(
+    flank_len: Optional[int], tsd_len: int, tsd_in_model: bool, query_len: int
+) -> int:
+    """
+    Locate the element/genome junction within a reconstructed target site.
 
-    cmd = [
-        'mafft',
-        '--auto',
-        '--quiet',
-        input_file,
-    ]
+    Parameters
+    ----------
+    flank_len : int or None
+        Flank width used when the site was reconstructed. When None the
+        junction falls back to the query midpoint.
+    tsd_len : int
+        Declared TSD length.
+    tsd_in_model : bool
+        Whether the TSD lies inside the terminus model.
+    query_len : int
+        Length of the reconstructed target site.
 
-    with open(output_file, 'w') as out_handle:
-        result = subprocess.run(
-            cmd, stdout=out_handle, stderr=subprocess.PIPE, text=True
-        )
+    Returns
+    -------
+    int
+        1-based position in the unaligned query around which to look for gaps.
 
-    if result.returncode != 0:
-        logging.warning(f'MAFFT alignment failed: {result.stderr}')
-        return None
+    Notes
+    -----
+    The junction is not the midpoint of the query, which is what this code
+    assumed. The two reconstruction modes build the site differently:
 
-    try:
-        alignment = list(AlignIO.read(output_file, 'fasta'))
-        return alignment
-    except Exception as e:
-        logging.warning(f'Failed to parse MAFFT output: {e}')
-        return None
+    - ``tsd_in_model=False``: ``left_flank + right_flank[tsd_len:]``, so the
+      site is ``2 * flank_len - tsd_len`` long and the boundary sits at
+      ``flank_len``. The midpoint is ``flank_len - tsd_len / 2``, i.e. off by
+      half the TSD length -- 10 bp out for a 20 bp direct repeat.
+    - ``tsd_in_model=True``: ``left_flank + tsd + right_flank``, so the TSD is
+      centred at ``flank_len + tsd_len / 2``, which does coincide with the
+      midpoint.
+
+    Unequal flanks (a truncated flank at a contig edge) shift the junction
+    further still, which is why the recorded ``flank_len`` is preferred over
+    any calculation from ``query_len``.
+    """
+    if flank_len is None:
+        return query_len // 2
+
+    if tsd_in_model:
+        # Centre of the TSD block that sits between the two flanks.
+        return min(query_len, flank_len + max(tsd_len, 1) // 2)
+
+    # Boundary between the left flank and the trimmed right flank.
+    return min(query_len, flank_len)
 
 
 def check_tsd_gaps(
@@ -490,7 +591,9 @@ def check_tsd_gaps(
     target_aligned: str,
     tsd_length: int,
     query_len: int,
-) -> Tuple[int, str]:
+    junction_pos: Optional[int] = None,
+    tsd_in_model: bool = False,
+) -> Tuple[Optional[int], str]:
     """
     Check for gaps around the alignment midpoint indicating TSD length errors.
 
@@ -504,19 +607,40 @@ def check_tsd_gaps(
         User-specified TSD length.
     query_len : int
         Original unaligned query length.
+    junction_pos : int, optional
+        1-based position of the element/genome junction in the unaligned
+        query. Defaults to the query midpoint, which is only correct when the
+        TSD lies inside the terminus model.
+    tsd_in_model : bool, default False
+        Whether the TSD lies inside the terminus model. This inverts the sign
+        of the reported error; see Notes.
 
     Returns
     -------
-    predicted_error : int
-        Predicted error in TSD length. Positive means user specified too long,
-        negative means too short, 0 means consistent.
+    predicted_error : int or None
+        Predicted error in TSD length. Positive means the declared TSD is too
+        long, negative too short, and ``0`` that it agrees with the data.
+        **None means the comparison was inconclusive** and carries no evidence
+        either way.
     message : str
         Human-readable message about the validation result.
+
+    Notes
+    -----
+    The None return is load-bearing. This previously returned ``0`` both when
+    the alignment confirmed the declared length and when gaps on *both*
+    sequences made the comparison meaningless, so an inconclusive result was
+    averaged in as agreement and reported as "TSD length appears consistent".
+
+    That is the same failure mode fixed elsewhere in 1.5.0, where
+    :func:`tirmite.core.tsd.compare_tsds` was given an ``Optional[int]`` return
+    for exactly this reason: an unverifiable TSD must never be indistinguishable
+    from a verified one.
     """
-    # Find the midpoint of the query in the aligned coordinates
+    # Locate the junction in aligned coordinates.
     query_pos = 0
     midpoint_aligned = 0
-    target_midpoint = query_len // 2
+    target_midpoint = query_len // 2 if junction_pos is None else junction_pos
 
     for i, c in enumerate(query_aligned):
         if c != '-':
@@ -536,24 +660,84 @@ def check_tsd_gaps(
     query_gaps = query_aligned[start:end].count('-')
     target_gaps = target_aligned[start:end].count('-')
 
+    # The two reconstruction modes respond to an over-long TSD in opposite
+    # directions, so the sign of the measured difference has to be flipped for
+    # one of them:
+    #
+    #   tsd_in_model=False: the site is left_flank + right_flank[tsd_len:], so
+    #     over-declaring TRIMS real flank. The query is shorter than the true
+    #     empty site, MAFFT gaps the QUERY, and gaps in the query mean "too
+    #     long".
+    #   tsd_in_model=True: the site is left_flank + tsd + right_flank, so
+    #     over-declaring INSERTS extra element bases. The query is longer,
+    #     MAFFT gaps the TARGET, and gaps in the query now mean "too short".
+    #
+    # Without this, an in-model TSD declared too long was reported as too
+    # short, pushing the user to lengthen it further.
+    sign = -1 if tsd_in_model else 1
+
     if query_gaps > 0 and target_gaps == 0:
-        # Gaps in query at midpoint → user TSD was too long
-        return query_gaps, (
-            f'Query has {query_gaps} gap(s) near midpoint: '
-            f'TSD length may be {query_gaps}bp too long'
+        error = sign * query_gaps
+        direction = 'too long' if error > 0 else 'too short'
+        return error, (
+            f'Query has {query_gaps} gap(s) near the junction: '
+            f'TSD length may be {query_gaps}bp {direction}'
         )
     elif target_gaps > 0 and query_gaps == 0:
-        # Gaps in target at midpoint → user TSD was too short
-        return -target_gaps, (
-            f'Target has {target_gaps} gap(s) near midpoint: '
-            f'TSD length may be {target_gaps}bp too short'
+        error = -sign * target_gaps
+        direction = 'too long' if error > 0 else 'too short'
+        return error, (
+            f'Target has {target_gaps} gap(s) near the junction: '
+            f'TSD length may be {target_gaps}bp {direction}'
         )
     elif query_gaps == 0 and target_gaps == 0:
         return 0, 'TSD length appears consistent with validation data'
     else:
-        return 0, (
+        # Gaps on both sides carry no directional information. Returning None
+        # rather than 0 keeps this out of the average entirely.
+        return None, (
             f'Both query ({query_gaps}) and target ({target_gaps}) have gaps '
-            f'near midpoint; validation inconclusive'
+            f'near the junction; validation inconclusive'
+        )
+
+
+def _check_required_tools(args: argparse.Namespace) -> None:
+    """
+    Verify the external tools this run will need are installed.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments, used to decide whether blastn is needed.
+
+    Raises
+    ------
+    ValidationError
+        If a required executable is not on PATH.
+
+    Notes
+    -----
+    Checked up front rather than per hit. Both downstream helpers report a
+    missing tool by returning None -- ``align_in_memory`` per alignment and
+    ``extract_hit_sequence`` per hit -- and neither was aggregated, so a run
+    without MAFFT or without blastdbcmd wrote a full summary reporting
+    ``predicted_tsd_error 0.0`` for every site and exited 0.
+    """
+    missing = []
+
+    if not blastdbcmd_available():
+        missing.append('blastdbcmd (NCBI BLAST+) - needed to extract hit regions')
+
+    if not mafft_available():
+        missing.append('mafft - needed to align hits against the target site')
+
+    # blastn is only needed when we are running the search ourselves.
+    if not args.blast_results and not shutil.which('blastn'):
+        missing.append('blastn (NCBI BLAST+) - needed to search for empty sites')
+
+    if missing:
+        raise ValidationError(
+            'Required tool(s) not found on PATH:\n  ' + '\n  '.join(missing)
         )
 
 
@@ -593,39 +777,46 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         init_logging(loglevel=args.loglevel, logfile=logfile_path)
 
-        logging.info(f'TIRmite-validate version {__version__}')
-        logging.info(f'Output directory: {outdir}')
+        logger.info(f'TIRmite-validate version {__version__}')
+        logger.info(f'Output directory: {outdir}')
+
+        # Pre-flight the external tools. Without these checks a missing tool
+        # produced a complete report full of 0.0 errors and exit 0: MAFFT
+        # failures return None per alignment, and blastdbcmd failures return
+        # None per hit, and neither was ever aggregated into a run-level
+        # failure.
+        _check_required_tools(args)
 
         # Validate inputs
         if not Path(args.target_sites).exists():
-            logging.error(f'Target sites file not found: {args.target_sites}')
+            logger.error(f'Target sites file not found: {args.target_sites}')
             sys.exit(1)
 
         # Load query sequences
-        logging.info(f'Loading target sites from {args.target_sites}')
+        logger.info(f'Loading target sites from {args.target_sites}')
         queries = list(SeqIO.parse(args.target_sites, 'fasta'))
         if not queries:
-            logging.error('No sequences found in target sites file')
+            logger.error('No sequences found in target sites file')
             sys.exit(1)
-        logging.info(f'Loaded {len(queries)} target site queries')
+        logger.info(f'Loaded {len(queries)} target site queries')
 
         # Load TSD length map if provided
         tsd_length_map: Dict[str, int] = {}
         if args.tsd_length_map:
-            from tirmite.tirmitetools import load_tsd_length_map
+            from tirmite.core.tsd import load_tsd_length_map
 
             tsd_length_map = load_tsd_length_map(args.tsd_length_map)
 
         # Run or load BLAST results
         with tempfile.TemporaryDirectory() as tmpdir:
             if args.blast_results:
-                logging.info(
+                logger.info(
                     f'Loading pre-computed BLAST results from {args.blast_results}'
                 )
                 blast_file = args.blast_results
             else:
                 blast_file = os.path.join(tmpdir, 'blast_results.txt')
-                run_blastn(
+                _run_validation_blastn(
                     query_fasta=args.target_sites,
                     blastdb=args.blastdb,
                     output_file=blast_file,
@@ -638,35 +829,102 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 all_hits, min_coverage=args.min_coverage
             )
 
+            # One sequence source for the whole run. BlastDBSource caches
+            # contig lengths and descriptions, and each cache miss costs a
+            # blastdbcmd subprocess, so this must outlive the per-hit loop.
+            blast_source = BlastDBSource(args.blastdb)
+
             # Process each query
             prefix_str = f'{args.prefix}_' if args.prefix else ''
             summary_rows: List[Dict[str, Any]] = []
             all_alignments: Dict[str, List[SeqRecord]] = {}
+            # How many queries yielded at least one usable comparison. A run
+            # where this stays zero validated nothing and must not exit 0.
+            validated_queries = 0
 
             for query in queries:
                 qid = query.id
                 query_len = len(query.seq)
-                logging.info(f'Processing query: {qid} (len={query_len})')
+                logger.info(f'Processing query: {qid} (len={query_len})')
 
-                # Parse model pair info from description
-                desc_parts = query.description.split()
-                left_model = ''
-                right_model = ''
-                for part in desc_parts:
-                    if part.startswith('left_model='):
-                        left_model = part.split('=', 1)[1]
-                    elif part.startswith('right_model='):
-                        right_model = part.split('=', 1)[1]
+                # `tirmite pair` records everything needed to validate this
+                # site in the FASTA header. Prefer it over the CLI flags, which
+                # the user has to re-supply consistently by hand.
+                metadata = parse_target_site_metadata(query.description)
+                left_model = metadata.get('left_model', '')
+                right_model = metadata.get('right_model', '')
 
-                # Resolve TSD length for this query
+                # Resolve TSD length: header first, then the map, then the flag.
                 query_tsd_length = args.tsd_length
+                source = '--tsd-length'
+
                 if tsd_length_map and left_model and right_model:
-                    key = f'{left_model}\t{right_model}'
-                    if key in tsd_length_map:
-                        query_tsd_length = tsd_length_map[key]
+                    # Try both key orders. `pair` looks the map up with
+                    # coordinate-ordered models but writes ROLE-ordered ones to
+                    # the header, so for a reverse-inserted element the two
+                    # differ and the direct lookup misses.
+                    for key in (
+                        f'{left_model}\t{right_model}',
+                        f'{right_model}\t{left_model}',
+                    ):
+                        if key in tsd_length_map:
+                            query_tsd_length = tsd_length_map[key]
+                            source = '--tsd-length-map'
+                            break
+                    else:
+                        logger.warning(
+                            f'{qid}: no entry for {left_model}/{right_model} in '
+                            'the TSD length map (tried both orders)'
+                        )
+
+                header_tsd_len = metadata.get('tsd_len')
+                if header_tsd_len is not None:
+                    try:
+                        query_tsd_length = int(header_tsd_len)
+                        source = 'FASTA header'
+                    except ValueError:
+                        logger.warning(
+                            f'{qid}: unparseable tsd_len={header_tsd_len!r} in header'
+                        )
+
+                # tsd_in_model changes the SIGN of the reported error, so
+                # getting it from the header rather than the flag matters.
+                header_in_model = metadata.get('tsd_in_model')
+                if header_in_model is not None:
+                    query_tsd_in_model = header_in_model.lower() == 'true'
+                    if query_tsd_in_model != args.tsd_in_model:
+                        logger.warning(
+                            f'{qid}: --tsd-in-model={args.tsd_in_model} disagrees '
+                            f'with the header (tsd_in_model={query_tsd_in_model}); '
+                            'using the header, which records how the site was '
+                            'actually reconstructed'
+                        )
+                else:
+                    query_tsd_in_model = args.tsd_in_model
+
+                header_flank_len = metadata.get('flank_len')
+                query_flank_len: Optional[int] = None
+                if header_flank_len is not None:
+                    try:
+                        query_flank_len = int(header_flank_len)
+                    except ValueError:
+                        logger.warning(
+                            f'{qid}: unparseable flank_len={header_flank_len!r}'
+                        )
+
+                junction_pos = compute_junction_position(
+                    query_flank_len,
+                    query_tsd_length,
+                    query_tsd_in_model,
+                    query_len,
+                )
+                logger.debug(
+                    f'{qid}: tsd_length={query_tsd_length} (from {source}), '
+                    f'tsd_in_model={query_tsd_in_model}, junction={junction_pos}'
+                )
 
                 query_hits = filtered_hits.get(qid, [])
-                logging.info(f'  {len(query_hits)} hits passing filters')
+                logger.info(f'  {len(query_hits)} hits passing filters')
 
                 if not query_hits:
                     summary_rows.append(
@@ -676,8 +934,9 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             'right_model': right_model,
                             'query_length': query_len,
                             'tsd_length': query_tsd_length,
-                            'num_valid_hits': 0,
-                            'predicted_tsd_error': 'N/A',
+                            'num_filtered_hits': 0,
+                            'num_compared_hits': 0,
+                            'predicted_tsd_error': 'NA',
                             'validation_message': 'No valid empty site hits found',
                         }
                     )
@@ -687,6 +946,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 alignment_seqs = [query]
                 tsd_errors: List[int] = []
                 tsd_messages: List[str] = []
+                inconclusive = 0
 
                 for hit in query_hits:
                     sstart = hit['sstart']
@@ -702,7 +962,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         strand = sstrand
 
                     seq_str = extract_hit_sequence(
-                        args.blastdb, hit['sseqid'], sstart, send, strand
+                        blast_source, hit['sseqid'], sstart, send, strand
                     )
                     if seq_str is None:
                         continue
@@ -718,7 +978,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 if len(alignment_seqs) > 1:
                     # Run MAFFT alignment
-                    aligned = run_mafft_alignment(alignment_seqs, tmpdir)
+                    aligned = align_in_memory(alignment_seqs, tmpdir)
 
                     if aligned:
                         all_alignments[qid] = aligned
@@ -731,8 +991,15 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                                 target_aligned,
                                 query_tsd_length,
                                 query_len,
+                                junction_pos=junction_pos,
+                                tsd_in_model=query_tsd_in_model,
                             )
-                            tsd_errors.append(error)
+                            # None means inconclusive; count it separately so
+                            # it cannot be averaged in as agreement.
+                            if error is None:
+                                inconclusive += 1
+                            else:
+                                tsd_errors.append(error)
                             tsd_messages.append(msg)
 
                 # Determine consensus TSD error
@@ -749,12 +1016,28 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             f'TSD may be ~{abs(round(avg_error))}bp too short'
                         )
 
+                    if inconclusive:
+                        consensus_msg += (
+                            f' (from {len(tsd_errors)} comparison(s); '
+                            f'{inconclusive} inconclusive)'
+                        )
+
                     if abs(avg_error) >= 1:
-                        logging.warning(
+                        logger.warning(
                             f'TSD length validation warning for {qid}: {consensus_msg}'
                         )
+                    reported_error: Any = round(avg_error, 1)
+                    validated_queries += 1
+                elif inconclusive:
+                    # Every comparison was inconclusive. Reporting 0.0 here is
+                    # what made an unverifiable result look like a confirmed one.
+                    reported_error = 'NA'
+                    consensus_msg = (
+                        f'All {inconclusive} comparison(s) inconclusive: '
+                        'gaps on both sequences near the junction'
+                    )
                 else:
-                    avg_error = 0
+                    reported_error = 'NA'
                     consensus_msg = 'No alignments available for validation'
 
                 summary_rows.append(
@@ -764,8 +1047,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         'right_model': right_model,
                         'query_length': query_len,
                         'tsd_length': query_tsd_length,
-                        'num_valid_hits': len(query_hits),
-                        'predicted_tsd_error': round(avg_error, 1),
+                        # Hits that survived BLAST filtering, and hits that were
+                        # actually extracted and compared. These differ whenever
+                        # extraction fails, and only the second says how much
+                        # evidence the verdict rests on.
+                        'num_filtered_hits': len(query_hits),
+                        'num_compared_hits': len(tsd_errors) + inconclusive,
+                        'predicted_tsd_error': reported_error,
                         'validation_message': consensus_msg,
                     }
                 )
@@ -779,7 +1067,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
                     writer.writeheader()
                     writer.writerows(summary_rows)
-            logging.info(f'Validation summary written to {summary_file}')
+            logger.info(f'Validation summary written to {summary_file}')
 
             # Write aligned FASTA files
             for qid, aligned_records in all_alignments.items():
@@ -787,16 +1075,32 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 aln_file = outdir / f'{prefix_str}{safe_qid}_alignment.fasta'
                 with open(aln_file, 'w') as handle:
                     SeqIO.write(aligned_records, handle, 'fasta')
-                logging.info(f'Alignment written to {aln_file}')
+                logger.info(f'Alignment written to {aln_file}')
 
-        logging.info('TIRmite-validate analysis completed successfully')
+        # A run that could not validate a single site is a failure, however
+        # many rows the summary has. Previously this reported success and
+        # exited 0 whether it validated 500 sites or none of them.
+        if validated_queries == 0:
+            logger.error(
+                f'No target site could be validated ({len(summary_rows)} '
+                'queries processed). See the summary for per-query reasons.'
+            )
+            return 1
 
+        logger.info(
+            f'TIRmite-validate completed: {validated_queries} of '
+            f'{len(summary_rows)} target site(s) validated'
+        )
+
+    except ValidationError as e:
+        logger.error(f'Validation cannot proceed: {e}')
+        return 1
     except KeyboardInterrupt:
-        logging.info('Analysis interrupted by user')
+        logger.info('Analysis interrupted by user')
         sys.exit(130)
     except Exception as e:
-        logging.error(f'Unexpected error: {e}')
-        logging.exception('Full traceback:')
+        logger.error(f'Unexpected error: {e}')
+        logger.exception('Full traceback:')
         sys.exit(1)
 
     return 0

@@ -2,117 +2,85 @@
 
 import gzip
 from pathlib import Path
-import tempfile
 
 import pytest
 
 from tirmite.utils.utils import decompress_genome, is_gzipped_file, prepare_genome_file
 
 
-def test_is_gzipped_file_with_gz_extension():
+def test_is_gzipped_file_with_gz_extension(tmp_path: Path) -> None:
     """Test detection of gzipped files by extension."""
-    # Create a temporary gzipped file
-    with tempfile.NamedTemporaryFile(suffix='.gz', delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        with gzip.open(tmp_path, 'wb') as gz:
-            gz.write(b'test data')
+    gz_file = tmp_path / 'sample.gz'
+    with gzip.open(gz_file, 'wb') as gz:
+        gz.write(b'test data')
 
-    try:
-        assert is_gzipped_file(tmp_path) is True
-    finally:
-        tmp_path.unlink()
+    assert is_gzipped_file(gz_file) is True
 
 
-def test_is_gzipped_file_with_magic_bytes():
-    """Test detection of gzipped files by magic bytes."""
-    # Create a temporary gzipped file without .gz extension
-    with tempfile.NamedTemporaryFile(suffix='.fa', delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        with gzip.open(tmp_path, 'wb') as gz:
-            gz.write(b'test data')
+def test_is_gzipped_file_with_magic_bytes(tmp_path: Path) -> None:
+    """Test detection of gzipped files by magic bytes.
 
-    try:
-        assert is_gzipped_file(tmp_path) is True
-    finally:
-        tmp_path.unlink()
+    The file deliberately carries a ``.fa`` suffix so that detection cannot
+    succeed on the extension alone.
+    """
+    disguised = tmp_path / 'sample.fa'
+    with gzip.open(disguised, 'wb') as gz:
+        gz.write(b'test data')
+
+    assert is_gzipped_file(disguised) is True
 
 
-def test_is_gzipped_file_regular_file():
+def test_is_gzipped_file_regular_file(tmp_path: Path) -> None:
     """Test detection returns False for regular files."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.fa', delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-        tmp.write('test data')
+    plain = tmp_path / 'sample.fa'
+    plain.write_text('test data')
 
-    try:
-        assert is_gzipped_file(tmp_path) is False
-    finally:
-        tmp_path.unlink()
+    assert is_gzipped_file(plain) is False
 
 
-def test_decompress_genome():
+def test_decompress_genome(tmp_path: Path) -> None:
     """Test decompression of gzipped genome file."""
-    # Create a temporary gzipped file with FASTA content
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
+    input_gz = tmp_path / 'test.fa.gz'
+    test_content = b'>seq1\nACGT\n>seq2\nTGCA\n'
+    with gzip.open(input_gz, 'wb') as gz:
+        gz.write(test_content)
 
-        # Create gzipped input
-        input_gz = tmpdir_path / 'test.fa.gz'
-        test_content = b'>seq1\nACGT\n>seq2\nTGCA\n'
-        with gzip.open(input_gz, 'wb') as gz:
-            gz.write(test_content)
+    output_fa = decompress_genome(input_gz, tmp_path)
 
-        # Decompress
-        output_fa = decompress_genome(input_gz, tmpdir_path)
-
-        # Verify output exists and has correct content
-        assert output_fa.exists()
-        assert output_fa.name == 'test.fa'
-
-        with open(output_fa, 'rb') as f:
-            assert f.read() == test_content
+    # The ``.gz`` suffix is stripped and the payload round-trips byte for byte.
+    assert output_fa.exists()
+    assert output_fa.name == 'test.fa'
+    assert output_fa.read_bytes() == test_content
 
 
-def test_prepare_genome_file_gzipped():
+def test_prepare_genome_file_gzipped(tmp_path: Path) -> None:
     """Test prepare_genome_file with gzipped input."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
+    input_gz = tmp_path / 'test.fa.gz'
+    with gzip.open(input_gz, 'wb') as gz:
+        gz.write(b'>seq1\nACGT\n')
 
-        # Create gzipped input
-        input_gz = tmpdir_path / 'test.fa.gz'
-        test_content = b'>seq1\nACGT\n'
-        with gzip.open(input_gz, 'wb') as gz:
-            gz.write(test_content)
+    prepared = prepare_genome_file(input_gz, tmp_path)
 
-        # Prepare genome
-        prepared = prepare_genome_file(input_gz, tmpdir_path)
-
-        # Should return decompressed file
-        assert prepared != input_gz
-        assert prepared.exists()
-        assert not prepared.name.endswith('.gz')
+    # A gzipped input must be replaced by a decompressed copy.
+    assert prepared != input_gz
+    assert prepared.exists()
+    assert not prepared.name.endswith('.gz')
 
 
-def test_prepare_genome_file_regular():
+def test_prepare_genome_file_regular(tmp_path: Path) -> None:
     """Test prepare_genome_file with regular file."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
+    input_fa = tmp_path / 'test.fa'
+    input_fa.write_text('>seq1\nACGT\n')
 
-        # Create regular input
-        input_fa = tmpdir_path / 'test.fa'
-        input_fa.write_text('>seq1\nACGT\n')
+    prepared = prepare_genome_file(input_fa, tmp_path)
 
-        # Prepare genome
-        prepared = prepare_genome_file(input_fa, tmpdir_path)
-
-        # Should return original file unchanged
-        assert prepared == input_fa
+    # An uncompressed input is passed straight through, not copied.
+    assert prepared == input_fa
 
 
-def test_decompress_genome_missing_file():
+def test_decompress_genome_missing_file(tmp_path: Path) -> None:
     """Test decompress_genome raises error for missing file."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir_path = Path(tmpdir)
-        missing_file = tmpdir_path / 'nonexistent.fa.gz'
+    missing_file = tmp_path / 'nonexistent.fa.gz'
 
-        with pytest.raises(FileNotFoundError):
-            decompress_genome(missing_file, tmpdir_path)
+    with pytest.raises(FileNotFoundError):
+        decompress_genome(missing_file, tmp_path)

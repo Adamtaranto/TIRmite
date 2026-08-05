@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       # Checkout the latest commit associated with the PR
       - uses: actions/checkout@v7
@@ -36,6 +36,10 @@ jobs:
       # skip, so the FASTA-vs-BLAST-database guarantee goes unchecked. Only
       # installed for the version that reports coverage, to keep the other
       # matrix jobs fast.
+      #
+      # Note the trade-off this accepts: BLAST-dependent behaviour is verified
+      # on Python 3.14 alone. A regression that only manifests on an older
+      # interpreter in a BLAST code path would not be caught here.
       - name: Install BLAST+
         if: matrix.python-version == '3.14'
         run: |
@@ -65,7 +69,7 @@ jobs:
       - name: Test with pytest and coverage
         if: matrix.python-version == '3.14'
         run: |
-          pytest
+          pytest --cov=tirmite --cov-branch --cov-report=xml
         shell: bash -l {0}
       # Upload coverage report to Codecov. Only the job above produces a
       # coverage.xml, and every matrix job would otherwise report the same

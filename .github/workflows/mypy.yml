@@ -1,0 +1,42 @@
+name: Static checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  numpydoc:
+    if: ${{ github.actor != 'dependabot[bot]' }} # Do not run on commits created by dependabot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install docstring validator
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      # Docstring coverage is already complete; this keeps it that way. The
+      # pre-commit hook enforces the same thing locally, but only for staged
+      # files and only if contributors have pre-commit installed.
+      - name: Validate docstrings
+        run: |
+          python -m numpydoc.hooks.validate_docstrings $(git ls-files 'src/tirmite/**/*.py')
+  mypy:
+    if: ${{ github.actor != 'dependabot[bot]' }} # Do not run on commits created by dependabot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          # Matches [tool.mypy] python_version in pyproject.toml.
+          python-version: "3.10"
+      - name: Install package and type checker
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      # Blocking. The backlog this job was added to measure (9 errors) has been
+      # cleared, so any new type error should fail the build rather than
+      # accumulate.
+      - name: Run mypy
+        run: mypy src/tirmite

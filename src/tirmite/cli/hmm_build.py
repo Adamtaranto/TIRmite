@@ -13,37 +13,44 @@ transposon terminus models.
 """
 
 import argparse
-import io
+import hashlib
 import logging
 import os
 from pathlib import Path
 import shutil
+import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
-from Bio import SeqIO  # type: ignore[import-not-found]
-from Bio.Seq import Seq  # type: ignore[import-not-found]
-from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
-from pyhmmer.easel import (  # type: ignore[import-not-found]
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+import pandas as pd
+from pyhmmer.easel import (
     Alphabet,
     DigitalMSA,
     MSAFile,
     SequenceFile,
 )
-from pyhmmer.plan7 import (  # type: ignore[import-not-found]
+from pyhmmer.plan7 import (
     Background,
     Builder,
 )
 
+from tirmite.cli._argtypes import (
+    validate_coverage,
+    validate_evalue,
+    validate_identity,
+    validate_threads,
+)
+from tirmite.core.parsers import import_nhmmer
 from tirmite.runners.hmmer_wrappers import (
     build_hmmalign_command,
-    build_hmmbuild_command,
     build_hmmpress_command,
     build_nhmmer_command,
 )
+from tirmite.runners.mafft import MafftError, align_to_file
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
-from tirmite.tirmitetools import import_nhmmer
 from tirmite.utils.extract import (
     BlastDBSource,
     FastaSource,
@@ -59,6 +66,8 @@ from tirmite.utils.utils import (
     prepare_genome_file,
     temporary_directory,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class HMMBuildError(Exception):
@@ -240,12 +249,12 @@ def parse_blast_output(blast_file: Path) -> List[BlastHit]:
                         )
                         hits.append(hit)
                     except (ValueError, IndexError) as e:
-                        logging.warning(
+                        logger.warning(
                             f'Skipping malformed BLAST line {line_num}: {line.strip()} - {e}'
                         )
                         continue
                 else:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping BLAST line {line_num} with insufficient fields: {line.strip()}'
                     )
 
@@ -292,9 +301,9 @@ def compare_seeds(
     which may represent inverted repeats or conserved motifs.
     """
     from Bio import SeqIO
-    from Bio.Align import PairwiseAligner  # type: ignore[import-not-found]
+    from Bio.Align import PairwiseAligner
 
-    logging.info('Comparing left and right seed sequences...')
+    logger.info('Comparing left and right seed sequences...')
 
     blast_output = temp_dir / 'seed_comparison.tab'
 
@@ -310,10 +319,10 @@ def compare_seeds(
         )
 
         all_hits = parse_blast_output(blast_output)
-        logging.info(f'Found {len(all_hits)} initial seed comparison hits')
+        logger.info(f'Found {len(all_hits)} initial seed comparison hits')
 
         if not all_hits:
-            logging.info('No similarity found between left and right seeds')
+            logger.info('No similarity found between left and right seeds')
             return []
 
         # Filter hits by length and identity thresholds
@@ -332,17 +341,17 @@ def compare_seeds(
 
             if passed:
                 filtered_hits.append(hit)
-                logging.debug(f'PASSED: {hit}')
+                logger.debug(f'PASSED: {hit}')
             else:
-                logging.debug(f'FILTERED: {hit} - Failed: {", ".join(reasons)}')
+                logger.debug(f'FILTERED: {hit} - Failed: {", ".join(reasons)}')
 
-        logging.info(
+        logger.info(
             f'Threshold filtering: {len(all_hits)} -> {len(filtered_hits)} hits '
             f'(length>={min_length}bp, id>={min_identity:.1f}%)'
         )
 
         if not filtered_hits:
-            logging.info(
+            logger.info(
                 f'No seed comparison hits passed thresholds (length>={min_length}bp, id>={min_identity:.1f}%)'
             )
             return []
@@ -367,13 +376,13 @@ def compare_seeds(
             try:
                 # Get query (left) and subject (right) sequences
                 if hit.query_id not in left_seqs:
-                    logging.warning(
+                    logger.warning(
                         f'Query sequence {hit.query_id} not found in left seed file'
                     )
                     continue
 
                 if hit.subject_id not in right_seqs:
-                    logging.warning(
+                    logger.warning(
                         f'Subject sequence {hit.subject_id} not found in right seed file'
                     )
                     continue
@@ -401,19 +410,19 @@ def compare_seeds(
                     best_alignment = pairwise_alignments[0]
                     hit_alignments.append((hit, best_alignment))
 
-                    logging.debug(f'Generated alignment for hit: {hit}')
-                    logging.debug(f'Alignment score: {best_alignment.score}')
-                    logging.debug(
+                    logger.debug(f'Generated alignment for hit: {hit}')
+                    logger.debug(f'Alignment score: {best_alignment.score}')
+                    logger.debug(
                         f'Query seq length: {len(query_seq)}, Subject seq length: {len(subject_seq)}'
                     )
                 else:
-                    logging.warning(f'Failed to generate alignment for hit: {hit}')
+                    logger.warning(f'Failed to generate alignment for hit: {hit}')
 
             except Exception as e:
-                logging.warning(f'Error generating alignment for hit {hit}: {e}')
+                logger.warning(f'Error generating alignment for hit {hit}: {e}')
                 continue
 
-        logging.info(
+        logger.info(
             f'Generated {len(hit_alignments)} seed comparison alignments from {len(filtered_hits)} filtered hits'
         )
 
@@ -423,10 +432,10 @@ def compare_seeds(
         return hit_alignments
 
     except BlastError as e:
-        logging.warning(f'Seed comparison failed: {e}')
+        logger.warning(f'Seed comparison failed: {e}')
         return []
     except Exception as e:
-        logging.error(f'Unexpected error in seed comparison: {e}')
+        logger.error(f'Unexpected error in seed comparison: {e}')
         return []
 
 
@@ -465,14 +474,14 @@ def create_blast_database(genome_file: Path, db_dir: Path) -> Path:
         f'{genome_file.stem} database',
     ]
 
-    logging.info(f'Creating BLAST database for {genome_file.name}')
+    logger.info(f'Creating BLAST database for {genome_file.name}')
 
     try:
         result = run_command(cmd, verbose=True)
         if result.returncode != 0:
             raise HMMBuildError(f'makeblastdb failed: {result.stderr}')
 
-        logging.info(f'BLAST database created: {db_name}')
+        logger.info(f'BLAST database created: {db_name}')
         return db_name
 
     except Exception as e:
@@ -538,14 +547,14 @@ def blast_seed_against_genome(
     ]
 
     # Log the full blastn command being executed
-    logging.info('Running blastn with the following parameters:')
-    logging.info(f'  Command: {" ".join(cmd)}')
-    logging.info(f'  Query: {seed_file}')
-    logging.info(f'  Database: {blast_db}')
-    logging.info(f'  Output: {output_file}')
-    logging.info(f'  Identity threshold: {identity_threshold}%')
-    logging.info(f'  E-value: {evalue}')
-    logging.info(f'  Threads: {num_threads}')
+    logger.info('Running blastn with the following parameters:')
+    logger.info(f'  Command: {" ".join(cmd)}')
+    logger.info(f'  Query: {seed_file}')
+    logger.info(f'  Database: {blast_db}')
+    logger.info(f'  Output: {output_file}')
+    logger.info(f'  Identity threshold: {identity_threshold}%')
+    logger.info(f'  E-value: {evalue}')
+    logger.info(f'  Threads: {num_threads}')
 
     try:
         result = run_command(cmd, verbose=True)
@@ -556,38 +565,77 @@ def blast_seed_against_genome(
         add_blast_header(output_file)
 
         hits = parse_blast_output(output_file)
-        logging.info(f'BLAST search found {len(hits)} hits')
+        logger.info(f'BLAST search found {len(hits)} hits')
         return hits
 
     except Exception as e:
         raise HMMBuildError(f'BLAST search failed: {e}') from e
 
 
+BLAST_HEADER_LINES = (
+    '# BLAST tabular output format 6\n'
+    '# qstart\tqend\tsstart\tsend\tlength\tpositive\tpident\tqlen\tslen'
+    '\tqframe\tsframe\tqseqid\tsseqid\n'
+)
+
+
 def add_blast_header(blast_file: Path) -> None:
     """
-    Add header comment lines to BLAST output file.
+    Prepend header comment lines to a BLAST output file.
 
     Parameters
     ----------
     blast_file : Path
-        Path to BLAST tabular output file to add header to.
+        Path to BLAST tabular output file to add a header to.
 
     Returns
     -------
     None
-        No return value. Modifies file in place.
-    """
-    # Read existing content
-    with open(blast_file, 'r') as f:
-        content = f.read()
+        No return value. Replaces the file in place.
 
-    # Write header + content
-    with open(blast_file, 'w') as f:
-        f.write('# BLAST tabular output format 6\n')
-        f.write(
-            '# qstart\tqend\tsstart\tsend\tlength\tpositive\tpident\tqlen\tslen\tqframe\tsframe\tqseqid\tsseqid\n'
-        )
-        f.write(content)
+    Raises
+    ------
+    OSError
+        If the file cannot be read, written, or replaced.
+
+    Notes
+    -----
+    Streams the body through a temporary file rather than reading it into a
+    string. The previous implementation did::
+
+        content = open(blast_file).read()      # whole table in memory
+        open(blast_file, 'w').write(header + content)
+
+    which needed roughly twice the table's size in memory. That matters here
+    because the genome search runs with ``-word_size 4`` and
+    ``-max_target_seqs 10000``, which can make the table very large.
+
+    Opening the destination with ``'w'`` also truncated the original *before*
+    the rewrite, so an interruption anywhere in the write destroyed the search
+    results outright. Writing a sibling temporary file and swapping it in with
+    :func:`os.replace` -- atomic on the same filesystem -- means the original
+    survives any failure, and no reader ever sees a partial file.
+    """
+    blast_file = Path(blast_file)
+
+    # Same directory, so os.replace() stays on one filesystem and is atomic.
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(blast_file.parent), prefix=f'.{blast_file.name}.', suffix='.tmp'
+    )
+    tmp_path = Path(tmp_name)
+
+    try:
+        with os.fdopen(fd, 'w') as out_handle:
+            out_handle.write(BLAST_HEADER_LINES)
+            with open(blast_file, 'r') as in_handle:
+                # Fixed-size chunks: peak memory is the buffer, not the file.
+                shutil.copyfileobj(in_handle, out_handle)
+
+        os.replace(tmp_path, blast_file)
+    except BaseException:
+        # Leave the original untouched on any failure, including KeyboardInterrupt.
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def resolve_overlapping_hits(
@@ -628,10 +676,26 @@ def resolve_overlapping_hits(
             if current_hit.subject_id != existing_hit.subject_id:
                 continue
 
-            # Calculate overlap
-            overlap_start = max(current_hit.subject_start, existing_hit.subject_start)
-            overlap_end = min(current_hit.subject_end, existing_hit.subject_end)
-            overlap_length = max(0, overlap_end - overlap_start)
+            # Normalise before comparing. BLAST reports sstart > send for a
+            # minus-strand HSP and BlastHit stores them unswapped (the strand
+            # is derived from exactly that inversion), so comparing raw
+            # coordinates made the overlap of any minus-strand hit provably
+            # <= 0. No minus-strand hit was ever de-overlapped: every
+            # reverse-oriented element contributed redundant, near-identical
+            # copies to the HMM training set. hits_overlap() already
+            # normalises this way.
+            cur_lo, cur_hi = sorted(
+                (current_hit.subject_start, current_hit.subject_end)
+            )
+            exist_lo, exist_hi = sorted(
+                (existing_hit.subject_start, existing_hit.subject_end)
+            )
+
+            # Coordinates are 1-based inclusive, so two hits sharing a single
+            # base overlap by 1.
+            overlap_start = max(cur_lo, exist_lo)
+            overlap_end = min(cur_hi, exist_hi)
+            overlap_length = max(0, overlap_end - overlap_start + 1)
 
             if overlap_length > max_overlap:
                 # Determine which hit to keep - prioritize length over identity
@@ -662,7 +726,7 @@ def resolve_overlapping_hits(
         if keep_current:
             filtered_hits.append(current_hit)
 
-    logging.info(f'Resolved overlaps: {len(hits)} -> {len(filtered_hits)} hits')
+    logger.info(f'Resolved overlaps: {len(hits)} -> {len(filtered_hits)} hits')
     return filtered_hits
 
 
@@ -702,11 +766,11 @@ def filter_hits_by_thresholds(
 
         if passed:
             filtered.append(hit)
-            logging.debug(f'PASSED: {hit}')
+            logger.debug(f'PASSED: {hit}')
         else:
-            logging.debug(f'FILTERED: {hit} - Failed: {", ".join(reasons)}')
+            logger.debug(f'FILTERED: {hit} - Failed: {", ".join(reasons)}')
 
-    logging.info(
+    logger.info(
         f'Threshold filtering: {len(hits)} -> {len(filtered)} hits '
         f'(cov>={min_coverage:.3f}, id>={min_identity:.1f})'
     )
@@ -818,14 +882,14 @@ def chain_fragmented_hits(
     chained_hits = len(chains) - single_hits
 
     if chained_hits > 0:
-        logging.warning(
+        logger.warning(
             f'Hit chaining: {single_hits} single hits, {chained_hits} chains detected. '
             f'WARNING: Chained hits suggest fragmented BLAST matches. '
             f'It is recommended to manually inspect and trim the alignment before building the HMM with hmmbuild '
             f'to ensure high-quality terminal repeat models.'
         )
     else:
-        logging.info(f'Hit chaining: {single_hits} single hits, {chained_hits} chains')
+        logger.info(f'Hit chaining: {single_hits} single hits, {chained_hits} chains')
 
     return chains
 
@@ -849,30 +913,99 @@ def warn_multiple_queries(hits: List[BlastHit], context: str = '') -> None:
     query_ids: Set[str] = {h.query_id for h in hits}
     if len(query_ids) > 1:
         label = f' ({context})' if context else ''
-        logging.warning(
+        logger.warning(
             f'Multiple query names detected in blast hit table{label}: '
             f'{", ".join(sorted(query_ids))}. '
             'Consider using a hit table derived from a single seed sequence.'
         )
 
 
-def check_targets_in_blastdb(hits: List[BlastHit], blast_db: Path) -> List[str]:
+class _LazySource:
+    """Build a sequence source on first use and reuse it thereafter.
+
+    Parameters
+    ----------
+    blast_db : Path or None
+        BLAST database to read from, if any.
+    genome_files : list of Path
+        Genome FASTAs to index when no BLAST database is given.
+
+    Notes
+    -----
+    A workflow needs the same source twice: once to check that every hit's
+    target ID resolves, and again to extract the sequences. Building it twice
+    meant indexing the genome twice, or -- for a BLAST database -- discarding
+    the contig-length cache that the ID check had just populated, so extraction
+    re-resolved every length at a ``blastdbcmd`` subprocess apiece.
+
+    Construction stays lazy so that a run which fails before extraction (no
+    hits passed thresholds, say) never pays to index a genome it will not read.
     """
-    Check that all target sequences in hits are present in a BLAST database.
+
+    def __init__(self, blast_db: Optional[Path], genome_files: List[Path]):
+        self._blast_db = blast_db
+        self._genome_files = genome_files
+        self._source: Optional[Any] = None
+
+    @property
+    def available(self) -> bool:
+        """
+        Report whether a source could be built at all.
+
+        Returns
+        -------
+        bool
+            True if a BLAST database or at least one genome was supplied.
+
+        Notes
+        -----
+        Lets a caller skip an optional pre-flight check without forcing
+        construction. Forcing it would raise "No genome or BLAST database
+        available for extraction" from the ID check, pre-empting the more
+        specific errors that come later -- a run with no hits above threshold
+        should say so, not complain about extraction it never reached.
+        """
+        return self._blast_db is not None or bool(self._genome_files)
+
+    def get(self) -> Any:
+        """
+        Return the shared source, building it on first call.
+
+        Returns
+        -------
+        FastaSource or BlastDBSource
+            The sequence source for this workflow.
+        """
+        if self._source is None:
+            self._source = _build_source(self._blast_db, self._genome_files)
+        return self._source
+
+
+def check_targets_in_blastdb(hits: List[BlastHit], source: Any) -> List[str]:
+    """
+    Check that all target sequences in hits are present in a sequence source.
 
     Parameters
     ----------
     hits : list of BlastHit
         BLAST hits whose subject IDs should be validated.
-    blast_db : Path
-        Path to BLAST database (without extension).
+    source : FastaSource or BlastDBSource
+        Open sequence source to resolve the IDs against.
 
     Returns
     -------
     list of str
-        Subject IDs that could NOT be found in the database.
+        Subject IDs that could NOT be found in the source.
+
+    Notes
+    -----
+    Takes an open source rather than a database path so the caller can reuse
+    the one it will extract with. This previously built its own
+    ``BlastDBSource``, populated its contig-length cache while checking every
+    ID, and then discarded it -- so extraction re-resolved every one of those
+    lengths, at a ``blastdbcmd`` subprocess apiece.
     """
-    return check_ids(BlastDBSource(blast_db), (h.subject_id for h in hits))
+    return check_ids(source, (h.subject_id for h in hits))
 
 
 def _build_source(blast_db: Optional[Path], genome_files: List[Path]):  # type: ignore[no-untyped-def]
@@ -902,21 +1035,57 @@ def _build_source(blast_db: Optional[Path], genome_files: List[Path]):  # type: 
     if not genome_files:
         raise HMMBuildError('No genome or BLAST database available for extraction')
 
-    if len(genome_files) > 1:
-        logging.warning(
-            f'{len(genome_files)} genomes were searched but sequences will be '
-            f'extracted only from {genome_files[0].name}. Hits on other genomes '
-            'will be skipped.'
+    # Index every searched genome, not just the first.
+    #
+    # This used to index genome_files[0] alone and warn that hits on other
+    # genomes "will be skipped". They were not skipped: extraction looks up
+    # hit.subject_id in that single index, so when two assemblies share a
+    # contig name -- 'chr1' is near-universal -- hits found in genome 2 were
+    # extracted from genome 1 at genome 2's coordinates, yielding arbitrary
+    # sequence with no warning at all.
+    combined: Dict[str, Any] = {}
+    combined_descriptions: Dict[str, str] = {}
+    contig_origin: Dict[str, str] = {}
+    collisions: Dict[str, List[str]] = {}
+
+    for genome_file in genome_files:
+        try:
+            genome_index, descriptions = indexGenome(genome_file)
+        except Exception as e:
+            raise HMMBuildError(
+                f'Failed to index genome {genome_file} for sequence extraction: {e}'
+            ) from e
+
+        for contig in genome_index.keys():
+            if contig in combined:
+                collisions.setdefault(contig, [contig_origin[contig]]).append(
+                    genome_file.name
+                )
+                continue
+            combined[contig] = genome_index[contig]
+            contig_origin[contig] = genome_file.name
+
+        combined_descriptions.update(descriptions)
+
+    if collisions:
+        shown = ', '.join(
+            f'{contig} (in {" and ".join(sources)})'
+            for contig, sources in list(collisions.items())[:5]
+        )
+        raise HMMBuildError(
+            f'{len(collisions)} contig name(s) appear in more than one genome: '
+            f'{shown}. A hit cannot be attributed to a genome by contig name '
+            'alone, so extraction would silently take sequence from the wrong '
+            'assembly. Rename the contigs to be unique across genomes, or '
+            'search one genome at a time.'
         )
 
-    try:
-        genome_index, descriptions = indexGenome(genome_files[0])
-    except Exception as e:
-        raise HMMBuildError(
-            f'Failed to index genome for sequence extraction: {e}'
-        ) from e
+    logger.info(
+        f'Indexed {len(combined)} contigs across {len(genome_files)} genome(s) '
+        'for sequence extraction'
+    )
 
-    return FastaSource(genome_index, descriptions)
+    return FastaSource(combined, combined_descriptions)
 
 
 def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
@@ -956,7 +1125,7 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
 
                 seq_str = fetch_sequence(source, hit.subject_id, start, end)
                 if seq_str is None:
-                    logging.warning(
+                    logger.warning(
                         f'Could not extract {hit.subject_id}:{start}-{end}. '
                         'Skipping hit.'
                     )
@@ -981,7 +1150,7 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
 
                     fragment = fetch_sequence(source, hit.subject_id, start, end)
                     if fragment is None:
-                        logging.warning(
+                        logger.warning(
                             f'Could not extract {hit.subject_id}:{start}-{end}. '
                             'Skipping chain.'
                         )
@@ -1009,15 +1178,15 @@ def extract_sequences_from_chains(  # type: ignore[no-untyped-def]
             sequences.append(seq_record)
 
         except KeyError as e:
-            logging.error(f'Failed to extract sequence for chain {chain_idx}: {e}')
+            logger.error(f'Failed to extract sequence for chain {chain_idx}: {e}')
             continue
         except Exception as e:
-            logging.error(
+            logger.error(
                 f'Unexpected error extracting sequence for chain {chain_idx}: {e}'
             )
             continue
 
-    logging.info(f'Extracted {len(sequences)} sequences from {len(chains)} hit chains')
+    logger.info(f'Extracted {len(sequences)} sequences from {len(chains)} hit chains')
     return sequences
 
 
@@ -1069,9 +1238,7 @@ def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
                     hit_end + flank_size,
                 )
                 if region is None:
-                    logging.warning(
-                        f'Could not resolve {hit.subject_id}. Skipping hit.'
-                    )
+                    logger.warning(f'Could not resolve {hit.subject_id}. Skipping hit.')
                     continue
                 flanked_start, flanked_end = region
 
@@ -1079,7 +1246,7 @@ def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
                     source, hit.subject_id, flanked_start, flanked_end
                 )
                 if seq_str is None:
-                    logging.warning(
+                    logger.warning(
                         f'Could not extract {hit.subject_id}:'
                         f'{flanked_start}-{flanked_end}. Skipping hit.'
                     )
@@ -1120,7 +1287,7 @@ def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
 
                     region = clamp_region(source, hit.subject_id, req_start, req_end)
                     if region is None:
-                        logging.warning(
+                        logger.warning(
                             f'Could not resolve {hit.subject_id}. Skipping chain.'
                         )
                         valid_chain = False
@@ -1129,7 +1296,7 @@ def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
 
                     fragment = fetch_sequence(source, hit.subject_id, start, end)
                     if fragment is None:
-                        logging.warning(
+                        logger.warning(
                             f'Could not extract {hit.subject_id}:{start}-{end}. '
                             'Skipping chain.'
                         )
@@ -1157,17 +1324,17 @@ def extract_flanked_sequences_from_chains(  # type: ignore[no-untyped-def]
             sequences.append(seq_record)
 
         except KeyError as e:
-            logging.error(
+            logger.error(
                 f'Failed to extract flanked sequence for chain {chain_idx}: {e}'
             )
             continue
         except Exception as e:
-            logging.error(
+            logger.error(
                 f'Unexpected error extracting flanked sequence for chain {chain_idx}: {e}'
             )
             continue
 
-    logging.info(
+    logger.info(
         f'Extracted {len(sequences)} flanked sequences from {len(chains)} hit chains (flank size: {flank_size}bp)'
     )
     return sequences
@@ -1227,13 +1394,13 @@ def deduplicate_sequences(sequences: List[SeqRecord]) -> List[SeqRecord]:
         else:
             # Log when we skip a duplicate, noting if we kept the seed version
             if is_seed_sequence(seq):
-                logging.info(
+                logger.info(
                     f'Seed sequence {seq.id} is identical to already retained sequence'
                 )
             else:
-                logging.debug(f'Skipping duplicate extracted sequence: {seq.id}')
+                logger.debug(f'Skipping duplicate extracted sequence: {seq.id}')
 
-    logging.info(
+    logger.info(
         f'Deduplication: {len(sequences)} -> {len(unique_sequences)} unique sequences'
     )
     return unique_sequences
@@ -1243,74 +1410,36 @@ def run_mafft_alignment(
     sequences: List[SeqRecord], output_file: Path, threads: int = 1
 ) -> Path:
     """
-    Run MAFFT multiple sequence alignment with default parameters.
+    Align sequences with MAFFT, reporting failures as :class:`HMMBuildError`.
 
     Parameters
     ----------
     sequences : list of Bio.SeqRecord.SeqRecord
-        List of sequences to align.
+        Sequences to align.
     output_file : Path
-        Path to write alignment output file.
+        Path to write the alignment to, in FASTA format.
     threads : int, default 1
-        Number of CPU threads for MAFFT.
+        Number of CPU threads to pass to MAFFT.
 
     Returns
     -------
     Path
-        Path to output alignment file.
+        ``output_file``.
 
     Raises
     ------
     HMMBuildError
-        If fewer than 2 sequences provided or MAFFT fails.
+        If the alignment could not be produced.
+
+    Notes
+    -----
+    Thin adapter over :func:`tirmite.runners.mafft.align_to_file`. It exists so
+    that every failure inside the seed workflow surfaces as a single exception
+    type, which ``main`` catches and turns into a clean CLI error.
     """
-    if len(sequences) < 2:
-        raise HMMBuildError('Need at least 2 sequences for alignment')
-
-    # Write sequences to temporary file
-    temp_fasta = output_file.parent / f'{output_file.stem}_input.fasta'
-
-    with open(temp_fasta, 'w') as f:
-        SeqIO.write(sequences, f, 'fasta')
-
-    # Run MAFFT with default parameters
-    cmd = [
-        'mafft',
-        '--thread',
-        str(threads),
-        str(temp_fasta),
-    ]
-
-    logging.info(f'Running MAFFT alignment on {len(sequences)} sequences')
-
     try:
-        # Run MAFFT and capture output
-        result = run_command(cmd, verbose=True)
-
-        if result.returncode != 0:
-            raise HMMBuildError(f'MAFFT failed: {result.stderr}')
-
-        # Parse MAFFT output and convert to uppercase
-        alignment_records = []
-        for record in SeqIO.parse(io.StringIO(result.stdout), 'fasta'):
-            uppercase_record = SeqRecord(
-                Seq(str(record.seq).upper()),
-                id=record.id,
-                description=record.description,
-            )
-            alignment_records.append(uppercase_record)
-
-        # Write the uppercase alignment to output file
-        with open(output_file, 'w') as outfile:
-            SeqIO.write(alignment_records, outfile, 'fasta')
-
-        # Clean up temporary file
-        temp_fasta.unlink()
-
-        logging.info(f'Alignment written to {output_file}')
-        return output_file
-
-    except Exception as e:
+        return align_to_file(sequences, output_file, threads=threads)
+    except MafftError as e:
         raise HMMBuildError(f'MAFFT alignment failed: {e}') from e
 
 
@@ -1362,50 +1491,8 @@ def calculate_pairwise_identity(alignment_file: Path) -> pd.DataFrame:
         return identity_matrix
 
     except Exception as e:
-        logging.warning(f'Failed to calculate pairwise identity: {e}')
+        logger.warning(f'Failed to calculate pairwise identity: {e}')
         return pd.DataFrame()
-
-
-def build_hmm_from_alignment(
-    alignment_file: Path, model_name: str, output_dir: Path
-) -> Path:
-    """
-    Build HMM from multiple sequence alignment.
-
-    Parameters
-    ----------
-    alignment_file : Path
-        Path to multiple sequence alignment file.
-    model_name : str
-        Name for the HMM model.
-    output_dir : Path
-        Directory to write HMM output file.
-
-    Returns
-    -------
-    Path
-        Path to created HMM file.
-    """
-    clean_model_name = cleanID(model_name)
-
-    try:
-        command, output_hmm = build_hmmbuild_command(
-            model_name=clean_model_name,
-            input_alignment=alignment_file,
-            output_dir=output_dir,
-        )
-
-        logging.info(f'Building HMM for {model_name}')
-        result = run_command(command, verbose=True)
-
-        if result.returncode != 0:
-            raise HMMBuildError(f'hmmbuild failed: {result.stderr}')
-
-        logging.info(f'HMM written to {output_hmm}')
-        return output_hmm
-
-    except Exception as e:
-        raise HMMBuildError(f'HMM building failed: {e}') from e
 
 
 def clean_hmm_name(name: str) -> str:
@@ -1440,19 +1527,152 @@ def clean_hmm_name(name: str) -> str:
         cleaned = f'model_{cleaned}'
 
     # Ensure minimum length
-    if not cleaned or len(cleaned) < 1:
+    if not cleaned:
         cleaned = 'unnamed_model'
 
-    # Limit length to be very conservative
-    max_length = 20  # Very conservative
+    # HMMER imposes no practical limit on the NAME field, so the cap here is
+    # only to keep filenames manageable. It was 20, which silently collided:
+    # '<name>_left' and '<name>_right' both truncate to the same string for any
+    # name of 15 characters or more, and since the HMM path is
+    # f'{clean_model_name}.hmm' the right model OVERWROTE the left one and both
+    # returned paths pointed at the same file.
+    max_length = 60
     if len(cleaned) > max_length:
-        cleaned = cleaned[:max_length].rstrip('_')
+        # Truncation can still collide, so disambiguate with a short digest of
+        # the full name. Deterministic, so re-running gives the same filename.
+        digest = hashlib.sha1(cleaned.encode('utf-8')).hexdigest()[:8]
+        keep = max_length - len(digest) - 1
+        cleaned = f'{cleaned[:keep].rstrip("_")}_{digest}'
+        logger.warning(
+            f'Model name truncated to {max_length} characters: "{cleaned}". '
+            'A digest of the full name is appended so distinct models cannot '
+            'collide.'
+        )
 
     # Final validation - ensure it's not empty after processing
     if not cleaned:
         cleaned = 'model'
 
     return cleaned
+
+
+def write_seed_comparison_report(
+    seed_comparisons: List[Tuple[Any, Any]],
+    output_file: Path,
+    model_name: str,
+    left_seed_name: str,
+    right_seed_name: str,
+) -> Path:
+    """
+    Write the detailed left-vs-right seed similarity report.
+
+    Parameters
+    ----------
+    seed_comparisons : list of tuple
+        ``(BlastHit, alignment)`` pairs as returned by :func:`compare_seeds`.
+    output_file : Path
+        Path to write the report to.
+    model_name : str
+        Model name, for the report title.
+    left_seed_name : str
+        Filename of the left seed.
+    right_seed_name : str
+        Filename of the right seed.
+
+    Returns
+    -------
+    Path
+        ``output_file``.
+
+    Notes
+    -----
+    Extracted from ``main`` so that it can be tested. It previously lived
+    inline inside a branch of ``main`` that also binds ``alignment`` to a
+    ``Path`` in its sibling ``--update`` branch; a rename of the loop variable
+    left three stale references behind and the block raised ``NameError`` for
+    every asymmetric run that found any seed similarity. Nothing covered it,
+    because ``main`` has no test that reaches this point.
+    """
+    with open(output_file, 'w') as handle:
+        handle.write(f'Seed Comparison Results for {model_name}\n')
+        handle.write('=' * 50 + '\n\n')
+        handle.write(f'Left seed: {left_seed_name}\n')
+        handle.write(f'Right seed: {right_seed_name}\n')
+        handle.write(f'Total similarities found: {len(seed_comparisons)}\n\n')
+
+        for i, (hit, seed_alignment) in enumerate(seed_comparisons, 1):
+            handle.write(f'Similarity {i}:\n')
+            handle.write(f'  Length: {hit.length}bp\n')
+            handle.write(f'  Identity: {hit.identity:.1f}%\n')
+            handle.write(f'  Query coverage: {hit.query_coverage:.3f}\n')
+            handle.write(f'  Subject coverage: {hit.subject_coverage:.3f}\n')
+            handle.write(
+                f'  Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]\n'
+            )
+            handle.write(
+                f'  Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}]\n'
+            )
+            handle.write(f'  Alignment score: {seed_alignment.score}\n')
+            handle.write('  Alignment:\n')
+            for line in str(seed_alignment).split('\n'):
+                handle.write(f'    {line}\n')
+            handle.write('\n')
+
+    return output_file
+
+
+def read_alignment_records(alignment_file: Path) -> List[SeqRecord]:
+    """
+    Read an alignment without assuming its format.
+
+    Parameters
+    ----------
+    alignment_file : Path
+        Path to a multiple sequence alignment.
+
+    Returns
+    -------
+    list of Bio.SeqRecord.SeqRecord
+        The aligned records. Empty if the file holds no sequences in any of
+        the supported formats.
+
+    Raises
+    ------
+    HMMBuildError
+        If the file cannot be read at all.
+
+    Notes
+    -----
+    TIRmite produces alignments in two formats and feeds both to the same HMM
+    builder: the seed workflow aligns with MAFFT and writes **FASTA**, while
+    ``--update`` aligns with ``hmmalign`` and writes **Stockholm**.
+
+    This previously hard-coded ``'stockholm'``, so every seed run failed with
+    ``ValueError: Did not find STOCKHOLM header`` before it reached the
+    builder. The format is now detected by trying each candidate in turn,
+    matching ``pyhmmer.easel.MSAFile``, which auto-detects and does the actual
+    work a few lines later.
+
+    Stockholm is tried first because its header is unambiguous, so a Stockholm
+    file can never be misread as something else.
+    """
+    last_error: Optional[Exception] = None
+
+    for fmt in ('stockholm', 'fasta', 'clustal', 'phylip'):
+        try:
+            records = list(SeqIO.parse(alignment_file, fmt))
+        except (ValueError, IndexError) as e:
+            # Wrong format for this parser; try the next one.
+            last_error = e
+            continue
+
+        if records:
+            logger.debug(f'Read {len(records)} records from {alignment_file} as {fmt}')
+            return records
+
+    if last_error is not None:
+        logger.debug(f'No parser accepted {alignment_file}: {last_error}')
+    return []
 
 
 def build_hmm_from_alignment_pyhmmer(
@@ -1480,16 +1700,16 @@ def build_hmm_from_alignment_pyhmmer(
     output_hmm = output_dir / f'{clean_model_name}.hmm'
 
     # Add debugging
-    logging.debug(f'Original model name: "{model_name}"')
-    logging.debug(f'Cleaned model name: "{clean_model_name}"')
-    logging.debug(f'Cleaned name length: {len(clean_model_name)}')
-    logging.debug(f'Name characters: {[ord(c) for c in clean_model_name]}')
+    logger.debug(f'Original model name: "{model_name}"')
+    logger.debug(f'Cleaned model name: "{clean_model_name}"')
+    logger.debug(f'Cleaned name length: {len(clean_model_name)}')
+    logger.debug(f'Name characters: {[ord(c) for c in clean_model_name]}')
 
     try:
         alphabet = Alphabet.dna()
 
         # Read alignment file first to validate it
-        alignment_records = list(SeqIO.parse(alignment_file, 'stockholm'))
+        alignment_records = read_alignment_records(alignment_file)
 
         if not alignment_records:
             raise HMMBuildError(
@@ -1501,7 +1721,7 @@ def build_hmm_from_alignment_pyhmmer(
                 f'Need at least 2 sequences for HMM building, got {len(alignment_records)}'
             )
 
-        logging.debug(f'Found {len(alignment_records)} sequences in alignment')
+        logger.debug(f'Found {len(alignment_records)} sequences in alignment')
 
         # Try pyhmmer's native MSA file reading first
         try:
@@ -1510,17 +1730,21 @@ def build_hmm_from_alignment_pyhmmer(
             ) as msa_file:
                 msa = msa_file.read()
 
-            if msa is None or len(msa) == 0:
+            # len(msa) is the alignment WIDTH in columns; msa.sequences is the
+            # sequence list. A zero-width alignment and an empty one are both
+            # unusable, so check the sequence count.
+            if msa is None or len(msa.sequences) == 0:
                 raise HMMBuildError(
                     f'No sequences found in alignment file: {alignment_file}'
                 )
 
-            logging.debug(
-                f'Successfully read MSA with {len(msa)} sequences using MSAFile'
+            logger.debug(
+                f'Successfully read MSA with {len(msa.sequences)} sequences '
+                f'({len(msa)} columns) using MSAFile'
             )
 
         except Exception as msa_error:
-            logging.debug(
+            logger.debug(
                 f'MSA file reading failed: {msa_error}. Trying sequence file approach.'
             )
 
@@ -1533,12 +1757,12 @@ def build_hmm_from_alignment_pyhmmer(
                     for seq in seq_file:
                         sequences.append(seq)
             except Exception as seq_error:
-                logging.debug(
+                logger.debug(
                     f'SequenceFile reading failed: {seq_error}. Creating MSA manually.'
                 )
 
                 # Manual creation from BioPython records
-                import pyhmmer.easel  # type: ignore[import-not-found]
+                import pyhmmer.easel
 
                 text_sequences = []
                 for i, record in enumerate(alignment_records):
@@ -1554,7 +1778,7 @@ def build_hmm_from_alignment_pyhmmer(
                         digital_seq = text_seq.digitize(alphabet)
                         text_sequences.append(digital_seq)
                     except Exception as e:
-                        logging.error(
+                        logger.error(
                             f'Failed to create digital sequence for {seq_id}: {e}'
                         )
                         raise
@@ -1566,64 +1790,78 @@ def build_hmm_from_alignment_pyhmmer(
                     f'No sequences found in alignment file: {alignment_file}'
                 ) from None  # Add 'from None' since this is a new logical error, not chained from seq_error
 
-            # Create MSA from sequences
-            msa = DigitalMSA(alphabet, sequences)
-            logging.debug(f'Created MSA manually with {len(msa)} sequences')
+            # Every argument must be passed by keyword. `sequences` given
+            # positionally lands in `name`, which expects bytes, so this
+            # fallback raised "TypeError: Expected bytes, got list" every time
+            # it was reached. pyhmmer also warns that `alphabet` will stop
+            # accepting a positional argument after v0.12.0.
+            msa = DigitalMSA(alphabet=alphabet, sequences=sequences)
+            logger.debug(f'Created MSA manually with {len(msa.sequences)} sequences')
 
-        logging.info(f'Building HMM for {model_name} from {len(msa)} sequences')
+        # len(msa) is the alignment WIDTH in columns, not the number of
+        # sequences; msa.sequences is the sequence list.
+        logger.info(
+            f'Building HMM for {model_name} from {len(msa.sequences)} sequences '
+            f'({len(msa)} alignment columns)'
+        )
 
         # Try to set MSA name before building (this might help)
         try:
             msa.name = clean_model_name.encode('ascii')
-            logging.debug(f'Set MSA name to: {clean_model_name}')
+            logger.debug(f'Set MSA name to: {clean_model_name}')
         except Exception as name_error:
-            logging.warning(f'Could not set MSA name: {name_error}')
+            logger.warning(f'Could not set MSA name: {name_error}')
 
         # Build HMM using pyhmmer Builder
         builder = Builder(alphabet)
         background = Background(alphabet)
 
-        logging.debug('Starting HMM building...')
+        logger.debug('Starting HMM building...')
 
         try:
             # Build the HMM from the DigitalMSA
             hmm, _, _ = builder.build_msa(msa, background)
-            logging.debug('HMM building successful')
+            logger.debug('HMM building successful')
 
         except Exception as build_error:
-            logging.error(f'HMM building failed at builder.build_msa(): {build_error}')
-            logging.error(f'MSA details: {len(msa)} sequences')
-            logging.error(
-                f'MSA sequence lengths: {[len(seq) for seq in msa[:3]]}'
-            )  # First 3
+            logger.error(f'HMM building failed at builder.build_msa(): {build_error}')
+            # Diagnostics must not themselves raise: an exception here would
+            # mask build_error and skip the retry below. msa[:3] slices a
+            # DigitalMSA, which is not guaranteed to support slicing.
+            try:
+                logger.error(
+                    f'MSA details: {len(msa.sequences)} sequences, {len(msa)} columns'
+                )
+            except Exception:  # pragma: no cover - diagnostics only
+                logger.error('MSA details unavailable')
 
             # Try building without setting MSA name
-            logging.debug('Retrying HMM building without MSA name...')
+            logger.debug('Retrying HMM building without MSA name...')
             msa.name = None
             hmm, _, _ = builder.build_msa(msa, background)
-            logging.debug('HMM building successful without MSA name')
+            logger.debug('HMM building successful without MSA name')
 
         # Set HMM name after building
         try:
             hmm.name = clean_model_name.encode('ascii')
-            logging.debug(f'Set HMM name to: {clean_model_name}')
+            logger.debug(f'Set HMM name to: {clean_model_name}')
         except Exception as name_error:
-            logging.warning(f'Could not set HMM name: {name_error}')
+            logger.warning(f'Could not set HMM name: {name_error}')
             # Try with an even simpler name
             simple_name = 'model'
             hmm.name = simple_name.encode('ascii')
-            logging.warning(f'Using simple name: {simple_name}')
+            logger.warning(f'Using simple name: {simple_name}')
 
         # Write HMM to file
         with open(output_hmm, 'wb') as f:
             hmm.write(f)
 
-        logging.info(f'HMM written to {output_hmm}')
+        logger.info(f'HMM written to {output_hmm}')
         return output_hmm
 
     except Exception as e:
-        logging.error(f'pyhmmer HMM building failed: {e}')
-        logging.error(f'Model name: "{model_name}" -> "{clean_model_name}"')
+        logger.error(f'pyhmmer HMM building failed: {e}')
+        logger.error(f'Model name: "{model_name}" -> "{clean_model_name}"')
         raise HMMBuildError(f'pyhmmer HMM building failed: {e}') from e
 
 
@@ -1658,7 +1896,7 @@ def save_all_blast_hits(all_hits: List[BlastHit], output_file: Path) -> None:
                 f'{hit.query_frame}\t{hit.subject_frame}\t{hit.query_id}\t{hit.subject_id}\n'
             )
 
-    logging.info(f'All BLAST hits saved to {output_file}')
+    logger.info(f'All BLAST hits saved to {output_file}')
 
 
 def process_seed_sequences(
@@ -1722,16 +1960,21 @@ def process_seed_sequences(
         (hmm_file, alignment_file, blast_hits_file, flanked_alignment_file)
         where blast_hits_file and flanked_alignment_file may be None.
     """
-    logging.info(f'Processing {model_name} seed: {seed_file.name}')
+    logger.info(f'Processing {model_name} seed: {seed_file.name}')
+
+    # One source per workflow, built on first use. Shared between the
+    # target-ID check and sequence extraction so the genome is indexed once
+    # and blastdbcmd's contig-length cache survives between them.
+    lazy_source = _LazySource(blast_db, genome_files)
 
     # ------------------------------------------------------------------ #
     # Step 1 – Obtain BLAST hits                                           #
     # ------------------------------------------------------------------ #
     if blast_hits_file is not None:
         # Use pre-computed hit table
-        logging.info(f'Loading pre-computed BLAST hits from {blast_hits_file}')
+        logger.info(f'Loading pre-computed BLAST hits from {blast_hits_file}')
         all_hits = parse_blast_output(blast_hits_file)
-        logging.info(f'Loaded {len(all_hits)} hits from {blast_hits_file}')
+        logger.info(f'Loaded {len(all_hits)} hits from {blast_hits_file}')
 
         if not all_hits:
             raise HMMBuildError(
@@ -1741,32 +1984,22 @@ def process_seed_sequences(
         # Warn about multiple query names
         warn_multiple_queries(all_hits, context=model_name)
 
-        # Validate that all target sequences are reachable
-        if blast_db is not None:
-            missing = check_targets_in_blastdb(all_hits, blast_db)
+        # Validate that all target sequences are reachable, using the same
+        # source extraction will use. Building it here rather than later means
+        # the genome is indexed once instead of twice, and the contig lengths
+        # resolved by this check are still cached when extraction runs.
+        if lazy_source.available:
+            missing = check_targets_in_blastdb(all_hits, lazy_source.get())
             if missing:
-                logging.warning(
+                logger.warning(
                     f'The following target sequences from the blast-hits table '
-                    f'could not be found in the blast database: '
-                    f'{", ".join(missing)}'
-                )
-        elif genome_files:
-            # Note: validation is performed against the first genome only; hits
-            # referencing sequences in other listed genomes are not checked here.
-            genome_index, _ = indexGenome(genome_files[0])
-            missing = [
-                h.subject_id for h in all_hits if h.subject_id not in genome_index
-            ]
-            if missing:
-                logging.warning(
-                    f'The following target sequences from the blast-hits table '
-                    f'could not be found in the genome index: '
-                    f'{", ".join(set(missing))}'
+                    f'could not be resolved in the sequence source: '
+                    f'{", ".join(sorted(set(missing)))}'
                 )
 
     elif blast_db is not None:
         # Run BLAST against user-supplied pre-built database
-        logging.info(f'Running BLAST against pre-built database: {blast_db}')
+        logger.info(f'Running BLAST against pre-built database: {blast_db}')
         blast_output = temp_dir / f'{model_name}_blast.tab'
         all_hits = blast_seed_against_genome(
             seed_file,
@@ -1781,7 +2014,7 @@ def process_seed_sequences(
         # Build databases from genome FASTA files and run BLAST
         all_hits = []
         for genome_file in genome_files:
-            logging.info(f'Searching {model_name} against {genome_file.name}')
+            logger.info(f'Searching {model_name} against {genome_file.name}')
 
             db_dir = temp_dir / f'blast_dbs_{genome_file.stem}'
             db_dir.mkdir(exist_ok=True)
@@ -1798,7 +2031,7 @@ def process_seed_sequences(
             )
             all_hits.extend(hits)
 
-    logging.info(f'Total BLAST hits for {model_name}: {len(all_hits)}')
+    logger.info(f'Total BLAST hits for {model_name}: {len(all_hits)}')
 
     if not all_hits:
         raise HMMBuildError(f'No BLAST hits found for {model_name}')
@@ -1820,7 +2053,7 @@ def process_seed_sequences(
     resolved_hits = resolve_overlapping_hits(filtered_hits)
 
     # Pre-compute the sequence source and single-element chains
-    source = _build_source(blast_db, genome_files)
+    source = lazy_source.get()
     # Each resolved hit forms its own independent chain (no fragmented-hit chaining)
     hit_chains = [[h] for h in resolved_hits]
 
@@ -1834,9 +2067,23 @@ def process_seed_sequences(
     except Exception as e:
         raise HMMBuildError(f'Failed to extract sequences: {e}') from e
 
+    # extract_sequences_from_chains logs and skips each per-hit failure, so a
+    # wholesale failure -- a BLAST database built without -parse_seqids, or a
+    # genome whose contig names do not match the hits -- returned an empty list
+    # here. The seed records were then appended and, for a multi-record seed
+    # file, len(unique_sequences) >= 2 passed: the run exited 0 having built an
+    # "HMM" from the seeds aligned to each other, with no genomic evidence.
+    if resolved_hits and not sequences:
+        raise HMMBuildError(
+            f'None of the {len(resolved_hits)} hit(s) for {model_name} could be '
+            'extracted. Check that the sequence source contains the hit target '
+            'names; a BLAST database must be built with -parse_seqids for '
+            'blastdbcmd to retrieve by sequence ID.'
+        )
+
     # Add original seed sequence(s) - convert to uppercase and add BEFORE deduplication
     seed_records = list(SeqIO.parse(seed_file, 'fasta'))
-    logging.info(f'Adding {len(seed_records)} seed sequence(s) to extracted sequences')
+    logger.info(f'Adding {len(seed_records)} seed sequence(s) to extracted sequences')
 
     for seed_record in seed_records:
         uppercase_seed = SeqRecord(
@@ -1846,7 +2093,7 @@ def process_seed_sequences(
         )
         sequences.append(uppercase_seed)
 
-    logging.info(
+    logger.info(
         f'Total sequences before deduplication: {len(sequences)} '
         f'(including {len(seed_records)} seed sequences)'
     )
@@ -1865,9 +2112,7 @@ def process_seed_sequences(
     # Create flanked alignment if requested
     flanked_alignment_file = None
     if flank_size is not None and flank_size > 0:
-        logging.info(
-            f'Creating flanked alignment with {flank_size}bp flanking sequence'
-        )
+        logger.info(f'Creating flanked alignment with {flank_size}bp flanking sequence')
 
         try:
             flanked_sequences = extract_flanked_sequences_from_chains(
@@ -1895,21 +2140,21 @@ def process_seed_sequences(
                 run_mafft_alignment(
                     unique_flanked_sequences, flanked_alignment_file, threads=threads
                 )
-                logging.info(f'Flanked alignment written to {flanked_alignment_file}')
+                logger.info(f'Flanked alignment written to {flanked_alignment_file}')
             else:
-                logging.warning(
+                logger.warning(
                     f'Not enough unique flanked sequences for {model_name} flanked alignment'
                 )
 
         except Exception as e:
-            logging.warning(f'Failed to create flanked alignment: {e}')
+            logger.warning(f'Failed to create flanked alignment: {e}')
 
     # Calculate pairwise identity for standard alignment
     identity_matrix = calculate_pairwise_identity(alignment_file)
     if not identity_matrix.empty:
         identity_file = output_dir / f'{cleanID(model_name)}_pairwise_identity.csv'
         identity_matrix.to_csv(identity_file)
-        logging.info(f'Pairwise identity matrix written to {identity_file}')
+        logger.info(f'Pairwise identity matrix written to {identity_file}')
 
     # Build HMM from standard alignment (not flanked) using pyhmmer
     hmm_file = build_hmm_from_alignment_pyhmmer(alignment_file, model_name, output_dir)
@@ -1981,41 +2226,34 @@ def process_asymmetric_seeds(
     tuple
         (left_hmm_file, right_hmm_file, left_alignment_file, right_alignment_file).
     """
-    logging.info(f'Processing asymmetric seeds for {model_name}')
+    logger.info(f'Processing asymmetric seeds for {model_name}')
+
+    # One source for BOTH seeds, built on first use. The left and right ID
+    # checks and both extraction passes previously built their own, so an
+    # asymmetric run indexed the genome three times over.
+    lazy_source = _LazySource(blast_db, genome_files)
 
     # ------------------------------------------------------------------ #
     # Step 1 – Obtain BLAST hits for left seed                             #
     # ------------------------------------------------------------------ #
     if left_blast_hits_file is not None:
-        logging.info(
-            f'Loading pre-computed left BLAST hits from {left_blast_hits_file}'
-        )
+        logger.info(f'Loading pre-computed left BLAST hits from {left_blast_hits_file}')
         all_left_hits = parse_blast_output(left_blast_hits_file)
-        logging.info(f'Loaded {len(all_left_hits)} left hits')
+        logger.info(f'Loaded {len(all_left_hits)} left hits')
         if not all_left_hits:
             raise HMMBuildError(
                 f'No hits in provided left-blast-hits file: {left_blast_hits_file}'
             )
         warn_multiple_queries(all_left_hits, context=f'{model_name}_left')
-        if blast_db is not None:
-            missing = check_targets_in_blastdb(all_left_hits, blast_db)
+        if lazy_source.available:
+            missing = check_targets_in_blastdb(all_left_hits, lazy_source.get())
             if missing:
-                logging.warning(
-                    f'Left hit targets not found in blast database: '
-                    f'{", ".join(missing)}'
-                )
-        elif genome_files:
-            genome_index, _ = indexGenome(genome_files[0])
-            missing_left = [
-                h.subject_id for h in all_left_hits if h.subject_id not in genome_index
-            ]
-            if missing_left:
-                logging.warning(
-                    f'Left hit targets not found in genome: '
-                    f'{", ".join(set(missing_left))}'
+                logger.warning(
+                    f'Left hit targets could not be resolved in the sequence '
+                    f'source: {", ".join(sorted(set(missing)))}'
                 )
     elif blast_db is not None:
-        logging.info(f'Running left BLAST against pre-built database: {blast_db}')
+        logger.info(f'Running left BLAST against pre-built database: {blast_db}')
         left_output = temp_dir / f'{model_name}_left_blast.tab'
         all_left_hits = blast_seed_against_genome(
             left_seed,
@@ -2046,35 +2284,25 @@ def process_asymmetric_seeds(
     # Step 2 – Obtain BLAST hits for right seed                            #
     # ------------------------------------------------------------------ #
     if right_blast_hits_file is not None:
-        logging.info(
+        logger.info(
             f'Loading pre-computed right BLAST hits from {right_blast_hits_file}'
         )
         all_right_hits = parse_blast_output(right_blast_hits_file)
-        logging.info(f'Loaded {len(all_right_hits)} right hits')
+        logger.info(f'Loaded {len(all_right_hits)} right hits')
         if not all_right_hits:
             raise HMMBuildError(
                 f'No hits in provided right-blast-hits file: {right_blast_hits_file}'
             )
         warn_multiple_queries(all_right_hits, context=f'{model_name}_right')
-        if blast_db is not None:
-            missing = check_targets_in_blastdb(all_right_hits, blast_db)
+        if lazy_source.available:
+            missing = check_targets_in_blastdb(all_right_hits, lazy_source.get())
             if missing:
-                logging.warning(
-                    f'Right hit targets not found in blast database: '
-                    f'{", ".join(missing)}'
-                )
-        elif genome_files:
-            genome_index, _ = indexGenome(genome_files[0])
-            missing_right = [
-                h.subject_id for h in all_right_hits if h.subject_id not in genome_index
-            ]
-            if missing_right:
-                logging.warning(
-                    f'Right hit targets not found in genome: '
-                    f'{", ".join(set(missing_right))}'
+                logger.warning(
+                    f'Right hit targets could not be resolved in the sequence '
+                    f'source: {", ".join(sorted(set(missing)))}'
                 )
     elif blast_db is not None:
-        logging.info(f'Running right BLAST against pre-built database: {blast_db}')
+        logger.info(f'Running right BLAST against pre-built database: {blast_db}')
         right_output = temp_dir / f'{model_name}_right_blast.tab'
         all_right_hits = blast_seed_against_genome(
             right_seed,
@@ -2140,13 +2368,13 @@ def process_asymmetric_seeds(
     # Step 4 – Extract sequences                                           #
     # ------------------------------------------------------------------ #
     # Determine the sequence source for extraction
-    source = _build_source(blast_db, genome_files)
+    source = lazy_source.get()
     # Each resolved hit forms its own independent chain (no fragmented-hit chaining)
     left_chains = [[h] for h in resolved_left]
     right_chains = [[h] for h in resolved_right]
 
     # Process left seed
-    logging.info(f'Processing left seed sequences for {model_name}_left')
+    logger.info(f'Processing left seed sequences for {model_name}_left')
     try:
         left_sequences = extract_sequences_from_chains(
             left_chains, source, f'{model_name}_left'
@@ -2155,6 +2383,15 @@ def process_asymmetric_seeds(
         raise
     except Exception as e:
         raise HMMBuildError(f'Failed to extract left sequences: {e}') from e
+
+    # See the equivalent guard in process_seed_sequences: a wholesale
+    # extraction failure must not be papered over by the seed records.
+    if resolved_left and not left_sequences:
+        raise HMMBuildError(
+            f'None of the {len(resolved_left)} left hit(s) for {model_name} '
+            'could be extracted. Check that the sequence source contains the hit '
+            'target names; a BLAST database must be built with -parse_seqids.'
+        )
 
     left_seed_records = list(SeqIO.parse(left_seed, 'fasta'))
     for seed_record in left_seed_records:
@@ -2181,7 +2418,7 @@ def process_asymmetric_seeds(
     )
 
     # Process right seed
-    logging.info(f'Processing right seed sequences for {model_name}_right')
+    logger.info(f'Processing right seed sequences for {model_name}_right')
     try:
         right_sequences = extract_sequences_from_chains(
             right_chains,
@@ -2192,6 +2429,15 @@ def process_asymmetric_seeds(
         raise
     except Exception as e:
         raise HMMBuildError(f'Failed to extract right sequences: {e}') from e
+
+    # See the equivalent guard in process_seed_sequences: a wholesale
+    # extraction failure must not be papered over by the seed records.
+    if resolved_right and not right_sequences:
+        raise HMMBuildError(
+            f'None of the {len(resolved_right)} right hit(s) for {model_name} '
+            'could be extracted. Check that the sequence source contains the hit '
+            'target names; a BLAST database must be built with -parse_seqids.'
+        )
 
     right_seed_records = list(SeqIO.parse(right_seed, 'fasta'))
     for seed_record in right_seed_records:
@@ -2226,7 +2472,7 @@ def process_asymmetric_seeds(
             output_dir / f'{cleanID(model_name)}_left_pairwise_identity.csv'
         )
         left_identity_matrix.to_csv(left_identity_file)
-        logging.info(f'Left pairwise identity matrix written to {left_identity_file}')
+        logger.info(f'Left pairwise identity matrix written to {left_identity_file}')
 
     right_identity_matrix = calculate_pairwise_identity(right_alignment_file)
     if not right_identity_matrix.empty:
@@ -2234,13 +2480,13 @@ def process_asymmetric_seeds(
             output_dir / f'{cleanID(model_name)}_right_pairwise_identity.csv'
         )
         right_identity_matrix.to_csv(right_identity_file)
-        logging.info(f'Right pairwise identity matrix written to {right_identity_file}')
+        logger.info(f'Right pairwise identity matrix written to {right_identity_file}')
 
     # ------------------------------------------------------------------ #
     # Step 6 – Optional flanked alignments                                 #
     # ------------------------------------------------------------------ #
     if flank_size is not None and flank_size > 0:
-        logging.info(
+        logger.info(
             f'Creating flanked alignments with {flank_size}bp flanking sequence'
         )
 
@@ -2281,7 +2527,7 @@ def process_asymmetric_seeds(
                 run_mafft_alignment(
                     unique_left_flanked, left_flanked_file, threads=threads
                 )
-                logging.info(f'Left flanked alignment written to {left_flanked_file}')
+                logger.info(f'Left flanked alignment written to {left_flanked_file}')
 
             if len(unique_right_flanked) >= 2:
                 right_flanked_file = (
@@ -2291,14 +2537,14 @@ def process_asymmetric_seeds(
                 run_mafft_alignment(
                     unique_right_flanked, right_flanked_file, threads=threads
                 )
-                logging.info(f'Right flanked alignment written to {right_flanked_file}')
+                logger.info(f'Right flanked alignment written to {right_flanked_file}')
 
         except Exception as e:
-            logging.warning(f'Failed to create flanked alignments: {e}')
+            logger.warning(f'Failed to create flanked alignments: {e}')
 
-    logging.info(f'Asymmetric processing completed for {model_name}')
-    logging.info(f'Left HMM: {left_hmm_file}')
-    logging.info(f'Right HMM: {right_hmm_file}')
+    logger.info(f'Asymmetric processing completed for {model_name}')
+    logger.info(f'Left HMM: {left_hmm_file}')
+    logger.info(f'Right HMM: {right_hmm_file}')
 
     return left_hmm_file, right_hmm_file, left_alignment_file, right_alignment_file
 
@@ -2346,6 +2592,9 @@ def resolve_asymmetric_conflicts(
         chrom_left = left_by_chrom.get(chrom, [])
         chrom_right = right_by_chrom.get(chrom, [])
 
+        # Left hits surviving this chromosome's conflict resolution.
+        kept_left: List[BlastHit] = []
+
         # Check for overlaps between left and right hits
         for left_hit in chrom_left:
             keep_left = True
@@ -2365,18 +2614,27 @@ def resolve_asymmetric_conflicts(
 
                     if right_score > left_score:
                         keep_left = False
-                        logging.debug(
+                        logger.debug(
                             f'Left hit {left_hit} removed due to better right hit {right_hit}'
                         )
                         break
 
             if keep_left:
-                filtered_left.append(left_hit)
+                kept_left.append(left_hit)
 
-        # Similar logic for right hits
+        filtered_left.extend(kept_left)
+
+        # Similar logic for right hits.
+        #
+        # This iterates the left hits that SURVIVED the loop above, not the
+        # original chrom_left. Using the original allowed a left hit to be
+        # discarded in the first loop and still evict a right hit in the
+        # second, so a legitimate right-terminus hit could be deleted by a hit
+        # that no longer existed. Verified against the previous behaviour: a
+        # right hit overlapping only a discarded left hit was silently lost.
         for right_hit in chrom_right:
             keep_right = True
-            for left_hit in chrom_left:
+            for left_hit in kept_left:
                 if hits_overlap(left_hit, right_hit):
                     left_score = (
                         left_hit.length,
@@ -2391,7 +2649,7 @@ def resolve_asymmetric_conflicts(
 
                     if left_score >= right_score:  # Note: >= to avoid double removal
                         keep_right = False
-                        logging.debug(
+                        logger.debug(
                             f'Right hit {right_hit} removed due to better left hit {left_hit}'
                         )
                         break
@@ -2437,130 +2695,6 @@ def hits_overlap(hit1: BlastHit, hit2: BlastHit, min_overlap: int = 50) -> bool:
     overlap_length = max(0, overlap_end - overlap_start)
 
     return overlap_length >= min_overlap
-
-
-def validate_coverage(value: str) -> float:
-    """
-    Custom type validator for coverage argument.
-
-    Parameters
-    ----------
-    value : str
-        Coverage value to validate.
-
-    Returns
-    -------
-    float
-        Validated coverage value.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If value is not a float between 0.0 and 1.0.
-    """
-    try:
-        fval = float(value)
-        if not (0.0 <= fval <= 1.0):
-            raise argparse.ArgumentTypeError(
-                f'min-coverage must be between 0.0 and 1.0, got {fval}'
-            )
-        return fval
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"min-coverage must be a number, got '{value}'"
-        ) from None
-
-
-def validate_identity(value: str) -> float:
-    """
-    Custom type validator for identity argument.
-
-    Parameters
-    ----------
-    value : str
-        Identity value to validate.
-
-    Returns
-    -------
-    float
-        Validated identity value.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If value is not a float between 0.0 and 100.0.
-    """
-    try:
-        fval = float(value)
-        if not (0.0 <= fval <= 100.0):
-            raise argparse.ArgumentTypeError(
-                f'min-identity must be between 0.0 and 100.0, got {fval}'
-            )
-        return fval
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"min-identity must be a number, got '{value}'"
-        ) from None
-
-
-def validate_threads(value: str) -> int:
-    """
-    Custom type validator for threads argument.
-
-    Parameters
-    ----------
-    value : str
-        Thread count value to validate.
-
-    Returns
-    -------
-    int
-        Validated thread count.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If value is not an integer >= 1.
-    """
-    try:
-        ival = int(value)
-        if ival < 1:
-            raise argparse.ArgumentTypeError(f'threads must be >= 1, got {ival}')
-        return ival
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"threads must be an integer, got '{value}'"
-        ) from None
-
-
-def validate_evalue(value: str) -> float:
-    """
-    Custom type validator for evalue argument.
-
-    Parameters
-    ----------
-    value : str
-        E-value to validate.
-
-    Returns
-    -------
-    float
-        Validated e-value.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If value is not a positive float.
-    """
-    try:
-        fval = float(value)
-        if fval <= 0:
-            raise argparse.ArgumentTypeError(f'evalue must be positive, got {fval}')
-        return fval
-    except ValueError:
-        raise argparse.ArgumentTypeError(
-            f"evalue must be a number, got '{value}'"
-        ) from None
 
 
 def update_hmm_with_genome_hits(
@@ -2621,21 +2755,21 @@ def update_hmm_with_genome_hits(
     if not hmm_file.exists():
         raise FileNotFoundError(f'HMM file not found: {hmm_file}')
 
-    logging.info(f'Starting HMM update workflow with {hmm_file.name}')
-    logging.info(f'Searching {len(genome_files)} genome(s)')
+    logger.info(f'Starting HMM update workflow with {hmm_file.name}')
+    logger.info(f'Searching {len(genome_files)} genome(s)')
 
     # Collect all hits from all genomes
     all_hit_sequences: List[SeqRecord] = []
     total_hits = 0
 
     for genome_file in genome_files:
-        logging.info(f'Processing genome: {genome_file.name}')
+        logger.info(f'Processing genome: {genome_file.name}')
 
         # Prepare genome (decompress if needed)
         try:
             prepared_genome = prepare_genome_file(genome_file, temp_dir)
         except Exception as e:
-            logging.error(f'Failed to prepare genome {genome_file}: {e}')
+            logger.error(f'Failed to prepare genome {genome_file}: {e}')
             continue
 
         # Run nhmmer search
@@ -2652,10 +2786,10 @@ def update_hmm_with_genome_hits(
             total_hits += genome_hit_count
             all_hit_sequences.extend(hit_sequences)
 
-            logging.info(f'  Found {genome_hit_count} hits in {genome_file.name}')
+            logger.info(f'  Found {genome_hit_count} hits in {genome_file.name}')
 
         except Exception as e:
-            logging.error(f'Failed to search genome {genome_file}: {e}')
+            logger.error(f'Failed to search genome {genome_file}: {e}')
             continue
 
     if not all_hit_sequences:
@@ -2665,13 +2799,13 @@ def update_hmm_with_genome_hits(
     unique_sequences = deduplicate_sequences(all_hit_sequences)
     unique_count = len(unique_sequences)
 
-    logging.info(f'Total hits found: {total_hits}')
-    logging.info(f'Unique sequences after deduplication: {unique_count}')
+    logger.info(f'Total hits found: {total_hits}')
+    logger.info(f'Unique sequences after deduplication: {unique_count}')
 
     # Save sequences to file for alignment
     sequences_file = temp_dir / f'{cleanID(model_name)}_hits.fasta'
     SeqIO.write(unique_sequences, sequences_file, 'fasta')
-    logging.info(f'Saved {unique_count} unique sequences to {sequences_file.name}')
+    logger.info(f'Saved {unique_count} unique sequences to {sequences_file.name}')
 
     # Align sequences to HMM using hmmalign
     alignment_file = align_sequences_to_hmm(
@@ -2688,12 +2822,12 @@ def update_hmm_with_genome_hits(
         output_dir=output_dir,
     )
 
-    logging.info(f'Updated HMM saved to: {updated_hmm}')
+    logger.info(f'Updated HMM saved to: {updated_hmm}')
 
     # Copy alignment to output directory
     output_alignment = output_dir / alignment_file.name
     shutil.copy2(alignment_file, output_alignment)
-    logging.info(f'Alignment saved to: {output_alignment}')
+    logger.info(f'Alignment saved to: {output_alignment}')
 
     # Create flanked alignment if requested
     flanked_alignment = None
@@ -2706,7 +2840,7 @@ def update_hmm_with_genome_hits(
             threads=threads,
         )
         if flanked_alignment:
-            logging.info(f'Flanked alignment saved to: {flanked_alignment}')
+            logger.info(f'Flanked alignment saved to: {flanked_alignment}')
 
     return updated_hmm, output_alignment, flanked_alignment
 
@@ -2771,21 +2905,21 @@ def search_and_extract_hits(
     # Find output file
     output_file = results_dir / f'{hmm_file.stem}.out'
     if not output_file.exists():
-        logging.warning(f'nhmmer output file not found: {output_file}')
+        logger.warning(f'nhmmer output file not found: {output_file}')
         return []
 
     # Parse nhmmer output
     try:
         hits_df = import_nhmmer(str(output_file))
     except Exception as e:
-        logging.warning(f'Failed to parse nhmmer output: {e}')
+        logger.warning(f'Failed to parse nhmmer output: {e}')
         return []
 
     if hits_df is None or hits_df.empty:
-        logging.debug(f'No hits found in {genome_file.name}')
+        logger.debug(f'No hits found in {genome_file.name}')
         return []
 
-    logging.debug(f'Parsed {len(hits_df)} hits from nhmmer output')
+    logger.debug(f'Parsed {len(hits_df)} hits from nhmmer output')
 
     # Index genome for sequence extraction
     try:
@@ -2817,7 +2951,7 @@ def search_and_extract_hits(
             # Extract sequence (clamped to the contig by fetch_sequence)
             seq_str = fetch_sequence(source, seq_id, flank_start, flank_end)
             if seq_str is None:
-                logging.warning(
+                logger.warning(
                     f'Failed to extract sequence for hit {idx} '
                     f'({seq_id}:{flank_start}-{flank_end})'
                 )
@@ -2839,7 +2973,7 @@ def search_and_extract_hits(
             hit_sequences.append(record)
 
         except Exception as e:
-            logging.warning(f'Failed to extract sequence for hit {idx}: {e}')
+            logger.warning(f'Failed to extract sequence for hit {idx}: {e}')
             continue
 
     return hit_sequences
@@ -2886,7 +3020,7 @@ def align_sequences_to_hmm(
         trim=False,
     )
 
-    logging.info('Aligning sequences to HMM with hmmalign...')
+    logger.info('Aligning sequences to HMM with hmmalign...')
 
     try:
         result = run_command(align_command, verbose=False)
@@ -2898,7 +3032,7 @@ def align_sequences_to_hmm(
     if not alignment_file.exists():
         raise HMMBuildError(f'Alignment file not created: {alignment_file}')
 
-    logging.info(f'Alignment complete: {alignment_file.name}')
+    logger.info(f'Alignment complete: {alignment_file.name}')
 
     return alignment_file
 
@@ -2949,7 +3083,7 @@ def create_flanked_alignment_output(
         return output_flanked
 
     except Exception as e:
-        logging.warning(f'Failed to create flanked alignment: {e}')
+        logger.warning(f'Failed to create flanked alignment: {e}')
         return None
 
 
@@ -3126,8 +3260,14 @@ def _configure_seed_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--loglevel',
         default='INFO',
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        help='Set logging level',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        help="Set logging level. Default: 'INFO'",
+    )
+    parser.add_argument(
+        '--logfile',
+        action='store_true',
+        default=False,
+        help='Write log messages to file in output directory.',
     )
     parser.add_argument(
         '--threads',
@@ -3168,14 +3308,27 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     # Check available CPU threads
     max_threads = os.cpu_count() or 1
     if args.threads > max_threads:
-        logging.warning(
+        logger.warning(
             f'Requested threads ({args.threads}) exceeds available CPUs ({max_threads}). '
             f'Setting threads to {max_threads}.'
         )
         args.threads = max_threads
 
-    # Set up logging
-    init_logging(loglevel=args.loglevel)
+    # Set up logging. The log file, when requested, lands in the output
+    # directory alongside the run's other products.
+    logfile_path = None
+    if getattr(args, 'logfile', False):
+        log_dir = Path(args.outdir) if args.outdir else Path.cwd()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        model_name = getattr(args, 'model_name', None)
+        logfile_name = (
+            f'{cleanID(model_name)}_tirmite_seed.log'
+            if model_name
+            else 'tirmite_seed.log'
+        )
+        logfile_path = log_dir / logfile_name
+
+    init_logging(loglevel=args.loglevel, logfile=logfile_path)
 
     try:
         # Check dependencies
@@ -3192,7 +3345,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 raise FileNotFoundError(f'HMM file not found: {args.hmm_file}')
             # Update mode doesn't use --left-seed or --right-seed
             if args.left_seed or args.right_seed:
-                logging.warning(
+                logger.warning(
                     '--left-seed and --right-seed are ignored in --update mode'
                 )
         else:
@@ -3205,7 +3358,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 raise FileNotFoundError(f'Right seed file not found: {args.right_seed}')
             # Normal mode doesn't use --hmm-file
             if args.hmm_file:
-                logging.warning('--hmm-file is ignored unless --update is specified')
+                logger.warning('--hmm-file is ignored unless --update is specified')
 
             # Validate pre-computed hit table paths
             for attr, label in [
@@ -3223,7 +3376,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         if args.blastdb is not None:
             blast_db = args.blastdb
-            logging.info(f'Using pre-built BLAST database: {blast_db}')
+            logger.info(f'Using pre-built BLAST database: {blast_db}')
             # Verify at least one database file exists (e.g. .nsq, .nhr, .nin)
             db_files = list(blast_db.parent.glob(blast_db.name + '.*'))
             if not db_files:
@@ -3240,7 +3393,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             for path in genome_paths:
                 if not path.exists():
-                    logging.warning(f'Genome file not found, skipping: {path}')
+                    logger.warning(f'Genome file not found, skipping: {path}')
                 else:
                     genome_files.append(path)
 
@@ -3249,7 +3402,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Create output directory
         output_dir = create_output_directory(args.outdir)
-        logging.info(f'Output directory: {output_dir}')
+        logger.info(f'Output directory: {output_dir}')
 
         # Set up temporary directory
         if args.tempdir:
@@ -3257,20 +3410,20 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             temp_base_dir = Path(args.tempdir)
             try:
                 temp_base_dir.mkdir(parents=True, exist_ok=True)
-                logging.info(f'Created/using temporary base directory: {temp_base_dir}')
+                logger.info(f'Created/using temporary base directory: {temp_base_dir}')
             except Exception as e:
                 raise HMMBuildError(
                     f'Failed to create temporary base directory {temp_base_dir}: {e}'
                 ) from e
         else:
             temp_base_dir = None
-            logging.info('Using system default temporary directory')
+            logger.info('Using system default temporary directory')
 
         with temporary_directory(
             prefix='tirmite_build_', base_dir=temp_base_dir, cleanup=not args.keep_temp
         ) as temp_dir:
-            logging.info(f'Temporary directory: {temp_dir}')
-            logging.info(f'Using {args.threads} CPU threads for alignment')
+            logger.info(f'Temporary directory: {temp_dir}')
+            logger.info(f'Using {args.threads} CPU threads for alignment')
 
             # Route to appropriate workflow
             if args.update:
@@ -3284,7 +3437,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     raise HMMBuildError(
                         '--update mode requires --genome or --genome-list'
                     )
-                logging.info('Running HMM update workflow')
+                logger.info('Running HMM update workflow')
 
                 updated_hmm, alignment, flanked_alignment = update_hmm_with_genome_hits(
                     hmm_file=args.hmm_file,
@@ -3297,11 +3450,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     threads=args.threads,
                 )
 
-                logging.info('HMM update workflow completed:')
-                logging.info(f'  Updated HMM: {updated_hmm}')
-                logging.info(f'  Alignment: {alignment}')
+                logger.info('HMM update workflow completed:')
+                logger.info(f'  Updated HMM: {updated_hmm}')
+                logger.info(f'  Alignment: {alignment}')
                 if flanked_alignment:
-                    logging.info(f'  Flanked alignment: {flanked_alignment}')
+                    logger.info(f'  Flanked alignment: {flanked_alignment}')
 
             else:
                 # Normal seed-based workflow
@@ -3317,75 +3470,56 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     )
 
                     if seed_comparisons:
-                        logging.info(
+                        logger.info(
                             f'Found {len(seed_comparisons)} significant similarities between seeds:'
                         )
 
-                        for i, (hit, alignment) in enumerate(
+                        # Named seed_alignment, not alignment: the --update
+                        # branch above uses `alignment` for an output Path.
+                        for i, (hit, seed_alignment) in enumerate(
                             seed_comparisons[:3], 1
                         ):  # Show top 3
-                            logging.info(
+                            logger.info(
                                 f'  Similarity {i}: {hit.length}bp, {hit.identity:.1f}% identity'
                             )
-                            logging.info(
+                            logger.info(
                                 f'    Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]'
                             )
-                            logging.info(
+                            logger.info(
                                 f'    Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}] ({hit.strand} strand)'
                             )
-                            logging.info(f'    Alignment score: {alignment.score}')
+                            logger.info(f'    Alignment score: {seed_alignment.score}')
 
                             # Optionally print the alignment for the best hit
                             if i == 1 and args.loglevel == 'DEBUG':
-                                logging.debug('Best seed alignment:')
-                                for line in str(alignment).split('\n'):
-                                    logging.debug(f'    {line}')
+                                logger.debug('Best seed alignment:')
+                                for line in str(seed_alignment).split('\n'):
+                                    logger.debug(f'    {line}')
 
                         # Save detailed seed comparison results
                         seed_comparison_file = (
                             output_dir
                             / f'{cleanID(args.model_name)}_seed_comparison.txt'
                         )
-                        with open(seed_comparison_file, 'w') as f:
-                            f.write(f'Seed Comparison Results for {args.model_name}\n')
-                            f.write('=' * 50 + '\n\n')
-                            f.write(f'Left seed: {args.left_seed.name}\n')
-                            f.write(f'Right seed: {args.right_seed.name}\n')
-                            f.write(
-                                f'Total similarities found: {len(seed_comparisons)}\n\n'
-                            )
+                        write_seed_comparison_report(
+                            seed_comparisons,
+                            seed_comparison_file,
+                            model_name=args.model_name,
+                            left_seed_name=args.left_seed.name,
+                            right_seed_name=args.right_seed.name,
+                        )
 
-                            for i, (hit, alignment) in enumerate(seed_comparisons, 1):
-                                f.write(f'Similarity {i}:\n')
-                                f.write(f'  Length: {hit.length}bp\n')
-                                f.write(f'  Identity: {hit.identity:.1f}%\n')
-                                f.write(f'  Query coverage: {hit.query_coverage:.3f}\n')
-                                f.write(
-                                    f'  Subject coverage: {hit.subject_coverage:.3f}\n'
-                                )
-                                f.write(
-                                    f'  Query: {hit.query_id}[{hit.query_start}:{hit.query_end}]\n'
-                                )
-                                f.write(
-                                    f'  Subject: {hit.subject_id}[{hit.subject_start}:{hit.subject_end}]\n'
-                                )
-                                f.write(f'  Alignment score: {alignment.score}\n')
-                                f.write('  Alignment:\n')
-                                for line in str(alignment).split('\n'):
-                                    f.write(f'    {line}\n')
-                                f.write('\n')
-
-                        logging.info(
+                        logger.info(
                             f'Detailed seed comparison saved to: {seed_comparison_file}'
                         )
 
                     else:
-                        logging.info(
+                        logger.info(
                             'No significant similarity found between left and right seeds'
                         )
 
                         # Still proceed with asymmetric processing
-                        logging.info('Proceeding with fully asymmetric seed processing')
+                        logger.info('Proceeding with fully asymmetric seed processing')
 
                 # Process asymmetric seeds if both provided
                 if args.right_seed:
@@ -3407,11 +3541,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         right_blast_hits_file=getattr(args, 'right_blast_hits', None),
                     )
 
-                    logging.info('Asymmetric processing completed:')
-                    logging.info(f'  Left HMM: {left_hmm}')
-                    logging.info(f'  Right HMM: {right_hmm}')
-                    logging.info(f'  Left alignment: {left_aln}')
-                    logging.info(f'  Right alignment: {right_aln}')
+                    logger.info('Asymmetric processing completed:')
+                    logger.info(f'  Left HMM: {left_hmm}')
+                    logger.info(f'  Right HMM: {right_hmm}')
+                    logger.info(f'  Left alignment: {left_aln}')
+                    logger.info(f'  Right alignment: {right_aln}')
 
                 else:
                     # Process single seed (existing logic)
@@ -3432,10 +3566,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             blast_hits_file=getattr(args, 'blast_hits', None),
                         )
                     )
-                    logging.info(f'Single seed processing completed: {left_hmm}')
+                    logger.info(f'Single seed processing completed: {left_hmm}')
 
     except Exception as e:
-        logging.error(f'HMM building failed: {e}')
+        logger.error(f'HMM building failed: {e}')
         return 1
 
     return 0

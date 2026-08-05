@@ -20,15 +20,43 @@ import sys
 import traceback
 from typing import Any, Dict, Optional, cast
 
-from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite._version import __version__
+from tirmite.core.extraction import (
+    fetchElements,
+    writeElements,
+    writePairedTIRs,
+    writeTIRs,
+)
+from tirmite.core.filters import (
+    filterHitsEval,
+    filterHitsLen,
+)
+from tirmite.core.output import (
+    fetchUnpaired,
+    gffWrite,
+)
+from tirmite.core.pairing import (
+    PairingConfig,
+    iterateGetPairsAsymmetric,
+    iterateGetPairsCustom,
+    parseHitsGeneral,
+    table2dict,
+)
+from tirmite.core.parsers import (
+    convertAlign,
+    import_BED,
+    import_nhmmer,
+)
 from tirmite.runners.hmmer_wrappers import process_hmmer_workflow
-import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
     cleanup_temp_directory,
+    extract_model_name_from_path,
     indexGenome,
     setup_directories,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def create_legacy_parser() -> argparse.ArgumentParser:
@@ -127,7 +155,13 @@ def _configure_legacy_parser(parser: argparse.ArgumentParser) -> None:
         '--loglevel',
         default='INFO',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        help="Set logging level. Default: 'DEBUG'",
+        help="Set logging level. Default: 'INFO'",
+    )
+    parser.add_argument(
+        '--logfile',
+        action='store_true',
+        default=False,
+        help='Write log messages to file in output directory.',
     )
     # Input
     parser.add_argument(
@@ -370,37 +404,37 @@ def validate_pairbed_compatibility(hitTable: Any, config: Any, args: Any) -> boo
     For asymmetric pairing, checks presence of both left and right models.
     For symmetric pairing, verifies specified model exists in BED file.
     """
-    logging.info('Validating BED file compatibility with pairing configuration...')
+    logger.info('Validating BED file compatibility with pairing configuration...')
 
     # Check if any hits were loaded
     if len(hitTable) == 0:
-        logging.error('No valid hits found in BED file')
+        logger.error('No valid hits found in BED file')
         return False
 
     # Get available models from BED file
     available_models = set(hitTable['model'].unique())
-    logging.info(f'Models found in BED file: {", ".join(sorted(available_models))}')
+    logger.info(f'Models found in BED file: {", ".join(sorted(available_models))}')
 
     # Check required models are present
     if config.is_asymmetric:
         required_models = {config.left_model, config.right_model}
         missing_models = required_models - available_models
         if missing_models:
-            logging.error(
+            logger.error(
                 f'Required models missing from BED file: {", ".join(missing_models)}'
             )
-            logging.error(f'Available models: {", ".join(sorted(available_models))}')
+            logger.error(f'Available models: {", ".join(sorted(available_models))}')
             return False
-        logging.info(
+        logger.info(
             f'Asymmetric pairing: Left={config.left_model}, Right={config.right_model}'
         )
     else:
         # For symmetric pairing, need at least one model
         if config.left_model not in available_models:
-            logging.error(f'Required model {config.left_model} not found in BED file')
-            logging.error(f'Available models: {", ".join(sorted(available_models))}')
+            logger.error(f'Required model {config.left_model} not found in BED file')
+            logger.error(f'Available models: {", ".join(sorted(available_models))}')
             return False
-        logging.info(f'Symmetric pairing using model: {config.left_model}')
+        logger.info(f'Symmetric pairing using model: {config.left_model}')
 
     # Check strand orientations are compatible
     available_strands = set(hitTable['strand'].unique())
@@ -409,24 +443,24 @@ def validate_pairbed_compatibility(hitTable: Any, config: Any, args: Any) -> boo
     if config.left_strand == config.right_strand:
         # Same orientation pairing (e.g., F,F for LTR)
         if config.left_strand not in available_strands:
-            logging.error(
+            logger.error(
                 f'Required strand orientation {config.left_strand} not found in BED file'
             )
-            logging.error(f'Available strands: {", ".join(sorted(available_strands))}')
+            logger.error(f'Available strands: {", ".join(sorted(available_strands))}')
             return False
-        logging.info(
+        logger.info(
             f'Same orientation pairing: {config.orientation[0]},{config.orientation[1]}'
         )
     else:
         # Different orientation pairing (e.g., F,R for TIR)
         missing_strands = required_strands - available_strands
         if missing_strands:
-            logging.error(
+            logger.error(
                 f'Required strand orientations missing from BED file: {", ".join(missing_strands)}'
             )
-            logging.error(f'Available strands: {", ".join(sorted(available_strands))}')
+            logger.error(f'Available strands: {", ".join(sorted(available_strands))}')
             return False
-        logging.info(
+        logger.info(
             f'Inverted orientation pairing: {config.orientation[0]},{config.orientation[1]}'
         )
 
@@ -439,21 +473,21 @@ def validate_pairbed_compatibility(hitTable: Any, config: Any, args: Any) -> boo
             count = len(model_hits[model_hits['strand'] == strand])
             hit_counts[model][strand] = count
             if count > 0:
-                logging.info(f'Model {model} strand {strand}: {count} hits')
+                logger.info(f'Model {model} strand {strand}: {count} hits')
 
     # Warn about potential pairing issues
     if config.is_asymmetric:
         left_hits = hit_counts.get(config.left_model, {}).get(config.left_strand, 0)
         right_hits = hit_counts.get(config.right_model, {}).get(config.right_strand, 0)
         if left_hits == 0 or right_hits == 0:
-            logging.warning(
+            logger.warning(
                 f'Potential pairing issue: Left model has {left_hits} hits, Right model has {right_hits} hits'
             )
     else:
         left_hits = hit_counts.get(config.left_model, {}).get(config.left_strand, 0)
         right_hits = hit_counts.get(config.left_model, {}).get(config.right_strand, 0)
         if left_hits == 0 or right_hits == 0:
-            logging.warning(
+            logger.warning(
                 f'Potential pairing issue: {left_hits} left-strand hits, {right_hits} right-strand hits for model {config.left_model}'
             )
 
@@ -461,41 +495,6 @@ def validate_pairbed_compatibility(hitTable: Any, config: Any, args: Any) -> boo
 
 
 # Extract model names from file paths for validation
-def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
-    """
-    Extract HMM model name from file path by parsing HMM file header.
-
-    Parameters
-    ----------
-    model_path : str or Path
-        Path to HMM file.
-
-    Returns
-    -------
-    str or None
-        Model name extracted from NAME field in HMM file.
-        Falls back to filename stem if NAME not found or file unreadable.
-        Returns None if model_path is None.
-
-    Notes
-    -----
-    Reads HMM file looking for 'NAME  ' line which specifies model name.
-    """
-    if not model_path:
-        return None
-
-    try:
-        with open(model_path, 'r') as f:
-            for line in f:
-                if line.startswith('NAME  '):
-                    return line.split()[1].strip()
-    except (FileNotFoundError, IOError):
-        # Fallback to basename without extension
-        return Path(model_path).stem
-
-    return Path(model_path).stem
-
-
 def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main entry point for legacy TIRmite workflow.
@@ -521,8 +520,18 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     # Manually add args.verbose and set to True
     args.verbose = True
 
-    # Set up logging
-    init_logging(loglevel=args.loglevel)
+    # Set up logging. The log file, when requested, lands in the output
+    # directory alongside the run's other products.
+    logfile_path = None
+    if getattr(args, 'logfile', False):
+        log_dir = Path(args.outdir) if args.outdir else Path.cwd()
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logfile_name = (
+            f'{args.prefix}_tirmite_legacy.log' if args.prefix else 'tirmite_legacy.log'
+        )
+        logfile_path = log_dir / logfile_name
+
+    init_logging(loglevel=args.loglevel, logfile=logfile_path)
 
     # Check for required programs.
     tools = [args.hmmpress, args.nhmmer, args.hmmbuild]
@@ -531,52 +540,52 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     for tool in tools:
         missing_tools += missing_tool(tool)
     if missing_tools:
-        logging.warning(
+        logger.warning(
             'Some tools required by tirmite could not be found: '
             + ', '.join(missing_tools)
         )
-        logging.warning('You may need to install them to use all features.')
+        logger.warning('You may need to install them to use all features.')
 
     # Set up directories with proper validation and error handling
     try:
         outDir, tempDir = setup_directories(args)
-        logging.info(f'Output directory: {outDir}')
-        logging.debug(f'Temporary directory: {tempDir}')
+        logger.info(f'Output directory: {outDir}')
+        logger.debug(f'Temporary directory: {tempDir}')
     except (OSError, FileNotFoundError, PermissionError) as e:
-        logging.error(f'Directory setup failed: {e}')
+        logger.error(f'Directory setup failed: {e}')
         sys.exit(1)
 
     # Use context manager for better temp directory management
     try:
         # Index reference genome using pyfaidx for efficient access
-        logging.info('Indexing genome from: %s ' % args.genome)
+        logger.info('Indexing genome from: %s ' % args.genome)
         genome, genome_descriptions = indexGenome(args.genome)
 
         # Import custom TIR hits from BEDfile.
         if args.pairbed:
             # Die if no input file
             if not glob.glob(os.path.abspath(args.pairbed)):
-                logging.error('BED file %s not found. Quitting.' % args.pairbed)
+                logger.error('BED file %s not found. Quitting.' % args.pairbed)
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
-            logging.info(
+            logger.info(
                 'Skipping HMM search. Using custom TIRs from file: %s' % args.pairbed
             )
 
             # Import hits from BED file
             hitTable = None
-            logging.info('Loading custom termini hits from: %s' % str(args.pairbed))
-            hitTable = tirmite.import_BED(
+            logger.info('Loading custom termini hits from: %s' % str(args.pairbed))
+            hitTable = import_BED(
                 infile=args.pairbed, hitTable=hitTable, prefix=args.prefix
             )
 
-            logging.info(f'Loaded {len(hitTable)} hits from BED file')
+            logger.info(f'Loaded {len(hitTable)} hits from BED file')
 
             # Create pairing configuration BEFORE validation
             if args.left_model and args.right_model:
                 # Asymmetric pairing with different models
-                config = tirmite.PairingConfig(
+                config = PairingConfig(
                     orientation=args.orientation,
                     left_model=args.left_model,
                     right_model=args.right_model,
@@ -588,7 +597,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
                 if not available_models:
-                    logging.error('No models found in BED file')
+                    logger.error('No models found in BED file')
                     cleanup_temp_directory(tempDir, args.keep_temp)
                     sys.exit(1)
 
@@ -599,43 +608,43 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     single_model = args.right_model
                 else:
                     single_model = available_models[0]
-                    logging.info(f'No specific model provided, using: {single_model}')
+                    logger.info(f'No specific model provided, using: {single_model}')
 
-                config = tirmite.PairingConfig(
+                config = PairingConfig(
                     orientation=args.orientation, single_model=single_model
                 )
 
             # Validate BED file compatibility with pairing configuration
             if not validate_pairbed_compatibility(hitTable, config, args):
-                logging.error(
+                logger.error(
                     'BED file incompatible with pairing configuration. Quitting.'
                 )
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
             # Apply hit e-value filters
-            logging.info('Filtering hits with e-value > %s' % str(args.maxeval))
+            logger.info('Filtering hits with e-value > %s' % str(args.maxeval))
             hitCount = len(hitTable.index)
-            hitTable = tirmite.filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
-            logging.info(
+            hitTable = filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
+            logger.info(
                 'Excluded %s hits on e-value criteria.'
                 % str(hitCount - len(hitTable.index))
             )
-            logging.info('Remaining hits: %s ' % str(len(hitTable.index)))
+            logger.info('Remaining hits: %s ' % str(len(hitTable.index)))
 
             # Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
-            hitsDict, hitIndex = tirmite.table2dict(hitTable)
+            hitsDict, hitIndex = table2dict(hitTable)
 
             # If pairing is off, just report the hits.
             if args.nopairing:
-                tirmite.writeTIRs(
+                writeTIRs(
                     outDir=outDir,
                     hitTable=hitTable,
                     maxeval=args.maxeval,
                     genome=genome,
                     padlen=args.padlen,
                 )
-                logging.info('Pairing is off. Reporting hits only.')
+                logger.info('Pairing is off. Reporting hits only.')
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(0)
 
@@ -643,7 +652,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         else:
             # If raw alignments provided, convert to stockholm format.
             if args.aln_dir or args.aln_file:
-                stockholmDir = tirmite.convertAlign(
+                stockholmDir = convertAlign(
                     alnDir=args.aln_dir,
                     alnFile=args.aln_file,
                     inFormat='fasta',
@@ -658,7 +667,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     os.path.splitext(os.path.basename(args.hmm_file))[1].lstrip('.')
                     != 'hmm'
                 ):
-                    logging.error('--hmm-file has non-hmm extension. Exiting.')
+                    logger.error('--hmm-file has non-hmm extension. Exiting.')
                     cleanup_temp_directory(tempDir, args.keep_temp)
                     sys.exit(1)
 
@@ -691,13 +700,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
             except Exception as e:
-                logging.error(f'HMMER workflow failed: {e}')
+                logger.error(f'HMMER workflow failed: {e}')
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
             # Die if no hits found
             if not glob.glob(os.path.join(os.path.abspath(resultDir), '*.out')):
-                logging.error('No hits found in %s . Quitting.' % resultDir)
+                logger.error('No hits found in %s . Quitting.' % resultDir)
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(1)
 
@@ -708,13 +717,13 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             for resultfile in glob.glob(
                 os.path.join(os.path.abspath(resultDir), '*.out')
             ):
-                logging.info('Loading nhmmer hits from: %s ' % resultfile)
-                hitTable = tirmite.import_nhmmer(
+                logger.info('Loading nhmmer hits from: %s ' % resultfile)
+                hitTable = import_nhmmer(
                     infile=resultfile, hitTable=hitTable, prefix=args.prefix
                 )
                 modelCount += 1
 
-            logging.info(
+            logger.info(
                 'Imported %s hits from %s models. '
                 % (str(len(hitTable.index)), str(modelCount))
             )
@@ -724,81 +733,79 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
             # Check if any hits were found
             if hitTable is None or hitTable.empty:
-                logging.warning(
+                logger.warning(
                     'No hits found in nhmmer results. '
                     'This may indicate that the HMM models do not match any sequences in the genome.'
                 )
-                logging.info('Exiting gracefully with no results.')
+                logger.info('Exiting gracefully with no results.')
                 sys.exit(0)
 
             # Apply hit length filters with detailed logging per model
-            logging.info('Filtering hits with < %s model coverage. ' % str(args.mincov))
+            logger.info('Filtering hits with < %s model coverage. ' % str(args.mincov))
             hitCount = len(hitTable.index)
 
             # Log pre-filtering counts per model
             model_counts_before = hitTable['model'].value_counts().to_dict()
             for model, count in model_counts_before.items():
-                logging.info(f'Model {model}: {count} hits before coverage filtering')
+                logger.info(f'Model {model}: {count} hits before coverage filtering')
 
-            hitTable = tirmite.filterHitsLen(
-                hmmDB=hmmDB, mincov=args.mincov, hitTable=hitTable
-            )
+            hitTable = filterHitsLen(hmmDB=hmmDB, mincov=args.mincov, hitTable=hitTable)
 
             # Log post-filtering counts per model
             model_counts_after = hitTable['model'].value_counts().to_dict()
             coverage_excluded = hitCount - len(hitTable.index)
-            logging.info(f'Excluded {coverage_excluded} hits on coverage criteria.')
+            logger.info(f'Excluded {coverage_excluded} hits on coverage criteria.')
 
             for model in model_counts_before:
                 before = model_counts_before[model]
                 after = model_counts_after.get(model, 0)
                 excluded = before - after
-                logging.info(
+                logger.info(
                     f'Model {model}: {excluded} hits excluded, {after} hits remaining'
                 )
 
-            logging.info('Total remaining hits: %s ' % str(len(hitTable.index)))
+            logger.info('Total remaining hits: %s ' % str(len(hitTable.index)))
 
             # Check if any hits remain after coverage filtering
             if hitTable.empty:
-                logging.warning(
+                logger.warning(
                     'No hits remaining after filtering. '
                     'Summary: %s initial hits, %s excluded by coverage filter (mincov=%s). '
                     'Consider lowering the mincov threshold.'
                     % (str(initial_hit_count), str(coverage_excluded), str(args.mincov))
                 )
-                logging.info('Exiting gracefully with no results.')
+                logger.info('Exiting gracefully with no results.')
                 sys.exit(0)
 
             # Apply hit e-value filters with detailed logging per model
-            logging.info('Filtering hits with e-value > %s' % str(args.maxeval))
+            logger.info('Filtering hits with e-value > %s' % str(args.maxeval))
             hitCount = len(hitTable.index)
 
             # Log pre-filtering counts per model
             model_counts_before = hitTable['model'].value_counts().to_dict()
             for model, count in model_counts_before.items():
-                logging.info(f'Model {model}: {count} hits before e-value filtering')
+                logger.info(f'Model {model}: {count} hits before e-value filtering')
 
-            hitTable = tirmite.filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
+            hitTable = filterHitsEval(maxeval=args.maxeval, hitTable=hitTable)
 
             # Log post-filtering counts per model
             model_counts_after = hitTable['model'].value_counts().to_dict()
             evalue_excluded = hitCount - len(hitTable.index)
-            logging.info(f'Excluded {evalue_excluded} hits on e-value criteria.')
+            logger.info(f'Excluded {evalue_excluded} hits on e-value criteria.')
 
             for model in model_counts_before:
                 before = model_counts_before[model]
                 after = model_counts_after.get(model, 0)
                 excluded = before - after
-                logging.info(
+                logger.info(
                     f'Model {model}: {excluded} hits excluded, {after} hits remaining'
                 )
 
-            logging.info('Total remaining hits: %s ' % str(len(hitTable.index)))
+            logger.info('Total remaining hits: %s ' % str(len(hitTable.index)))
 
             # Check if any hits remain after e-value filtering
             if hitTable.empty:
-                logging.warning(
+                logger.warning(
                     'No hits remaining after filtering. '
                     'Summary: %s initial hits, %s excluded by coverage filter (mincov=%s), '
                     '%s excluded by e-value filter (maxeval=%s). '
@@ -811,11 +818,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                         str(args.maxeval),
                     )
                 )
-                logging.info('Exiting gracefully with no results.')
+                logger.info('Exiting gracefully with no results.')
                 sys.exit(0)
 
             # Log filtering summary
-            logging.info(
+            logger.info(
                 'Filtering summary: %s initial hits, %s excluded by coverage filter (mincov=%s), '
                 '%s excluded by e-value filter (maxeval=%s), %s hits remaining.'
                 % (
@@ -829,7 +836,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             )
 
             # Group hits by model and chromosome (hitsDict), and initiate hit tracker hitIndex to manage pair-searching
-            hitsDict, hitIndex = tirmite.table2dict(hitTable)
+            hitsDict, hitIndex = table2dict(hitTable)
 
             # Create pairing configuration for HMM workflow
             if args.left_model and args.right_model:
@@ -838,7 +845,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 right_model_name = extract_model_name_from_path(args.right_model)
 
                 # Asymmetric pairing with different models
-                config = tirmite.PairingConfig(
+                config = PairingConfig(
                     orientation=args.orientation,
                     left_model=left_model_name,
                     right_model=right_model_name,
@@ -847,7 +854,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             else:
                 # Symmetric pairing with single model (backward compatible)
                 single_model = list(hitsDict.keys())[0] if hitsDict else None
-                config = tirmite.PairingConfig(
+                config = PairingConfig(
                     orientation=args.orientation, single_model=single_model
                 )
                 required_models = [single_model]
@@ -856,104 +863,104 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             for model in required_models:
                 if model not in hitsDict:
                     available_models = list(hitsDict.keys())
-                    logging.error(f'Required model {model} not found in search results')
-                    logging.error(f'Available models: {", ".join(available_models)}')
+                    logger.error(f'Required model {model} not found in search results')
+                    logger.error(f'Available models: {", ".join(available_models)}')
                     cleanup_temp_directory(tempDir, args.keep_temp)
                     sys.exit(1)
 
             # If pairing is off, just report the hits
             if args.nopairing:
-                tirmite.writeTIRs(
+                writeTIRs(
                     outDir=outDir,
                     hitTable=hitTable,
                     maxeval=args.maxeval,
                     genome=genome,
                     padlen=args.padlen,
                 )
-                logging.info('Pairing is off. Reporting hits only.')
+                logger.info('Pairing is off. Reporting hits only.')
                 cleanup_temp_directory(tempDir, args.keep_temp)
                 sys.exit(0)
 
-        logging.debug('=== HIT TABLE DEBUG ===')
-        logging.debug(f'Hit table columns: {list(hitTable.columns)}')
-        logging.debug(f'Hit table shape: {hitTable.shape}')
-        logging.debug('Hit table contents:')
+        logger.debug('=== HIT TABLE DEBUG ===')
+        logger.debug(f'Hit table columns: {list(hitTable.columns)}')
+        logger.debug(f'Hit table shape: {hitTable.shape}')
+        logger.debug('Hit table contents:')
         for idx, row in hitTable.iterrows():
-            logging.debug(f'  Row {idx}: {dict(row)}')
+            logger.debug(f'  Row {idx}: {dict(row)}')
 
-        logging.debug('=== HITS DICT DEBUG ===')
-        logging.debug(f'hitsDict keys: {list(hitsDict.keys())}')
+        logger.debug('=== HITS DICT DEBUG ===')
+        logger.debug(f'hitsDict keys: {list(hitsDict.keys())}')
         for model, model_hits in hitsDict.items():
-            logging.debug(f'  Model {model}:')
+            logger.debug(f'  Model {model}:')
             for chrom, chrom_hits in model_hits.items():
-                logging.debug(f'    Chrom {chrom}: {len(chrom_hits)} hits')
+                logger.debug(f'    Chrom {chrom}: {len(chrom_hits)} hits')
                 for hit in chrom_hits:
-                    logging.debug(f'      Hit: {hit}')
+                    logger.debug(f'      Hit: {hit}')
 
-        logging.debug('=== HIT INDEX DEBUG ===')
-        logging.debug(f'hitIndex type: {type(hitIndex)}')
-        logging.debug(
+        logger.debug('=== HIT INDEX DEBUG ===')
+        logger.debug(f'hitIndex type: {type(hitIndex)}')
+        logger.debug(
             f'hitIndex keys: {list(hitIndex.keys()) if hasattr(hitIndex, "keys") else "Not a dict"}'
         )
         if hasattr(hitIndex, 'keys'):
             for key, value in hitIndex.items():
-                logging.debug(f'  hitIndex[{key}]: {value}')
+                logger.debug(f'  hitIndex[{key}]: {value}')
 
         # Use generalized parsing instead of original parseHits
-        logging.info('Searching for candidate pairings...')
-        hitIndex = tirmite.parseHitsGeneral(
+        logger.info('Searching for candidate pairings...')
+        hitIndex = parseHitsGeneral(
             hitsDict=hitsDict, hitIndex=hitIndex, maxDist=args.maxdist, config=config
         )
 
         # Choose appropriate pairing algorithm based on configuration
-        logging.info('Performing iterative pairing...')
+        logger.info('Performing iterative pairing...')
         try:
-            logging.debug(f'Before pairing - hitIndex type: {type(hitIndex)}')
-            logging.debug(
+            logger.debug(f'Before pairing - hitIndex type: {type(hitIndex)}')
+            logger.debug(
                 f'Before pairing - hitIndex keys: {list(hitIndex.keys()) if hasattr(hitIndex, "keys") else "Not a dict"}'
             )
 
             if config.is_asymmetric:
                 # Use asymmetric pairing for different left/right models
-                logging.info(
+                logger.info(
                     f'Using asymmetric pairing: {config.left_model} + {config.right_model}'
                 )
-                hitIndex, paired, unpaired = tirmite.iterateGetPairsAsymmetric(
+                hitIndex, paired, unpaired = iterateGetPairsAsymmetric(
                     hitIndex, config, stableReps=args.stable_reps
                 )
             else:
                 # Use enhanced symmetric pairing that supports custom orientations
-                logging.info(
+                logger.info(
                     f'Using symmetric pairing with orientation {config.orientation}'
                 )
-                hitIndex, paired, unpaired = tirmite.iterateGetPairsCustom(
+                hitIndex, paired, unpaired = iterateGetPairsCustom(
                     hitIndex, config, stableReps=args.stable_reps
                 )
 
-            logging.debug(f'After pairing - paired type: {type(paired)}')
-            logging.debug(f'After pairing - unpaired type: {type(unpaired)}')
+            logger.debug(f'After pairing - paired type: {type(paired)}')
+            logger.debug(f'After pairing - unpaired type: {type(unpaired)}')
 
         except Exception as e:
-            logging.error(f'Error in pairing: {e} (type: {type(e)})')
+            logger.error(f'Error in pairing: {e} (type: {type(e)})')
             raise
 
         # Log pairing results
         try:
             total_pairs = sum(len(pairs) for pairs in paired.values())
             total_unpaired = len(unpaired)
-            logging.info(
+            logger.info(
                 f'Pairing completed: {total_pairs} pairs formed, {total_unpaired} hits remain unpaired'
             )
         except Exception as e:
-            logging.error(f'Error calculating pairing results: {e} (type: {type(e)})')
-            logging.debug(f'paired: {paired}')
-            logging.debug(f'unpaired: {unpaired}')
+            logger.error(f'Error calculating pairing results: {e} (type: {type(e)})')
+            logger.debug(f'paired: {paired}')
+            logger.debug(f'unpaired: {unpaired}')
             raise
 
         # Write TIR hits to fasta for each pHMM
-        logging.info('Writing all valid terminus hits to fasta.')
+        logger.info('Writing all valid terminus hits to fasta.')
         try:
-            tirmite.writeTIRs(
+            writeTIRs(
                 outDir=outDir,
                 hitTable=hitTable,
                 maxeval=args.maxeval,
@@ -963,14 +970,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 genome_descriptions=genome_descriptions,  # Add this
             )
         except Exception as e:
-            logging.error(f'Error in writeTIRs: {e} (type: {type(e)})')
+            logger.error(f'Error in writeTIRs: {e} (type: {type(e)})')
             raise
 
         # Write paired TIR hits to fasta
         if args.gff_report in ['all', 'paired']:
-            logging.info('Writing successfully paired termini to fasta.')
+            logger.info('Writing successfully paired termini to fasta.')
             try:
-                tirmite.writePairedTIRs(
+                writePairedTIRs(
                     outDir=outDir,
                     paired=paired,
                     hitIndex=hitIndex,
@@ -980,39 +987,39 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     genome_descriptions=genome_descriptions,  # Add this
                 )
             except Exception as e:
-                logging.error(f'Error in writePairedTIRs: {e} (type: {type(e)})')
+                logger.error(f'Error in writePairedTIRs: {e} (type: {type(e)})')
                 raise
 
         # Extract paired hit regions
         try:
-            pairedEles = tirmite.fetchElements(
+            pairedEles = fetchElements(
                 paired=paired,
                 hitIndex=hitIndex,
                 genome=genome,
                 genome_descriptions=genome_descriptions,  # Add this
             )
         except Exception as e:
-            logging.error(f'Error in fetchElements: {e} (type: {type(e)})')
+            logger.error(f'Error in fetchElements: {e} (type: {type(e)})')
             raise
 
         # Debug logging
         total_elements = sum(len(elements) for elements in pairedEles.values())
-        logging.info(
+        logger.info(
             f'Created {total_elements} paired elements from {sum(len(pairs) for pairs in paired.values())} pairs'
         )
         for model, elements in pairedEles.items():
-            logging.info(f'Model {model}: {len(elements)} elements')
+            logger.info(f'Model {model}: {len(elements)} elements')
 
         # Write paired-TIR features to fasta
-        logging.info('Writing paired-termini elements to fasta.')
-        tirmite.writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
+        logger.info('Writing paired-termini elements to fasta.')
+        writeElements(outDir, eleDict=pairedEles, prefix=args.prefix)
 
         # Write paired features to gff3, optionally also report paired/unpaired TIRs
         if args.gff_out:
             # Get unpaired TIRs
             if args.gff_report in ['all', 'unpaired']:
-                unpairedTIRs = tirmite.fetchUnpaired(hitIndex=hitIndex)
-                logging.info(f'Found {len(unpairedTIRs)} unpaired termini')
+                unpairedTIRs = fetchUnpaired(hitIndex=hitIndex)
+                logger.info(f'Found {len(unpairedTIRs)} unpaired termini')
             else:
                 unpairedTIRs = None
 
@@ -1023,8 +1030,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 gffOutPath = os.path.join(outDir, 'tirmite_report.gff3')
 
             # Write gff3
-            logging.info('Writing features to gff: %s ' % gffOutPath)
-            tirmite.gffWrite(
+            logger.info('Writing features to gff: %s ' % gffOutPath)
+            gffWrite(
                 outpath=gffOutPath,
                 featureList=pairedEles,
                 writeTIRs=args.gff_report,
@@ -1032,15 +1039,15 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 prefix=args.prefix,
             )
 
-        logging.info('TIRmite analysis completed successfully')
+        logger.info('TIRmite analysis completed successfully')
 
     except KeyboardInterrupt:
-        logging.info('Analysis interrupted by user')
+        logger.info('Analysis interrupted by user')
         sys.exit(130)  # Standard exit code for SIGINT
 
     except Exception as e:
-        logging.error(f'Unexpected error during analysis: {e}')
-        logging.error(f'Traceback:\n{traceback.format_exc()}')
+        logger.error(f'Unexpected error during analysis: {e}')
+        logger.error(f'Traceback:\n{traceback.format_exc()}')
         sys.exit(1)
 
     finally:

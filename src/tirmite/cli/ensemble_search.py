@@ -17,17 +17,43 @@ from dataclasses import dataclass, field
 import logging
 from pathlib import Path
 import shutil
+import sys
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
-from Bio import SeqIO  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
+from Bio import SeqIO
+import pandas as pd
+from rich.console import Console
+from rich.progress import track
 
+from tirmite.cli._argtypes import (
+    validate_evalue,
+    validate_identity,
+    validate_score_ratio,
+    validate_threads,
+    validate_word_size,
+)
+
+# Re-exported rather than imported for use only: tests and downstream code
+# import these names from this module, and they were defined here before the
+# two diverged copies were unified into tirmite.core.hit_filters.
+from tirmite.core.hit_filters import (  # noqa: F401
+    AnchorFilterError,
+    compute_outer_edge_offset,
+    expand_pairing_map_to_components,
+    filter_hits_by_anchor,
+)
+from tirmite.core.parsers import (  # noqa: F401
+    import_blast,
+    import_nhmmer,
+    sort_hit_table,
+)
 from tirmite.runners.hmmer_wrappers import build_nhmmer_command
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
-import tirmite.tirmitetools as tirmite
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import prepare_genome_file, temporary_directory
+
+logger = logging.getLogger(__name__)
 
 
 class EnsembleSearchError(Exception):
@@ -92,7 +118,7 @@ def get_fasta_sequence_lengths(fasta_file: Path) -> Dict[str, int]:
     try:
         for record in SeqIO.parse(str(fasta_file), 'fasta'):
             lengths[record.id] = len(record.seq)
-        logging.debug(f'Loaded {len(lengths)} sequence lengths from {fasta_file.name}')
+        logger.debug(f'Loaded {len(lengths)} sequence lengths from {fasta_file.name}')
     except Exception as e:
         raise EnsembleSearchError(f'Failed to read FASTA file {fasta_file}: {e}') from e
 
@@ -133,10 +159,10 @@ def get_hmm_model_lengths(hmm_file: Path) -> Dict[str, int]:
                         model_lengths[current_model] = length
                 elif line == '//':
                     current_model = None
-        logging.debug(f'Loaded {len(model_lengths)} model lengths from {hmm_file.name}')
+        logger.debug(f'Loaded {len(model_lengths)} model lengths from {hmm_file.name}')
 
     except Exception as e:
-        logging.error(f'Error reading HMM file {hmm_file}: {e}')
+        logger.error(f'Error reading HMM file {hmm_file}: {e}')
 
     return model_lengths
 
@@ -171,7 +197,7 @@ def load_lengths_file(lengths_file: Path) -> Dict[str, int]:
 
                 parts = line.split('\t')
                 if len(parts) != 2:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping malformed line {line_num} in {lengths_file}: {line}'
                     )
                     continue
@@ -181,7 +207,7 @@ def load_lengths_file(lengths_file: Path) -> Dict[str, int]:
                     model_length = int(model_length_str)
                     model_lengths[model_name] = model_length
                 except ValueError:
-                    logging.warning(
+                    logger.warning(
                         f'Invalid model length on line {line_num}: {model_length_str}'
                     )
 
@@ -223,14 +249,14 @@ def parse_genome_list(genome_list_file: Path) -> List[Path]:
 
                 genome_path = Path(line)
                 if not genome_path.exists():
-                    logging.warning(
+                    logger.warning(
                         f'Genome file not found (line {line_num}): {genome_path}'
                     )
                     continue
 
                 genomes.append(genome_path)
 
-        logging.info(f'Loaded {len(genomes)} genome paths from {genome_list_file.name}')
+        logger.info(f'Loaded {len(genomes)} genome paths from {genome_list_file.name}')
 
     except Exception as e:
         raise EnsembleSearchError(
@@ -262,6 +288,13 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
     """
     cluster_map: Dict[str, List[str]] = {}
 
+    # Tracked so a transposed file can be recognised after parsing; see the
+    # heuristic below.
+    data_lines = 0
+    two_column_lines = 0
+    first_column_values: Set[str] = set()
+    second_column_values: Set[str] = set()
+
     try:
         with open(mapping_file, 'r') as f:
             for line_num, line in enumerate(f, 1):
@@ -271,8 +304,13 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
                     continue
 
                 parts = line.split('\t')
+                data_lines += 1
+                if len(parts) == 2:
+                    two_column_lines += 1
+                    first_column_values.add(parts[0].strip())
+                    second_column_values.add(parts[1].strip())
                 if len(parts) < 2:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping line {line_num}: insufficient columns (need cluster name + at least one component)'
                     )
                     continue
@@ -281,11 +319,11 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
                 components = [p.strip() for p in parts[1:] if p.strip()]
 
                 if not cluster_name:
-                    logging.warning(f'Skipping line {line_num}: empty cluster name')
+                    logger.warning(f'Skipping line {line_num}: empty cluster name')
                     continue
 
                 if not components:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping line {line_num}: no component features specified for cluster {cluster_name}'
                     )
                     continue
@@ -297,7 +335,66 @@ def parse_cluster_mapping(mapping_file: Path) -> Dict[str, List[str]]:
             f'Failed to parse cluster mapping file {mapping_file}: {e}'
         ) from e
 
+    _warn_if_cluster_map_looks_transposed(
+        mapping_file,
+        data_lines,
+        two_column_lines,
+        first_column_values,
+        second_column_values,
+    )
+
     return cluster_map
+
+
+def _warn_if_cluster_map_looks_transposed(
+    mapping_file: Path,
+    data_lines: int,
+    two_column_lines: int,
+    first_column_values: Set[str],
+    second_column_values: Set[str],
+) -> None:
+    """
+    Warn when a cluster map looks like a model-first file written by mistake.
+
+    Parameters
+    ----------
+    mapping_file : Path
+        Path to the file, for the message.
+    data_lines : int
+        Number of non-comment, non-blank lines seen.
+    two_column_lines : int
+        How many of those had exactly two tab-separated columns.
+    first_column_values : set of str
+        Distinct values seen in column 1.
+    second_column_values : set of str
+        Distinct values seen in column 2.
+
+    Returns
+    -------
+    None
+        Emits a warning; does not modify the parsed map.
+
+    Notes
+    -----
+    A correct cluster map names the cluster first, so column 1 holds distinct
+    cluster names and column 2 onwards their components. A file written the
+    other way round -- one ``model<TAB>cluster`` line per model, which earlier
+    documentation showed -- parses without error but produces clusters that
+    match no hit. It is recognisable because every line has exactly two
+    columns and column 2 repeats while column 1 does not.
+    """
+    if data_lines == 0 or two_column_lines != data_lines:
+        return
+    if len(second_column_values) >= len(first_column_values):
+        return
+
+    logger.warning(
+        f'Cluster map {mapping_file} may have its columns transposed: every line '
+        f'has exactly two columns, and column 2 has fewer distinct values '
+        f'({len(second_column_values)}) than column 1 ({len(first_column_values)}), '
+        'which is the shape of a model-to-cluster file. TIRmite expects the '
+        'cluster name FIRST: cluster<TAB>component1<TAB>component2...'
+    )
 
 
 def validate_cluster_mapping(
@@ -414,7 +511,7 @@ def parse_pairing_map(pairing_file: Path) -> Dict[str, str]:
 
                 parts = line.split('\t')
                 if len(parts) != 2:
-                    logging.warning(
+                    logger.warning(
                         f'Skipping line {line_num}: expected 2 columns (left, right), got {len(parts)}'
                     )
                     continue
@@ -423,7 +520,7 @@ def parse_pairing_map(pairing_file: Path) -> Dict[str, str]:
                 right_name = parts[1].strip()
 
                 if not left_name or not right_name:
-                    logging.warning(f'Skipping line {line_num}: empty feature name')
+                    logger.warning(f'Skipping line {line_num}: empty feature name')
                     continue
 
                 pairing_map[left_name] = right_name
@@ -478,16 +575,16 @@ def load_hits_from_files(
     if blast_files:
         for blast_file in blast_files:
             if not blast_file.exists():
-                logging.warning(f'BLAST file not found, skipping: {blast_file}')
+                logger.warning(f'BLAST file not found, skipping: {blast_file}')
                 failed_files.append(f'{blast_file} (not found)')
                 continue
 
-            logging.info(f'Loading BLAST hits from: {blast_file}')
+            logger.info(f'Loading BLAST hits from: {blast_file}')
             try:
-                hit_table = tirmite.import_blast(str(blast_file), hitTable=hit_table)
+                hit_table = import_blast(str(blast_file), hitTable=hit_table)
                 loaded_files.append(str(blast_file))
             except Exception as e:
-                logging.error(f'Failed to load BLAST file {blast_file}: {e}')
+                logger.error(f'Failed to load BLAST file {blast_file}: {e}')
                 failed_files.append(f'{blast_file} ({e})')
                 continue
 
@@ -495,31 +592,31 @@ def load_hits_from_files(
     if nhmmer_files:
         for nhmmer_file in nhmmer_files:
             if not nhmmer_file.exists():
-                logging.warning(f'nhmmer file not found, skipping: {nhmmer_file}')
+                logger.warning(f'nhmmer file not found, skipping: {nhmmer_file}')
                 failed_files.append(f'{nhmmer_file} (not found)')
                 continue
 
-            logging.info(f'Loading nhmmer hits from: {nhmmer_file}')
+            logger.info(f'Loading nhmmer hits from: {nhmmer_file}')
             try:
-                hit_table = tirmite.import_nhmmer(str(nhmmer_file), hitTable=hit_table)
+                hit_table = import_nhmmer(str(nhmmer_file), hitTable=hit_table)
                 loaded_files.append(str(nhmmer_file))
             except Exception as e:
-                logging.error(f'Failed to load nhmmer file {nhmmer_file}: {e}')
+                logger.error(f'Failed to load nhmmer file {nhmmer_file}: {e}')
                 failed_files.append(f'{nhmmer_file} ({e})')
                 continue
 
     # Report summary of file loading
     if failed_files:
-        logging.warning(
+        logger.warning(
             f'Failed to load {len(failed_files)} file(s): {", ".join(failed_files[:5])}'
             + (f' and {len(failed_files) - 5} more' if len(failed_files) > 5 else '')
         )
 
     if loaded_files:
-        logging.info(f'Successfully loaded {len(loaded_files)} file(s)')
+        logger.info(f'Successfully loaded {len(loaded_files)} file(s)')
 
     if hit_table is None or hit_table.empty:
-        logging.warning('No hits loaded from input files')
+        logger.warning('No hits loaded from input files')
         # Return empty DataFrame with correct columns
         cols = [
             'model',
@@ -561,243 +658,10 @@ def filter_hits_by_evalue(hit_table: pd.DataFrame, max_evalue: float) -> pd.Data
     filtered = hit_table[hit_table['evalue_float'] <= max_evalue].copy()
     filtered = filtered.drop(columns=['evalue_float'])
 
-    logging.info(
+    logger.info(
         f'E-value filter (max={max_evalue}): {len(hit_table)} -> {len(filtered)} hits'
     )
     return filtered
-
-
-def compute_outer_edge_offset(
-    hmm_start: int,
-    hmm_end: int,
-    model_len: int,
-    strand: str,
-    terminus_type: str,
-) -> int:
-    """
-    Compute the offset (in bases) between the hit alignment and the outer edge of the query model.
-
-    The "outer edge" is the external end of the terminus model:
-    - For a left terminus the outer edge faces the upstream/left genomic direction.
-    - For a right terminus the outer edge faces the downstream/right genomic direction.
-
-    The offset represents how many model positions are not covered between the
-    alignment boundary and the outer edge.  A value of 0 means the alignment
-    reaches the outer tip of the model; larger values mean the alignment stops
-    progressively further from the outer edge.
-
-    Parameters
-    ----------
-    hmm_start : int
-        1-based start position of the alignment in the query/HMM model.
-    hmm_end : int
-        1-based end position of the alignment in the query/HMM model.
-    model_len : int
-        Total length of the query/HMM model.
-    strand : str
-        Strand of the hit on the target sequence: '+' or '-'.
-    terminus_type : str
-        Whether this is a 'left' or 'right' terminus.
-
-    Returns
-    -------
-    int
-        Number of unaligned model positions between the hit and the outer edge.
-        Zero means the hit reaches the outer edge exactly.
-
-    Notes
-    -----
-    Offset rules (matching ``compute_flank_coordinates`` in tirmitetools.py):
-
-    Left terminus:
-      - ``+`` strand: outer edge = model position 1  → offset = ``hmm_start - 1``
-      - ``-`` strand: outer edge = model position ``model_len`` → offset = ``model_len - hmm_end``
-
-    Right terminus:
-      - ``+`` strand: outer edge = model position ``model_len`` → offset = ``model_len - hmm_end``
-      - ``-`` strand: outer edge = model position 1 → offset = ``hmm_start - 1``
-    """
-    if terminus_type == 'left':
-        if strand == '+':
-            return hmm_start - 1
-        else:  # '-'
-            return model_len - hmm_end
-    else:  # 'right'
-        if strand == '+':
-            return model_len - hmm_end
-        else:  # '-'
-            return hmm_start - 1
-
-
-def filter_hits_by_anchor(
-    hit_table: pd.DataFrame,
-    query_lengths: Dict[str, int],
-    max_offset: int,
-    orientation: str = 'F,R',
-    pairing_map: Optional[Dict[str, str]] = None,
-) -> pd.DataFrame:
-    """
-    Filter hits to only those anchored within ``max_offset`` bases of the outer edge of the query model.
-
-    For each hit the terminus type (left/right) is determined from the pairing map
-    (asymmetric case) or from the hit strand combined with the orientation setting
-    (symmetric F,R or R,F case).  The offset from the outer edge is then computed
-    using :func:`compute_outer_edge_offset` and hits whose offset exceeds
-    ``max_offset`` are removed.
-
-    Hits are kept unchanged when:
-    - The model length is not available in ``query_lengths``.
-    - The terminus type cannot be determined (e.g. same-strand F,F or R,R symmetric
-      pairing without a pairing map).
-
-    Parameters
-    ----------
-    hit_table : pandas.DataFrame
-        Hit table with columns: model, strand, hmmStart, hmmEnd.
-    query_lengths : dict
-        Mapping of model name to model length (number of positions).
-    max_offset : int
-        Maximum allowed offset (bases) from the outer edge of the model.
-        Hits with offset > max_offset are removed.
-    orientation : str, default 'F,R'
-        Comma-separated orientation codes used to assign left/right terminus by
-        strand for symmetric (single-model) cases.
-        F = Forward (+), R = Reverse (-).  Examples: 'F,R', 'F,F', 'R,F', 'R,R'.
-    pairing_map : dict, optional
-        Mapping of left model name to right model name.  When provided, terminus
-        type is determined by model name rather than strand.
-
-    Returns
-    -------
-    pandas.DataFrame
-        Filtered hit table containing only anchored hits.
-    """
-    if hit_table.empty:
-        return hit_table
-
-    # Parse orientation
-    orientation_parts = orientation.upper().split(',')
-    if len(orientation_parts) != 2:
-        logging.warning(
-            f'Invalid orientation "{orientation}"; expected two comma-separated codes. '
-            'Skipping anchor filter.'
-        )
-        return hit_table
-
-    left_strand = '+' if orientation_parts[0] == 'F' else '-'
-    right_strand = '+' if orientation_parts[1] == 'F' else '-'
-    strands_differ = left_strand != right_strand
-
-    # Build reverse map: model_name -> 'left' or 'right'
-    model_terminus: Dict[str, str] = {}
-    if pairing_map:
-        for left_model, right_model in pairing_map.items():
-            model_terminus[left_model] = 'left'
-            model_terminus[right_model] = 'right'
-
-    kept: List[bool] = []
-    skipped_no_terminus = 0
-    removed = 0
-    removed_per_model: Dict[str, int] = {}
-    missing_lengths: Set[str] = set()
-
-    for _, row in hit_table.iterrows():
-        model = row['model']
-        strand = row['strand']
-
-        # Determine terminus type
-        if model in model_terminus:
-            terminus_type: Optional[str] = model_terminus[model]
-        elif strands_differ:
-            # Use strand to distinguish left from right
-            if strand == left_strand:
-                terminus_type = 'left'
-            elif strand == right_strand:
-                terminus_type = 'right'
-            else:
-                terminus_type = None
-        else:
-            # Same-strand orientation (F,F or R,R) without a pairing map –
-            # cannot determine which end is "outer", check both ends
-            terminus_type = None
-
-        if terminus_type is None:
-            # Same-strand symmetric (F,F or R,R) without a pairing map:
-            # check both ends of the query model
-            model_len = query_lengths.get(model)
-            if model_len is None:
-                missing_lengths.add(model)
-                kept.append(True)
-                continue
-
-            try:
-                hmm_start = int(row['hmmStart'])
-                hmm_end = int(row['hmmEnd'])
-            except (ValueError, TypeError):
-                kept.append(True)
-                continue
-
-            offset_start = hmm_start - 1
-            offset_end = model_len - hmm_end
-            if offset_start <= max_offset and offset_end <= max_offset:
-                kept.append(True)
-            else:
-                kept.append(False)
-                removed += 1
-                removed_per_model[model] = removed_per_model.get(model, 0) + 1
-            continue
-
-        model_len = query_lengths.get(model)
-        if model_len is None:
-            # Length required but not available – collect and report as error
-            missing_lengths.add(model)
-            kept.append(True)
-            continue
-
-        try:
-            hmm_start = int(row['hmmStart'])
-            hmm_end = int(row['hmmEnd'])
-        except (ValueError, TypeError):
-            kept.append(True)
-            continue
-
-        offset = compute_outer_edge_offset(
-            hmm_start, hmm_end, model_len, strand, terminus_type
-        )
-
-        if offset <= max_offset:
-            kept.append(True)
-        else:
-            kept.append(False)
-            removed += 1
-            removed_per_model[model] = removed_per_model.get(model, 0) + 1
-
-    # Raise immediately if any model lengths were needed but missing
-    if missing_lengths:
-        missing_list = ', '.join(sorted(missing_lengths))
-        raise EnsembleSearchError(
-            f'Anchor filter requires model lengths for {len(missing_lengths)} model(s) '
-            f'that are not available: {missing_list}. '
-            'Provide lengths via --fasta, --hmm, or --lengths-file.'
-        )
-
-    if skipped_no_terminus:
-        logging.debug(
-            f'Anchor filter: {skipped_no_terminus} hit(s) kept without checking – '
-            'terminus type could not be determined (same-strand symmetric pairing requires '
-            '--pairing-map to identify left/right models).'
-        )
-
-    result = hit_table[kept].copy()
-
-    logging.info(
-        f'Anchor filter (max_offset={max_offset}): {len(hit_table)} -> {len(result)} hits '
-        f'({removed} removed)'
-    )
-    if removed_per_model:
-        for model_name, count in sorted(removed_per_model.items()):
-            logging.info(f'  {model_name}: {count} hit(s) excluded by anchor filter')
-    return result
 
 
 def report_hit_statistics(hit_table: pd.DataFrame, stage: str = '') -> None:
@@ -812,23 +676,23 @@ def report_hit_statistics(hit_table: pd.DataFrame, stage: str = '') -> None:
         Label for the processing stage (e.g., 'before filtering', 'after filtering').
     """
     if hit_table.empty:
-        logging.info(f'Hit statistics {stage}: 0 total hits')
+        logger.info(f'Hit statistics {stage}: 0 total hits')
         return
 
     total_hits = len(hit_table)
     unique_models = hit_table['model'].nunique()
     unique_targets = hit_table['target'].nunique()
 
-    logging.info(f'Hit statistics {stage}:')
-    logging.info(f'  Total hits: {total_hits}')
-    logging.info(f'  Unique query features (models): {unique_models}')
-    logging.info(f'  Unique target sequences: {unique_targets}')
+    logger.info(f'Hit statistics {stage}:')
+    logger.info(f'  Total hits: {total_hits}')
+    logger.info(f'  Unique query features (models): {unique_models}')
+    logger.info(f'  Unique target sequences: {unique_targets}')
 
     # Report hits per model
     hits_per_model = hit_table.groupby('model').size()
-    logging.info('  Hits per feature:')
+    logger.info('  Hits per feature:')
     for model, count in hits_per_model.items():
-        logging.info(f'    {model}: {count}')
+        logger.info(f'    {model}: {count}')
 
 
 def filter_hits_to_pairing_map_models(
@@ -869,7 +733,7 @@ def filter_hits_to_pairing_map_models(
 
     if n_removed:
         removed_models = sorted(set(hit_table.loc[~mask, 'model'].unique()))
-        logging.info(
+        logger.info(
             f'Pairing map filter: removed {n_removed} hit(s) from '
             f'{len(removed_models)} model(s) not in the pairing map: '
             f'{", ".join(removed_models)}'
@@ -890,7 +754,8 @@ def filter_hits_to_pairing_map_models(
 def merge_overlapping_cluster_hits(
     hit_table: pd.DataFrame,
     cluster_map: Dict[str, List[str]],
-    min_overlap: int = 1,
+    max_gap: int = 1,
+    min_overlap: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     Merge overlapping hits from component features within the same cluster.
@@ -901,8 +766,14 @@ def merge_overlapping_cluster_hits(
         Hit table with 'model', 'target', 'hitStart', 'hitEnd', 'strand', 'score' columns.
     cluster_map : dict
         Dictionary mapping cluster names to lists of component feature names.
-    min_overlap : int, default 1
-        Minimum overlap in base pairs to trigger merging.
+    max_gap : int, default 1
+        Largest gap, in base pairs, between two adjacent same-cluster hits that
+        will still be bridged into one merged region. ``0`` requires the hits to
+        abut or overlap. Larger values merge *more* aggressively.
+    min_overlap : int, optional
+        Deprecated alias for ``max_gap``, accepted for one release. This
+        parameter was misnamed: it never required an overlap, and increasing it
+        made merging more permissive rather than less.
 
     Returns
     -------
@@ -910,6 +781,14 @@ def merge_overlapping_cluster_hits(
         Hit table with overlapping same-cluster hits merged.
         Merged hits inherit properties from highest-scoring component.
     """
+    if min_overlap is not None:
+        logger.warning(
+            'merge_overlapping_cluster_hits(min_overlap=...) is deprecated and '
+            'will be removed; use max_gap instead. The old name was misleading: '
+            'the value is a gap tolerance, so a larger number merges more.'
+        )
+        max_gap = min_overlap
+
     if hit_table.empty:
         return hit_table
 
@@ -924,13 +803,30 @@ def merge_overlapping_cluster_hits(
     unclustered_hits = hit_table[hit_table['cluster'].isna()].copy()
 
     if unclustered_hits.shape[0] > 0:
-        logging.warning(
-            f'{len(unclustered_hits)} hits from unclustered features will be ignored'
+        # Naming the offending models matters: the usual cause is a cluster map
+        # written with the columns transposed, or built against a different set
+        # of query names, and both are invisible from a bare count.
+        dropped_models = sorted(unclustered_hits['model'].unique())
+        shown = ', '.join(dropped_models[:10])
+        if len(dropped_models) > 10:
+            shown += f', ... ({len(dropped_models) - 10} more)'
+        logger.error(
+            f'{len(unclustered_hits)} hits from {len(dropped_models)} model(s) '
+            f'absent from the cluster map will be DISCARDED: {shown}'
         )
 
     if clustered_hits.empty:
-        logging.warning('No clustered hits to merge')
-        return pd.DataFrame(columns=hit_table.columns.drop('cluster'))
+        # Returning an empty table here used to leave the run to exit 0 with an
+        # empty output file, which reads as "no hits found" rather than "your
+        # cluster map matched nothing".
+        present = sorted(hit_table['model'].unique())
+        raise EnsembleSearchError(
+            f'The cluster map matched none of the {len(present)} model(s) present '
+            f'in the hits ({", ".join(present[:10])}'
+            f'{", ..." if len(present) > 10 else ""}). Check that the cluster map '
+            'uses the same model names as the search queries, and that its '
+            'columns are cluster-first: cluster<TAB>component1<TAB>component2...'
+        )
 
     # Group by target, strand, and cluster for merging
     merged_records: List[Dict[str, Any]] = []
@@ -963,8 +859,9 @@ def merge_overlapping_cluster_hits(
                 current_end = hit_end
                 current_hits = [hit]
                 is_first_hit = False
-            elif hit_start <= current_end + min_overlap:
-                # Overlapping or adjacent - extend region
+            elif hit_start <= current_end + max_gap:
+                # Overlapping, abutting, or separated by no more than max_gap:
+                # extend the current region to cover this hit too.
                 current_end = max(current_end, hit_end)
                 current_hits.append(hit)
             else:
@@ -1002,14 +899,10 @@ def merge_overlapping_cluster_hits(
     # Create merged DataFrame
     merged_df = pd.DataFrame(merged_records)
 
-    # Sort by model, target, location
-    merged_df = merged_df.sort_values(
-        ['model', 'target', 'hitStart', 'hitEnd', 'strand'],
-        ascending=[True, True, True, True, True],
-    )
-    merged_df = merged_df.reset_index(drop=True)
+    # Sort by model, target, location (coordinates numerically, not as strings)
+    merged_df = sort_hit_table(merged_df)
 
-    logging.info(
+    logger.info(
         f'Merged overlapping cluster hits: {len(clustered_hits)} -> {len(merged_df)} hits'
     )
 
@@ -1086,47 +979,109 @@ def check_cross_cluster_overlaps(
     hit_table['hitStart_int'] = hit_table['hitStart'].astype(int)
     hit_table['hitEnd_int'] = hit_table['hitEnd'].astype(int)
 
-    # Check each target/strand combination
+    # Group by target only, NOT by (target, strand). Under the default and
+    # canonical F,R orientation the two termini of one element lie on opposite
+    # strands, so grouping by strand hides exactly the overlaps this check
+    # exists to report. For same-strand orientations (F,F / R,R) the two
+    # termini are separated by the element body and never overlap, so dropping
+    # strand from the grouping costs nothing there.
     warnings_reported = 0
-    for (target, _strand), group in hit_table.groupby(['target', 'strand']):
+    for target, group in hit_table.groupby('target'):
         if len(group) < 2:
             continue
 
-        # Sort by position
+        # Sort by position, then sweep.
+        #
+        # Because starts are ascending, once a candidate begins after the
+        # current hit ends, so does every candidate after it -- no later pair
+        # can overlap, so the inner loop breaks. That turns an unconditional
+        # all-pairs scan into an output-sensitive one, which matters because
+        # this is warning-only work that every clustered run pays for.
+        # Column access is positional for the same reason as the filters
+        # above: iterrows() materialises a Series per row.
         group = group.sort_values('hitStart_int')
-        hits_list = list(group.iterrows())
+        clusters = group['cluster'].to_numpy()
+        starts = group['hitStart_int'].to_numpy()
+        ends = group['hitEnd_int'].to_numpy()
+        n_hits = len(group)
 
-        for i, (_, hit1) in enumerate(hits_list):
-            for _, hit2 in hits_list[i + 1 :]:
+        for i in range(n_hits):
+            start1 = int(starts[i])
+            end1 = int(ends[i])
+            cluster1 = clusters[i]
+
+            for j in range(i + 1, n_hits):
+                start2 = int(starts[j])
+
+                # Sorted by start, so nothing further along can overlap either.
+                if start2 > end1:
+                    break
+
                 # Skip if same cluster
-                if hit1['cluster'] == hit2['cluster']:
+                if cluster1 == clusters[j]:
                     continue
 
-                # Check overlap
-                start1 = int(hit1['hitStart_int'])
-                end1 = int(hit1['hitEnd_int'])
-                start2 = int(hit2['hitStart_int'])
-                end2 = int(hit2['hitEnd_int'])
+                end2 = int(ends[j])
 
+                # Coordinates are 1-based and inclusive at both ends, so two
+                # hits sharing a single base overlap by 1, not 0. Without the
+                # +1 this understated every overlap by one base.
                 overlap_start = max(start1, start2)
                 overlap_end = min(end1, end2)
-                overlap = overlap_end - overlap_start
+                overlap = max(0, overlap_end - overlap_start + 1)
 
                 if overlap >= min_overlap:
                     if warnings_reported < 10:  # Limit warnings
-                        logging.warning(
-                            f'Cross-cluster overlap detected: {target}:{start1}-{end1} ({hit1["cluster"]}) '
-                            f'overlaps with {target}:{start2}-{end2} ({hit2["cluster"]})'
+                        logger.warning(
+                            f'Cross-cluster overlap detected: {target}:{start1}-{end1} ({cluster1}) '
+                            f'overlaps with {target}:{start2}-{end2} ({clusters[j]})'
                         )
                     warnings_reported += 1
 
     if warnings_reported > 10:
-        logging.warning(f'... and {warnings_reported - 10} more cross-cluster overlaps')
+        logger.warning(f'... and {warnings_reported - 10} more cross-cluster overlaps')
 
 
 # -----------------------------------------------------------------------------
 # Nested Hit Removal
 # -----------------------------------------------------------------------------
+
+
+def _is_decisively_better(
+    better_score: float, weaker_score: float, min_score_ratio: float
+) -> bool:
+    """
+    Report whether one hit outscores another by at least the required ratio.
+
+    Parameters
+    ----------
+    better_score : float
+        Score of the hit being kept.
+    weaker_score : float
+        Score of the hit that would be discarded.
+    min_score_ratio : float
+        Minimum ``better_score / weaker_score`` needed to call the difference
+        decisive.
+
+    Returns
+    -------
+    bool
+        True if ``better_score`` beats ``weaker_score`` by at least
+        ``min_score_ratio``.
+
+    Notes
+    -----
+    Scores of zero are handled explicitly rather than by division. A hit with
+    no score cannot defend itself against a scoring hit, so it loses; two
+    unscored hits are indistinguishable, so neither is removed.
+    """
+    if weaker_score <= 0:
+        # A zero-scoring hit is discarded in favour of any scoring hit, but two
+        # zero-scoring hits are left alone.
+        return better_score > 0
+    if better_score <= 0:
+        return False
+    return (better_score / weaker_score) >= min_score_ratio
 
 
 def remove_nested_paired_hits(
@@ -1145,17 +1100,17 @@ def remove_nested_paired_hits(
     of the shared homology rather than genuine detections by the nested model, and
     retaining them would generate spurious pair calls.
 
-    This function compares all hits on the same target sequence and strand.  For each
+    This function compares all hits on the same target sequence.  For each
     pair of hits where:
 
     - Both models appear in the ``pairing_map`` (either as left or right features), AND
     - The two models form a direct left/right pair in the ``pairing_map``, AND
     - One hit's genomic coordinates are completely contained within the other's (nesting),
 
-    the nested hit is removed when its alignment score is less than
-    ``min_score_ratio`` × the enclosing hit's score.  If the nested hit scores
-    comparably (ratio ≥ ``min_score_ratio``), both hits are kept, because the nested
-    model may still represent a genuine detection.
+    the nested hit is removed when the enclosing hit scores decisively better,
+    that is when ``enclosing_score / nested_score >= min_score_ratio``.  If the
+    two score comparably, or the nested hit scores better, both are kept:
+    the nested model may still represent a genuine detection.
 
     **Handling models that appear in multiple pairs**
 
@@ -1176,9 +1131,11 @@ def remove_nested_paired_hits(
         Dictionary mapping left feature names to right feature names.
         Only hits from models listed in this map (as keys or values) are evaluated.
     min_score_ratio : float, default 1.5
-        A nested hit is removed when ``nested_score / enclosing_score < min_score_ratio``.
-        Increase this value to be more aggressive (remove more nested hits); decrease
-        it to be more conservative (keep more nested hits).
+        A nested hit is removed when ``enclosing_score / nested_score >= min_score_ratio``,
+        i.e. when the enclosing hit is at least this many times better.  Increase
+        this value to be more conservative (keep more nested hits); decrease it to
+        be more aggressive (remove more nested hits).  This matches the direction
+        used by :func:`filter_best_model_per_locus`.
     summary : SearchFilterSummary, optional
         If provided, per-model nesting details are stored in
         ``summary.nested_removed`` as ``{removed_model: {container_model: count}}``.
@@ -1209,68 +1166,96 @@ def remove_nested_paired_hits(
     # Map removed hit index → (removed_model, container_model) for summary reporting
     removed_hit_containers: Dict[int, Tuple[str, str]] = {}
 
-    # Check each target/strand combination
-    for (_target, _strand), group in hit_table.groupby(['target', 'strand']):
+    # Group by target only, NOT by (target, strand). This step removes hits of
+    # a paired model nested inside its partner's hit, and under the default
+    # F,R orientation those two models sit on OPPOSITE strands. Grouping by
+    # strand therefore made the step a no-op for the exact case it was written
+    # to handle. For same-strand orientations (F,F / R,R) the two termini are
+    # separated by the element body and cannot nest, so dropping strand from
+    # the grouping does not change those results.
+    for _target, group in hit_table.groupby('target'):
         if len(group) < 2:
             continue
 
         group_indices = list(group.index)
 
+        # Pull the columns out as plain sequences once per group.
+        #
+        # The loops below are O(n^2) by nature, but they used to do a
+        # DataFrame .loc[label] lookup per iteration. On a mixed-dtype frame
+        # that materialises a fresh object-dtype Series across all 13 columns
+        # and infers an interleaved dtype -- profiled at ~67 us per access and
+        # 89% of this function's total runtime, against nanoseconds for the
+        # three integer comparisons it exists to perform. Positional access
+        # into numpy arrays removes that constant without touching the
+        # algorithm, the comparison order, or the output.
+        models = group['model'].to_numpy()
+        starts = group['hitStart_int'].to_numpy()
+        ends = group['hitEnd_int'].to_numpy()
+        scores = group['score_float'].to_numpy()
+
         for i, idx1 in enumerate(group_indices):
-            hit1 = hit_table.loc[idx1]
-            model1 = hit1['model']
+            model1 = models[i]
 
             if model1 not in all_paired_features:
                 continue
 
-            for idx2 in group_indices[i + 1 :]:
-                hit2 = hit_table.loc[idx2]
-                model2 = hit2['model']
+            # Hoisted out of the inner loop. These were re-extracted from the
+            # hit1 Series on every inner iteration.
+            start1 = int(starts[i])
+            end1 = int(ends[i])
+            score1 = float(scores[i])
+
+            partner1 = pairing_map.get(model1)
+
+            for j in range(i + 1, len(group_indices)):
+                idx2 = group_indices[j]
+                model2 = models[j]
 
                 if model2 not in all_paired_features:
                     continue
 
                 # Check if they are paired (left-right or right-left)
-                is_paired = (
-                    model1 in pairing_map and pairing_map[model1] == model2
-                ) or (model2 in pairing_map and pairing_map[model2] == model1)
+                is_paired = partner1 == model2 or pairing_map.get(model2) == model1
 
                 if not is_paired:
                     continue
 
                 # Check if one is nested within the other
-                start1 = int(hit1['hitStart_int'])
-                end1 = int(hit1['hitEnd_int'])
-                start2 = int(hit2['hitStart_int'])
-                end2 = int(hit2['hitEnd_int'])
-                score1 = float(hit1['score_float'])
-                score2 = float(hit2['score_float'])
+                start2 = int(starts[j])
+                end2 = int(ends[j])
+                score2 = float(scores[j])
+
+                # Drop the nested hit only when the ENCLOSING hit is decisively
+                # better, i.e. enclosing/nested >= min_score_ratio. The test used
+                # to be nested/enclosing < min_score_ratio, which deleted a nested
+                # hit unless it scored at least 1.5x its container -- so an
+                # equally good, or even 40% better, nested hit was discarded.
+                # This direction now matches filter_best_model_per_locus.
 
                 # Check if hit2 is nested in hit1
                 if start1 <= start2 and end2 <= end1:
-                    # hit2 is nested in hit1
-                    if score1 > 0 and (score2 / score1) < min_score_ratio:
+                    if _is_decisively_better(score1, score2, min_score_ratio):
                         hits_to_remove.add(idx2)
                         removed_hit_containers[idx2] = (model2, model1)
-                        logging.debug(
+                        logger.debug(
                             f'Removing nested hit {model2} ({start2}-{end2}, score={score2:.1f}) '
                             f'within {model1} ({start1}-{end1}, score={score1:.1f})'
                         )
 
                 # Check if hit1 is nested in hit2
                 elif start2 <= start1 and end1 <= end2:
-                    # hit1 is nested in hit2
-                    if score2 > 0 and (score1 / score2) < min_score_ratio:
+                    if _is_decisively_better(score2, score1, min_score_ratio):
                         hits_to_remove.add(idx1)
                         removed_hit_containers[idx1] = (model1, model2)
-                        logging.debug(
+                        logger.debug(
                             f'Removing nested hit {model1} ({start1}-{end1}, score={score1:.1f}) '
                             f'within {model2} ({start2}-{end2}, score={score2:.1f})'
                         )
 
     # Remove marked hits
     if hits_to_remove:
-        logging.info(
+        logger.info(
             f'Removed {len(hits_to_remove)} nested weak hits between paired features'
         )
         hit_table = hit_table.drop(index=list(hits_to_remove))
@@ -1376,33 +1361,48 @@ def filter_best_model_per_locus(
     # Track (removed_model, better_model) → count for summary reporting
     cross_model_removal_counts: Dict[Tuple[str, str], int] = {}
 
-    # Check each target/strand combination
-    for (_target, _strand), group in hit_table.groupby(['target', 'strand']):
+    # Group by target only, NOT by (target, strand). Competing models from
+    # related families can hit one locus on either strand, so a strand-split
+    # grouping let a weaker hit survive simply by being on the opposite strand
+    # from the better one. See the note in remove_nested_paired_hits.
+    for _target, group in hit_table.groupby('target'):
         if len(group) < 2:
             continue
 
         group_indices = list(group.index)
 
+        # Columns pulled out once per group; see the note in
+        # remove_nested_paired_hits. The traversal order is deliberately
+        # unchanged: this filter skips hits already marked for removal, so a
+        # hit eliminated early gets no further say, and the outcome depends on
+        # the order in which pairs are visited. That order is DataFrame row
+        # order (model, target, hitStart, hitEnd, strand -- model-major, not
+        # coordinate-major), and converting this to a coordinate-ordered sweep
+        # would silently change which hits survive.
+        models = group['model'].to_numpy()
+        starts = group['hitStart_int'].to_numpy()
+        ends = group['hitEnd_int'].to_numpy()
+        scores = group['score_float'].to_numpy()
+
         for i, idx1 in enumerate(group_indices):
             if idx1 in hits_to_remove:
                 continue
 
-            hit1 = hit_table.loc[idx1]
-            model1 = hit1['model']
+            model1 = models[i]
 
             if model1 not in all_paired_features:
                 continue
 
-            start1 = int(hit1['hitStart_int'])
-            end1 = int(hit1['hitEnd_int'])
-            score1 = float(hit1['score_float'])
+            start1 = int(starts[i])
+            end1 = int(ends[i])
+            score1 = float(scores[i])
 
-            for idx2 in group_indices[i + 1 :]:
+            for j in range(i + 1, len(group_indices)):
+                idx2 = group_indices[j]
                 if idx2 in hits_to_remove:
                     continue
 
-                hit2 = hit_table.loc[idx2]
-                model2 = hit2['model']
+                model2 = models[j]
 
                 if model2 not in all_paired_features:
                     continue
@@ -1411,12 +1411,15 @@ def filter_best_model_per_locus(
                 if model1 == model2:
                     continue
 
-                start2 = int(hit2['hitStart_int'])
-                end2 = int(hit2['hitEnd_int'])
-                score2 = float(hit2['score_float'])
+                start2 = int(starts[j])
+                end2 = int(ends[j])
+                score2 = float(scores[j])
 
                 # Compute overlap
-                overlap = min(end1, end2) - max(start1, start2)
+                # Coordinates are 1-based and inclusive at both ends, matching
+                # write_hits_table's use of abs(end - start) + 1 for length, so
+                # two hits sharing a single base overlap by 1.
+                overlap = max(0, min(end1, end2) - max(start1, start2) + 1)
                 if overlap < min_overlap:
                     continue
 
@@ -1429,7 +1432,7 @@ def filter_best_model_per_locus(
                         cross_model_removal_counts[pair_key] = (
                             cross_model_removal_counts.get(pair_key, 0) + 1
                         )
-                        logging.debug(
+                        logger.debug(
                             f'Removing overlapping cross-model hit {model2} '
                             f'({start2}-{end2}, score={score2:.1f}) in favour of '
                             f'{model1} ({start1}-{end1}, score={score1:.1f})'
@@ -1441,20 +1444,18 @@ def filter_best_model_per_locus(
                         cross_model_removal_counts[pair_key] = (
                             cross_model_removal_counts.get(pair_key, 0) + 1
                         )
-                        logging.debug(
+                        logger.debug(
                             f'Removing overlapping cross-model hit {model1} '
                             f'({start1}-{end1}, score={score1:.1f}) in favour of '
                             f'{model2} ({start2}-{end2}, score={score2:.1f})'
                         )
 
     if hits_to_remove:
-        logging.info(
+        logger.info(
             f'Removed {len(hits_to_remove)} overlapping lower-quality cross-model hits'
         )
         for model_name, count in sorted(removed_per_model.items()):
-            logging.info(
-                f'  {model_name}: {count} hit(s) removed by cross-model filter'
-            )
+            logger.info(f'  {model_name}: {count} hit(s) removed by cross-model filter')
         hit_table = hit_table.drop(index=list(hits_to_remove))
 
         if summary is not None:
@@ -1537,7 +1538,7 @@ def log_filter_summary(summary: 'SearchFilterSummary') -> None:
     lines.append('=' * 60)
 
     for line in lines:
-        logging.info(line)
+        logger.info(line)
 
 
 # -----------------------------------------------------------------------------
@@ -1620,7 +1621,7 @@ def write_hits_table(hit_table: pd.DataFrame, output_file: Path) -> None:
     if not blast_df.empty:
         blast_df.to_csv(output_file, sep='\t', index=False, header=False, mode='a')
 
-    logging.info(f'Wrote {len(hit_table)} hits to {output_file}')
+    logger.info(f'Wrote {len(hit_table)} hits to {output_file}')
 
 
 def validate_split_paired_output(pairing_map: Dict[str, str]) -> None:
@@ -1684,7 +1685,7 @@ def write_split_hits(
     if hit_table.empty:
         write_hits_table(hit_table, left_file)
         write_hits_table(hit_table, right_file)
-        logging.info(
+        logger.info(
             f'Split output: 0 left hits -> {left_file}, 0 right hits -> {right_file}'
         )
         return left_file, right_file
@@ -1699,13 +1700,13 @@ def write_split_hits(
     write_hits_table(right_hits, right_file)
 
     if not unassigned_hits.empty:
-        logging.warning(
+        logger.warning(
             f'{len(unassigned_hits)} hit(s) from model(s) not in the pairing map were not '
             'written to either the left or right output file: '
             f'{", ".join(sorted(unassigned_hits["model"].unique()))}'
         )
 
-    logging.info(
+    logger.info(
         f'Split output: {len(left_hits)} left hits -> {left_file}, '
         f'{len(right_hits)} right hits -> {right_file}'
     )
@@ -1764,8 +1765,8 @@ def run_nhmmer_search(
 
     # Log the full command
     cmd_str = ' '.join(command)
-    logging.info(f'Running nhmmer search: {hmm_file.name} vs {target_file.name}')
-    logging.info(f'nhmmer command: {cmd_str}')
+    logger.info(f'Running nhmmer search: {hmm_file.name} vs {target_file.name}')
+    logger.info(f'nhmmer command: {cmd_str}')
 
     try:
         result = run_command(command, verbose=True)
@@ -1830,7 +1831,7 @@ def run_blastn_search(
     # qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
     blast_outfmt = '6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore'
 
-    logging.info(f'Running BLAST search: {query_file.name} vs {target_file.name}')
+    logger.info(f'Running BLAST search: {query_file.name} vs {target_file.name}')
 
     try:
         run_blastn(
@@ -1854,120 +1855,6 @@ def run_blastn_search(
 # -----------------------------------------------------------------------------
 # Argument Validation
 # -----------------------------------------------------------------------------
-
-
-def validate_evalue(value: str) -> float:
-    """
-    Validate e-value argument.
-
-    Parameters
-    ----------
-    value : str
-        Raw argument string from argparse.
-
-    Returns
-    -------
-    float
-        The parsed e-value.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If the value is not a positive number.
-    """
-    try:
-        fvalue = float(value)
-        if fvalue <= 0:
-            raise argparse.ArgumentTypeError(f'E-value must be positive: {value}')
-        return fvalue
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(f'Invalid e-value: {value}') from err
-
-
-def validate_identity(value: str) -> float:
-    """
-    Validate identity percentage argument.
-
-    Parameters
-    ----------
-    value : str
-        Raw argument string from argparse.
-
-    Returns
-    -------
-    float
-        The parsed identity percentage.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If the value is not a number between 0 and 100.
-    """
-    try:
-        fvalue = float(value)
-        if not 0 <= fvalue <= 100:
-            raise argparse.ArgumentTypeError(
-                f'Identity must be between 0 and 100: {value}'
-            )
-        return fvalue
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(f'Invalid identity value: {value}') from err
-
-
-def validate_threads(value: str) -> int:
-    """
-    Validate threads argument.
-
-    Parameters
-    ----------
-    value : str
-        Raw argument string from argparse.
-
-    Returns
-    -------
-    int
-        The parsed thread count.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If the value is not an integer of at least 1.
-    """
-    try:
-        ivalue = int(value)
-        if ivalue < 1:
-            raise argparse.ArgumentTypeError(f'Threads must be at least 1: {value}')
-        return ivalue
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(f'Invalid threads value: {value}') from err
-
-
-def validate_word_size(value: str) -> int:
-    """
-    Validate word_size argument.
-
-    Parameters
-    ----------
-    value : str
-        Raw argument string from argparse.
-
-    Returns
-    -------
-    int
-        The parsed word size.
-
-    Raises
-    ------
-    argparse.ArgumentTypeError
-        If the value is not an integer of at least 4.
-    """
-    try:
-        ivalue = int(value)
-        if ivalue < 4:
-            raise argparse.ArgumentTypeError(f'Word size must be at least 4: {value}')
-        return ivalue
-    except ValueError as err:
-        raise argparse.ArgumentTypeError(f'Invalid word_size value: {value}') from err
 
 
 # -----------------------------------------------------------------------------
@@ -2139,6 +2026,32 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
             'Default: F,R'
         ),
     )
+    filter_group.add_argument(
+        '--min-score-ratio',
+        type=validate_score_ratio,
+        default=1.5,
+        dest='min_score_ratio',
+        help=(
+            'How decisively one hit must outscore another before the weaker one '
+            'is discarded, as a ratio of the better score to the worse. Applies '
+            'both to nested hits between paired models and to overlapping hits '
+            'from competing models. Increase to keep more borderline hits; '
+            'values below 1.0 are meaningless. Requires --pairing-map. '
+            'Default: 1.5'
+        ),
+    )
+    filter_group.add_argument(
+        '--merge-max-gap',
+        type=int,
+        default=1,
+        dest='merge_max_gap',
+        help=(
+            'Largest gap (in bases) between two adjacent hits from the same '
+            'cluster that will still be merged into one region. 0 requires the '
+            'hits to abut or overlap; larger values merge more aggressively. '
+            'Requires --cluster-map. Default: 1'
+        ),
+    )
 
     # Output options
     output_group = parser.add_argument_group('Output Options')
@@ -2227,6 +2140,103 @@ def create_search_parser() -> argparse.ArgumentParser:
 # -----------------------------------------------------------------------------
 
 
+def _load_cluster_map(path: Path) -> Dict[str, List[str]]:
+    """
+    Read a cluster mapping file, reporting a missing file clearly.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the cluster mapping file.
+
+    Returns
+    -------
+    dict of str to list of str
+        Mapping of cluster name to component model names.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If the file does not exist.
+    """
+    if not path.exists():
+        raise EnsembleSearchError(f'Cluster mapping file not found: {path}')
+    return parse_cluster_mapping(path)
+
+
+def _load_pairing_map(path: Path) -> Dict[str, str]:
+    """
+    Read a pairing map file, reporting a missing file clearly.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the pairing map file.
+
+    Returns
+    -------
+    dict of str to str
+        Mapping of left feature name to right feature name.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If the file does not exist.
+    """
+    if not path.exists():
+        raise EnsembleSearchError(f'Pairing map file not found: {path}')
+    return parse_pairing_map(path)
+
+
+def _validate_search_args(args: argparse.Namespace) -> None:
+    """
+    Check that the supplied arguments describe a runnable search.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed command-line arguments.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If required inputs are missing or mutually dependent options are not
+        satisfied.
+
+    Notes
+    -----
+    Called *before* the output directory is created and before logging is
+    configured, so that an invalid invocation leaves no trace on disk. It
+    therefore must not log; the caller reports the error on stderr.
+    """
+    has_search_inputs = args.fasta or args.hmm
+    has_precomputed = args.blast_results or args.nhmmer_results
+
+    if not has_search_inputs and not has_precomputed:
+        raise EnsembleSearchError(
+            'Must provide either search inputs (--fasta/--hmm + --genome/--blast-db) '
+            'or precomputed results (--blast-results/--nhmmer-results)'
+        )
+
+    # Validate genome requirements for searches
+    if args.fasta and not args.genome and not args.blast_db:
+        raise EnsembleSearchError(
+            '--genome or --blast-db is required when running BLAST searches with --fasta'
+        )
+
+    if args.hmm and not args.genome:
+        raise EnsembleSearchError(
+            '--genome is required when running nhmmer searches with --hmm'
+        )
+
+    # Validate --split-paired-output requirements
+    if args.split_paired_output and not args.pairing_map:
+        raise EnsembleSearchError(
+            '--split-paired-output requires --pairing-map to identify '
+            'left and right models.'
+        )
+
+
 def main(args: Optional[argparse.Namespace] = None) -> int:
     """
     Main function for ensemble search workflow.
@@ -2239,7 +2249,8 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     Returns
     -------
     int
-        Exit code (0 for success, 1 for error).
+        Exit code: 0 for success, 1 for a runtime failure, 2 for a usage
+        error (invalid or insufficient arguments).
     """
     if args is None:
         parser = create_search_parser()
@@ -2247,7 +2258,17 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
     assert args is not None
 
-    # Create output directory first (needed for logfile)
+    # Validate BEFORE creating anything. Previously the output directory was
+    # created and logging initialised first, so an invocation that could never
+    # run still left an empty directory behind.
+    try:
+        _validate_search_args(args)
+    except EnsembleSearchError as e:
+        # Logging is not configured yet, so report on stderr directly.
+        print(f'tirmite search: error: {e}', file=sys.stderr)
+        return 2
+
+    # Create output directory (needed for the logfile)
     args.outdir.mkdir(parents=True, exist_ok=True)
 
     # Set up logging with optional logfile
@@ -2261,42 +2282,22 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
     init_logging(loglevel=args.loglevel, logfile=logfile_path)
 
     try:
-        # Validate inputs
         has_search_inputs = args.fasta or args.hmm
         has_precomputed = args.blast_results or args.nhmmer_results
 
-        if not has_search_inputs and not has_precomputed:
-            raise EnsembleSearchError(
-                'Must provide either search inputs (--fasta/--hmm + --genome/--blast-db) '
-                'or precomputed results (--blast-results/--nhmmer-results)'
-            )
+        # Warn (not fatal) when coverage/anchor filtering will be unavailable.
+        if has_precomputed and not has_search_inputs and not args.lengths_file:
+            msg = 'No --lengths-file provided. Query coverage filtering will not be available.'
+            if getattr(args, 'max_offset', None) is not None:
+                msg += ' --max-offset filtering requires model lengths; please supply --lengths-file.'
+            logger.warning(msg)
 
-        # Validate genome requirements for searches
-        if args.fasta and not args.genome and not args.blast_db:
-            raise EnsembleSearchError(
-                '--genome or --blast-db is required when running BLAST searches with --fasta'
-            )
-
-        if args.hmm and not args.genome:
-            raise EnsembleSearchError(
-                '--genome is required when running nhmmer searches with --hmm'
-            )
-
-        # Validate --split-paired-output requirements
-        if args.split_paired_output:
-            if not args.pairing_map:
-                raise EnsembleSearchError(
-                    '--split-paired-output requires --pairing-map to identify '
-                    'left and right models.'
-                )
-
-        # Validate lengths file requirement when using precomputed results without query files
-        if has_precomputed and not has_search_inputs:
-            if not args.lengths_file:
-                msg = 'No --lengths-file provided. Query coverage filtering will not be available.'
-                if getattr(args, 'max_offset', None) is not None:
-                    msg += ' --max-offset filtering requires model lengths; please supply --lengths-file.'
-                logging.warning(msg)
+        # Parse the cluster and pairing maps exactly once per run, and pass
+        # them down. The pairing map was previously read from disk three
+        # separate times: for the anchor filter, for the pairing steps, and
+        # again for split output.
+        cluster_map = _load_cluster_map(args.cluster_map) if args.cluster_map else None
+        pairing_map = _load_pairing_map(args.pairing_map) if args.pairing_map else None
 
         # Collect genome files
         genomes: List[Path] = []
@@ -2330,7 +2331,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 )
 
         if query_lengths:
-            logging.info(f'Loaded query lengths for {len(query_lengths)} models')
+            logger.info(f'Loaded query lengths for {len(query_lengths)} models')
 
         # Run searches if needed
         if has_search_inputs:
@@ -2341,11 +2342,23 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 temp_path = Path(temp_dir)
 
                 if args.keep_temp:
-                    logging.info(f'Temporary files will be kept in: {temp_path}')
+                    logger.info(f'Temporary files will be kept in: {temp_path}')
 
                 # Process each genome (or just run once if only using blast-db)
                 genome_list: List[Optional[Path]] = list(genomes) if genomes else [None]
-                for genome_file in genome_list:
+
+                # Searching many genomes is the only long multi-sample loop in
+                # TIRmite and each genome can take minutes, so show progress.
+                # Disabled for a single genome (nothing to track) and when
+                # stderr is not a terminal, so redirected logs stay clean.
+                for genome_file in track(
+                    genome_list,
+                    description='Searching genomes',
+                    total=len(genome_list),
+                    console=Console(stderr=True),
+                    transient=True,
+                    disable=len(genome_list) < 2 or not sys.stderr.isatty(),
+                ):
                     # Prepare genome file (decompress if gzipped)
                     prepared_genome: Optional[Path] = None
                     if genome_file:
@@ -2355,7 +2368,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     if args.fasta:
                         for fasta_file in args.fasta:
                             if not fasta_file.exists():
-                                logging.warning(f'FASTA file not found: {fasta_file}')
+                                logger.warning(f'FASTA file not found: {fasta_file}')
                                 continue
 
                             # Use blast-db if provided, otherwise use prepared genome
@@ -2364,7 +2377,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                             elif prepared_genome:
                                 target = prepared_genome
                             else:
-                                logging.warning('No target for BLAST search')
+                                logger.warning('No target for BLAST search')
                                 continue
 
                             genome_suffix = (
@@ -2390,7 +2403,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     if args.hmm and prepared_genome:
                         for hmm_file in args.hmm:
                             if not hmm_file.exists():
-                                logging.warning(f'HMM file not found: {hmm_file}')
+                                logger.warning(f'HMM file not found: {hmm_file}')
                                 continue
 
                             genome_suffix = (
@@ -2416,12 +2429,24 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
                 # Load and process hits within temp context
                 hit_table = _process_hits(
-                    args, blast_files, nhmmer_files, query_lengths
+                    args,
+                    blast_files,
+                    nhmmer_files,
+                    query_lengths,
+                    cluster_map=cluster_map,
+                    pairing_map=pairing_map,
                 )
 
         else:
             # Just load precomputed results
-            hit_table = _process_hits(args, blast_files, nhmmer_files, query_lengths)
+            hit_table = _process_hits(
+                args,
+                blast_files,
+                nhmmer_files,
+                query_lengths,
+                cluster_map=cluster_map,
+                pairing_map=pairing_map,
+            )
 
         # Write final output
         output_file = args.outdir / f'{args.prefix}_hits.tab'
@@ -2429,22 +2454,22 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Write split output if requested
         if args.split_paired_output:
-            pairing_map = parse_pairing_map(args.pairing_map)
+            assert pairing_map is not None  # guaranteed by _validate_search_args
             validate_split_paired_output(pairing_map)
             write_split_hits(hit_table, pairing_map, args.outdir, args.prefix)
 
         # Log completion message with logfile location if enabled
         if logfile_path and args.logfile:
-            logging.info(f'Log file saved to: {logfile_path}')
+            logger.info(f'Log file saved to: {logfile_path}')
 
-        logging.info('Ensemble search completed successfully')
+        logger.info('Ensemble search completed successfully')
         return 0
 
     except EnsembleSearchError as e:
-        logging.error(f'Ensemble search failed: {e}')
+        logger.error(f'Ensemble search failed: {e}')
         return 1
     except Exception as e:
-        logging.error(f'Unexpected error: {e}')
+        logger.error(f'Unexpected error: {e}')
         return 1
 
 
@@ -2453,6 +2478,8 @@ def _process_hits(
     blast_files: List[Path],
     nhmmer_files: List[Path],
     query_lengths: Optional[Dict[str, int]] = None,
+    cluster_map: Optional[Dict[str, List[str]]] = None,
+    pairing_map: Optional[Dict[str, str]] = None,
 ) -> pd.DataFrame:
     """
     Process loaded hits: filter, merge, and clean.
@@ -2467,11 +2494,23 @@ def _process_hits(
         Nhmmer result files to load.
     query_lengths : dict, optional
         Mapping of model name to model length.  Required for anchor filtering.
+    cluster_map : dict, optional
+        Pre-parsed cluster mapping. Parsed from ``args.cluster_map`` if not
+        supplied.
+    pairing_map : dict, optional
+        Pre-parsed pairing map. Parsed from ``args.pairing_map`` if not
+        supplied.
 
     Returns
     -------
     pandas.DataFrame
         Processed hit table.
+
+    Notes
+    -----
+    ``cluster_map`` and ``pairing_map`` are accepted pre-parsed so that a run
+    reads each file exactly once. ``main`` parses them and passes them in;
+    direct callers may omit them and have them parsed here.
     """
     # Load hits
     hit_table = load_hits_from_files(
@@ -2480,7 +2519,7 @@ def _process_hits(
     )
 
     if hit_table.empty:
-        logging.warning('No hits loaded')
+        logger.warning('No hits loaded')
         return hit_table
 
     # Report initial statistics
@@ -2492,107 +2531,120 @@ def _process_hits(
     # Report post-filter statistics
     report_hit_statistics(hit_table, stage='(after e-value filtering)')
 
+    # Resolve the cluster and pairing maps. main parses them once and passes
+    # them in; parsing here is the fallback for direct callers. The pairing map
+    # used to be read from disk three separate times in a single run, which is
+    # three chances for the parsed forms to drift apart.
+    if cluster_map is None and args.cluster_map:
+        cluster_map = _load_cluster_map(args.cluster_map)
+    if pairing_map is None and args.pairing_map:
+        pairing_map = _load_pairing_map(args.pairing_map)
+
     # Apply anchor (outer-edge) filter if requested
     max_offset = getattr(args, 'max_offset', None)
     if max_offset is not None:
         orientation = getattr(args, 'orientation', 'F,R')
 
-        # Resolve pairing map for left/right model identification
-        anchor_pairing_map: Optional[Dict[str, str]] = None
-        if args.pairing_map:
-            if not args.pairing_map.exists():
-                raise EnsembleSearchError(
-                    f'Pairing map file not found: {args.pairing_map}'
-                )
-            anchor_pairing_map = parse_pairing_map(args.pairing_map)
+        # The anchor filter runs BEFORE cluster merging, because it measures
+        # each hit against its own model's length and those lengths only exist
+        # per component -- a merged hit carries a cluster name that appears in
+        # no length table. So a cluster-level pairing map has to be expanded
+        # down to component names here, or it matches nothing and terminus
+        # assignment silently falls back to strand (which, for the same-strand
+        # F,F and R,R orientations, resolves nothing at all).
+        anchor_pairing_map = expand_pairing_map_to_components(pairing_map, cluster_map)
 
-        hit_table = filter_hits_by_anchor(
-            hit_table,
-            query_lengths=query_lengths if query_lengths else {},
-            max_offset=max_offset,
-            orientation=orientation,
-            pairing_map=anchor_pairing_map,
-        )
+        try:
+            hit_table = filter_hits_by_anchor(
+                hit_table,
+                model_lengths=query_lengths if query_lengths else {},
+                max_offset=max_offset,
+                orientation=orientation,
+                pairing_map=anchor_pairing_map,
+                # search treats a missing model length as a hard error: the
+                # user asked for anchor filtering and would otherwise get a
+                # silently unfiltered result. tirmite pair warns and keeps.
+                on_missing_length='raise',
+            )
+        except AnchorFilterError as e:
+            # core.hit_filters cannot import from cli, so it raises its own
+            # type. Translate here so the search workflow keeps raising a
+            # single exception type, exactly as it did before unification.
+            raise EnsembleSearchError(str(e)) from e
 
         # Report post-anchor statistics
         report_hit_statistics(hit_table, stage='(after anchor filtering)')
 
-    # Load and apply cluster mapping if provided
-    if args.cluster_map:
-        if not args.cluster_map.exists():
+    # Apply cluster mapping if provided. This renames each hit's model to its
+    # cluster name, so every step after this point sees cluster-level names.
+    if cluster_map:
+        available_features = set(hit_table['model'].unique())
+
+        is_valid, warnings = validate_cluster_mapping(cluster_map, available_features)
+        for warning in warnings:
+            logger.warning(warning)
+
+        if not is_valid:
             raise EnsembleSearchError(
-                f'Cluster mapping file not found: {args.cluster_map}'
+                'Cluster mapping validation failed. Check warnings above.'
             )
 
-        cluster_map = parse_cluster_mapping(args.cluster_map)
+        # Check for cross-cluster overlaps before merging
+        check_cross_cluster_overlaps(hit_table, cluster_map)
 
-        if cluster_map:
-            # Get available feature names
-            available_features = set(hit_table['model'].unique())
+        # Merge overlapping hits within clusters
+        hit_table = merge_overlapping_cluster_hits(
+            hit_table, cluster_map, max_gap=getattr(args, 'merge_max_gap', 1)
+        )
 
-            # Validate cluster mapping
-            is_valid, warnings = validate_cluster_mapping(
-                cluster_map, available_features
-            )
-            for warning in warnings:
-                logging.warning(warning)
+        # Report post-merge statistics
+        report_hit_statistics(hit_table, stage='(after merging)')
 
-            if not is_valid:
-                raise EnsembleSearchError(
-                    'Cluster mapping validation failed. Check warnings above.'
-                )
+    # Pairing-map filtering. These steps run AFTER cluster merging, so the hit
+    # models are cluster names by now and the pairing map is used as written,
+    # without expansion.
+    if pairing_map:
+        filter_summary = SearchFilterSummary()
+        # Both filter steps share one threshold: they answer the same question
+        # (is one hit decisively better than another?) in different contexts.
+        min_score_ratio = getattr(args, 'min_score_ratio', 1.5)
 
-            # Check for cross-cluster overlaps before merging
-            check_cross_cluster_overlaps(hit_table, cluster_map)
+        # Step 0: restrict output to models listed in the pairing map only.
+        hit_table = filter_hits_to_pairing_map_models(
+            hit_table, pairing_map, summary=filter_summary
+        )
 
-            # Merge overlapping hits within clusters
-            hit_table = merge_overlapping_cluster_hits(hit_table, cluster_map)
+        # Report statistics after pairing map model filter
+        report_hit_statistics(hit_table, stage='(after pairing map model filter)')
 
-            # Report post-merge statistics
-            report_hit_statistics(hit_table, stage='(after merging)')
+        # Step 1: remove hits from a paired model that are completely nested within
+        # hits of its direct left/right partner and score significantly worse.
+        hit_table = remove_nested_paired_hits(
+            hit_table,
+            pairing_map,
+            min_score_ratio=min_score_ratio,
+            summary=filter_summary,
+        )
 
-    # Remove nested weak hits if pairing map provided
-    if args.pairing_map:
-        if not args.pairing_map.exists():
-            raise EnsembleSearchError(f'Pairing map file not found: {args.pairing_map}')
+        # Report statistics after nested hit removal
+        report_hit_statistics(hit_table, stage='(after nested hit removal)')
 
-        pairing_map = parse_pairing_map(args.pairing_map)
+        # Step 2: remove lower-quality overlapping hits from competing models across
+        # all pairs in the pairing map.  This handles the case where models from
+        # related element families hit the same locus: at each overlapping locus the
+        # best-scoring model is retained and weaker cross-model hits are discarded.
+        hit_table = filter_best_model_per_locus(
+            hit_table,
+            pairing_map,
+            min_score_ratio=min_score_ratio,
+            summary=filter_summary,
+        )
 
-        if pairing_map:
-            filter_summary = SearchFilterSummary()
+        # Report final statistics
+        report_hit_statistics(hit_table, stage='(after cross-model overlap filtering)')
 
-            # Step 0: restrict output to models listed in the pairing map only.
-            hit_table = filter_hits_to_pairing_map_models(
-                hit_table, pairing_map, summary=filter_summary
-            )
-
-            # Report statistics after pairing map model filter
-            report_hit_statistics(hit_table, stage='(after pairing map model filter)')
-
-            # Step 1: remove hits from a paired model that are completely nested within
-            # hits of its direct left/right partner and score significantly worse.
-            hit_table = remove_nested_paired_hits(
-                hit_table, pairing_map, summary=filter_summary
-            )
-
-            # Report statistics after nested hit removal
-            report_hit_statistics(hit_table, stage='(after nested hit removal)')
-
-            # Step 2: remove lower-quality overlapping hits from competing models across
-            # all pairs in the pairing map.  This handles the case where models from
-            # related element families hit the same locus: at each overlapping locus the
-            # best-scoring model is retained and weaker cross-model hits are discarded.
-            hit_table = filter_best_model_per_locus(
-                hit_table, pairing_map, summary=filter_summary
-            )
-
-            # Report final statistics
-            report_hit_statistics(
-                hit_table, stage='(after cross-model overlap filtering)'
-            )
-
-            # Emit consolidated summary report for all pairing map filtering steps
-            log_filter_summary(filter_summary)
+        # Emit consolidated summary report for all pairing map filtering steps
+        log_filter_summary(filter_summary)
 
     return hit_table
 

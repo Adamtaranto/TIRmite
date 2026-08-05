@@ -11,8 +11,8 @@ Notes
 **Coordinate contract.** All coordinates in this module are 1-based, inclusive,
 plus-strand genomic coordinates, matching ``blastdbcmd -range`` and the
 ``hitStart``/``hitEnd`` columns produced by
-:func:`tirmite.tirmitetools.import_nhmmer` and
-:func:`tirmite.tirmitetools.import_blast`.  Conversion to ``pyfaidx``'s 0-based
+:func:`tirmite.core.parsers.import_nhmmer` and
+:func:`tirmite.core.parsers.import_blast`.  Conversion to ``pyfaidx``'s 0-based
 half-open slicing happens inside :class:`FastaSource` and nowhere else.
 
 **Return contract.** :func:`fetch_sequence` returns uppercase, plus-strand
@@ -42,6 +42,12 @@ from pathlib import Path
 import shutil
 import subprocess
 from typing import Any, Dict, NamedTuple, Optional, Tuple, Union
+
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 # Shared timeout for all blastdbcmd invocations, in seconds.  Previously these
 # ranged from 30s to no timeout at all depending on the call site.
@@ -115,9 +121,7 @@ class FastaSource:
         try:
             return str(self.genome[seqid][start - 1 : end])
         except (KeyError, TypeError) as e:
-            logging.error(
-                f'Failed to read {seqid}:{start}-{end} from genome index: {e}'
-            )
+            logger.error(f'Failed to read {seqid}:{start}-{end} from genome index: {e}')
             return None
 
     def sequence_description(self, seqid: str) -> str:
@@ -222,15 +226,15 @@ class BlastDBSource:
             )
             return result.stdout
         except subprocess.CalledProcessError as e:
-            logging.debug(f'blastdbcmd failed for {" ".join(args)}: {e.stderr.strip()}')
+            logger.debug(f'blastdbcmd failed for {" ".join(args)}: {e.stderr.strip()}')
             return None
         except subprocess.TimeoutExpired:
-            logging.error(
+            logger.error(
                 f'blastdbcmd timed out after {BLASTDBCMD_TIMEOUT}s for {" ".join(args)}'
             )
             return None
         except FileNotFoundError:
-            logging.error('blastdbcmd command not found. Is BLAST+ installed?')
+            logger.error('blastdbcmd command not found. Is BLAST+ installed?')
             return None
 
     def _load_metadata(self, seqid: str) -> None:
@@ -266,7 +270,7 @@ class BlastDBSource:
             try:
                 length = int(parts[0])
             except (ValueError, IndexError):
-                logging.error(f'Could not parse length of {seqid} from blastdbcmd')
+                logger.error(f'Could not parse length of {seqid} from blastdbcmd')
                 length = None
             if len(parts) > 1:
                 description = parts[1].strip()
@@ -340,7 +344,7 @@ class BlastDBSource:
 
         lines = out.strip().split('\n')
         if len(lines) < 2 or not lines[0].startswith('>'):
-            logging.error(
+            logger.error(
                 f'Invalid FASTA output from blastdbcmd for {seqid}:{start}-{end}'
             )
             return None
@@ -459,25 +463,6 @@ def contig_exists(source: SequenceSource, seqid: str) -> bool:
     return source.contig_length(seqid) is not None
 
 
-def get_contig_length(source: SequenceSource, seqid: str) -> Optional[int]:
-    """
-    Return the length of a sequence in a source.
-
-    Parameters
-    ----------
-    source : FastaSource or BlastDBSource
-        Sequence source to query.
-    seqid : str
-        Sequence identifier.
-
-    Returns
-    -------
-    int or None
-        Length in bases, or None if ``seqid`` is absent.
-    """
-    return source.contig_length(seqid)
-
-
 def clamp_region(
     source: SequenceSource, seqid: str, start: int, end: int
 ) -> Optional[Tuple[int, int]]:
@@ -507,18 +492,18 @@ def clamp_region(
     """
     length = source.contig_length(seqid)
     if length is None:
-        logging.warning(f'Sequence {seqid} not found in {source.describe()}')
+        logger.warning(f'Sequence {seqid} not found in {source.describe()}')
         return None
 
     start = int(start)
     end = int(end)
 
     if start > end:
-        logging.debug(f'Empty region requested for {seqid}: {start}-{end}')
+        logger.debug(f'Empty region requested for {seqid}: {start}-{end}')
         return None
 
     if start > length or end < 1:
-        logging.warning(
+        logger.warning(
             f'Region {seqid}:{start}-{end} lies entirely outside the contig '
             f'(length {length}), skipping'
         )
@@ -566,7 +551,7 @@ def fetch_sequence(
 
     seq = source.fetch_raw(seqid, clamped_start, clamped_end)
     if seq is None:
-        logging.warning(
+        logger.warning(
             f'Failed to extract {seqid}:{clamped_start}-{clamped_end} '
             f'from {source.describe()}'
         )
@@ -577,7 +562,7 @@ def fetch_sequence(
     # than trust: a length mismatch means we do not have the region we asked
     # for and returning it would silently corrupt downstream output.
     if len(seq) != expected:
-        logging.warning(
+        logger.warning(
             f'Extraction of {seqid}:{clamped_start}-{clamped_end} returned '
             f'{len(seq)}bp but {expected}bp was requested; skipping'
         )
@@ -673,7 +658,7 @@ def fetch_region_padded(
     end = int(end)
 
     if start > end:
-        logging.debug(f'Empty region requested for {seqid}: {start}-{end}')
+        logger.debug(f'Empty region requested for {seqid}: {start}-{end}')
         return None
 
     # clamp_region rejects windows with no overlap, which is what we want here.
@@ -691,7 +676,7 @@ def fetch_region_padded(
     right_pad = end - clamped_end
 
     if left_pad or right_pad:
-        logging.warning(
+        logger.warning(
             f'Region {seqid}:{start}-{end} extends beyond the contig; '
             f'padding with {left_pad}bp + {right_pad}bp of "{pad_char}" '
             f'around the available {clamped_start}-{clamped_end}'
@@ -732,13 +717,13 @@ def check_ids(source: SequenceSource, seqids: Any) -> list:
     missing = {sid for sid in set(seqids) if not contig_exists(source, sid)}
 
     if missing:
-        logging.warning(
+        logger.warning(
             f'{len(missing)} sequence ID(s) could not be resolved in '
             f'{source.describe()}: {", ".join(sorted(missing)[:5])}'
             + (' ...' if len(missing) > 5 else '')
         )
         if isinstance(source, BlastDBSource):
-            logging.warning(
+            logger.warning(
                 'Was the BLAST database created with -parse_seqids? '
                 'Accessions may also differ from FASTA header tokens.'
             )

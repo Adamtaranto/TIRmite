@@ -43,15 +43,18 @@ For **asymmetrical elements** (Helitrons, Starships), separate left and right mo
 
 ## Cluster Map Format
 
-The cluster map is a tab-delimited file mapping individual model/query names to a logical cluster name:
+The cluster map is a tab-delimited file. Each line names a cluster **first**, followed by one or more component model/query names that belong to it:
 
 ```
 # cluster_map.txt
-# model_name    cluster_name
-MY_TIR_subtype1    MY_TIR
-MY_TIR_subtype2    MY_TIR
-MY_TIR_subtype3    MY_TIR
+# cluster_name    component1    component2    component3
+MY_TIR    MY_TIR_subtype1    MY_TIR_subtype2    MY_TIR_subtype3
 ```
+
+Lines beginning with `#` are ignored. A component may appear in only one cluster; listing it in two is an error.
+
+!!! warning "Cluster name comes first"
+    Earlier versions of this page showed the columns the other way round, as one `model<TAB>cluster` line per model. That layout does not work: TIRmite would read each *model* name as a cluster whose single component is the intended cluster name, so no hit would match any cluster. If your cluster map matched nothing, check the column order — TIRmite now reports an error naming the models it found instead of silently producing an empty result.
 
 When hits are merged using the cluster map:
 - Hits from all models in the same cluster are pooled
@@ -98,12 +101,14 @@ The excluded models and their hit counts are listed in the log.
 
 In asymmetric element models, the left and right terminus HMMs sometimes share a small region of homology.  This means the shorter model can produce hits that are *entirely contained* within a hit of its paired model at the same genomic locus — these are called **nested cross-hits**.
 
-For each pair of hits on the same target sequence and strand, if:
+For each pair of hits on the same target sequence, if:
 
 1. Both hits come from models that form a **direct left/right pair** in the pairing map, AND
 2. One hit's coordinates are completely contained within the other's (nesting),
 
-then the nested hit is removed provided its alignment score is less than 1.5× the enclosing hit's score (configurable via `min_score_ratio`).  If the nested hit scores comparably or better, both are kept — the model may represent a genuine detection even though its hit is contained within the partner model's hit.
+then the nested hit is removed when the **enclosing** hit scores decisively better — that is, when `enclosing_score / nested_score` is at least 1.5 (configurable with `--min-score-ratio`).  If the two score comparably, or the nested hit scores better, both are kept: the nested model may represent a genuine detection even though its hit is contained within the partner's.
+
+Hits are compared across **both strands**. Under the canonical `F,R` orientation the two termini of one element lie on opposite strands, so restricting the comparison to a single strand would make this step a no-op for exactly the case it exists to handle.
 
 > **Note on models in multiple pairs.**  The pairing map is stored as a dictionary (left → right), so each left-feature name maps to exactly one right-feature partner for this filter.  If a single model must pair with multiple partners, list separate rows in the pairing map file; only the last row for a given left feature will be active for this step.  Use a cluster map to merge sub-type models before pairing rather than listing the same feature on multiple rows.
 
@@ -111,12 +116,14 @@ then the nested hit is removed provided its alignment score is less than 1.5× t
 
 Closely related transposon families often share enough sequence similarity that their respective HMM models produce hits against *both* families.  When many models from different families are searched simultaneously and their hits are assigned to pairs, lower-quality **cross-model hits** (hits from the "wrong" family's model at a given locus) must be resolved.
 
-For every pair of hits on the same target sequence and strand that:
+For every pair of hits on the same target sequence that:
 
 - Come from **different models** (both of which appear anywhere in the pairing map), AND
 - Overlap by at least 1 bp,
 
-the weaker hit is removed when the better hit's score is at least 1.5× the weaker hit's score.  When neither hit dominates by this margin, both are retained because the evidence is ambiguous.
+the weaker hit is removed when the better hit's score is at least 1.5× the weaker hit's score (configurable with `--min-score-ratio`).  When neither hit dominates by this margin, both are retained because the evidence is ambiguous.
+
+Overlap is measured on 1-based inclusive coordinates, so two hits sharing a single base overlap by 1.
 
 This step is broader than Step 1 because:
 
@@ -228,13 +235,13 @@ tirmite search \
 This is the primary use case for `tirmite search` when you have multiple sub-type HMMs:
 
 ```bash
-# cluster_map.txt groups sub-type HMMs into logical termini
+# cluster_map.txt groups sub-type HMMs into logical termini.
+# Cluster name first, then its component models.
 cat cluster_map.txt
-# MY_TIR_subtype1    LEFT_TIR
-# MY_TIR_subtype2    LEFT_TIR
-# MY_TIR_subtype3    LEFT_TIR
+# LEFT_TIR    MY_TIR_subtype1    MY_TIR_subtype2    MY_TIR_subtype3
 
-# pairing_map.txt links left and right termini clusters
+# pairing_map.txt links left and right termini clusters.
+# A row naming the same cluster twice describes a symmetric element.
 cat pairing_map.txt
 # LEFT_TIR    LEFT_TIR
 

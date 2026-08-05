@@ -5,8 +5,7 @@ Tests for pairing map functionality.
 Tests pairing map file parsing, validation, and multi-model pairing.
 """
 
-import os
-import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -14,51 +13,41 @@ from tirmite.cli.hmm_pair import check_multiple_models, load_pairing_map
 
 
 @pytest.fixture
-def symmetric_pairing_map():
+def symmetric_pairing_map(tmp_path: Path) -> str:
     """Create a temporary symmetric pairing map file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write('# Symmetric pairing map\n')
-        f.write('model1\tmodel1\n')
-        f.write('model2\tmodel2\n')
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'symmetric.txt'
+    path.write_text('# Symmetric pairing map\nmodel1\tmodel1\nmodel2\tmodel2\n')
+    return str(path)
 
 
 @pytest.fixture
-def asymmetric_pairing_map():
+def asymmetric_pairing_map(tmp_path: Path) -> str:
     """Create a temporary asymmetric pairing map file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write('# Asymmetric pairing map\n')
-        f.write('left1\tright1\n')
-        f.write('left2\tright2\n')
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'asymmetric.txt'
+    path.write_text('# Asymmetric pairing map\nleft1\tright1\nleft2\tright2\n')
+    return str(path)
 
 
 @pytest.fixture
-def mixed_pairing_map():
+def mixed_pairing_map(tmp_path: Path) -> str:
     """Create a pairing map with both symmetric and asymmetric pairings."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write('# Mixed pairing map\n')
-        f.write('model_A\tmodel_A\n')  # Symmetric
-        f.write('left_B\tright_B\n')  # Asymmetric
-        f.write('model_C\tmodel_C\n')  # Symmetric
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'mixed.txt'
+    path.write_text(
+        '# Mixed pairing map\n'
+        'model_A\tmodel_A\n'  # Symmetric
+        'left_B\tright_B\n'  # Asymmetric
+        'model_C\tmodel_C\n'  # Symmetric
+    )
+    return str(path)
 
 
 @pytest.fixture
-def duplicate_feature_map():
+def duplicate_feature_map(tmp_path: Path) -> str:
     """Create a pairing map with features appearing multiple times."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write('model1\tmodel2\n')
-        f.write('model1\tmodel3\n')  # model1 appears again
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'duplicate.txt'
+    # model1 appears as the left feature of two different pairs.
+    path.write_text('model1\tmodel2\nmodel1\tmodel3\n')
+    return str(path)
 
 
 def test_load_symmetric_pairing_map(symmetric_pairing_map):
@@ -101,31 +90,22 @@ def test_duplicate_features_warning(duplicate_feature_map, caplog):
     )
 
 
-def test_empty_pairing_map():
+def test_empty_pairing_map(tmp_path: Path) -> None:
     """Test that empty pairing map raises error."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write('# Only comments\n')
-        f.write('\n')
-        fname = f.name
+    path = tmp_path / 'empty.txt'
+    path.write_text('# Only comments\n\n')
 
-    try:
-        with pytest.raises(ValueError, match='No valid pairings found'):
-            load_pairing_map(fname)
-    finally:
-        os.unlink(fname)
+    with pytest.raises(ValueError, match='No valid pairings found'):
+        load_pairing_map(str(path))
 
 
-def test_malformed_pairing_map():
+def test_malformed_pairing_map(tmp_path: Path) -> None:
     """Test that malformed pairing map raises error."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
-        f.write('only_one_column\n')
-        fname = f.name
+    path = tmp_path / 'malformed.txt'
+    path.write_text('only_one_column\n')
 
-    try:
-        with pytest.raises(ValueError, match='expected 2 tab-delimited columns'):
-            load_pairing_map(fname)
-    finally:
-        os.unlink(fname)
+    with pytest.raises(ValueError, match='expected 2 tab-delimited columns'):
+        load_pairing_map(str(path))
 
 
 def test_missing_pairing_map():

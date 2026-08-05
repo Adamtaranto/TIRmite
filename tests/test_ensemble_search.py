@@ -5,9 +5,6 @@ Tests for ensemble search functionality in TIRmite.
 Tests cluster mapping, hit merging, nested hit removal, and CLI functionality.
 """
 
-import os
-import tempfile
-
 import pandas as pd
 import pytest
 
@@ -31,79 +28,65 @@ from tirmite.cli.ensemble_search import (
 
 
 @pytest.fixture
-def cluster_mapping_file():
-    """Create a temporary cluster mapping file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-        f.write('# Cluster mapping file\n')
-        f.write('ClusterA\tComponentA1\tComponentA2\tComponentA3\n')
-        f.write('ClusterB\tComponentB1\tComponentB2\n')
-        f.write('ClusterC\tComponentC1\n')
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+def cluster_mapping_file(tmp_path):
+    """Create a temporary cluster mapping file.
+
+    Format is cluster name first, then one or more component model names, all
+    tab-delimited: ``cluster<TAB>component1<TAB>component2...``.
+    """
+    path = tmp_path / 'clusters.tsv'
+    path.write_text(
+        '# Cluster mapping file\n'
+        'ClusterA\tComponentA1\tComponentA2\tComponentA3\n'
+        'ClusterB\tComponentB1\tComponentB2\n'
+        'ClusterC\tComponentC1\n'
+    )
+    return str(path)
 
 
 @pytest.fixture
-def pairing_map_file():
+def pairing_map_file(tmp_path):
     """Create a temporary pairing map file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-        f.write('# Pairing map: left<TAB>right\n')
-        f.write('LeftA\tRightA\n')
-        f.write('LeftB\tRightB\n')
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'pairing.tsv'
+    path.write_text('# Pairing map: left<TAB>right\nLeftA\tRightA\nLeftB\tRightB\n')
+    return str(path)
 
 
 @pytest.fixture
-def blast_result_file():
+def blast_result_file(tmp_path):
     """Create a temporary BLAST result file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.blast', delete=False) as f:
-        # Format: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
-        f.write('ComponentA1\tchr1\t95.0\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n')
-        f.write(
-            'ComponentA2\tchr1\t93.0\t98\t7\t0\t1\t98\t1050\t1147\t1e-35\t180\n'
-        )  # Overlaps A1
-        f.write(
-            'ComponentA3\tchr1\t90.0\t95\t10\t0\t1\t95\t2000\t2094\t1e-30\t160\n'
-        )  # No overlap
-        f.write('ComponentB1\tchr2\t92.0\t100\t8\t0\t1\t100\t500\t599\t1e-38\t190\n')
-        f.write(
-            'ComponentB2\tchr2\t88.0\t96\t12\t0\t1\t96\t520\t615\t1e-32\t170\n'
-        )  # Overlaps B1
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+    path = tmp_path / 'hits.blast'
+    # Format: qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore
+    path.write_text(
+        'ComponentA1\tchr1\t95.0\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n'
+        # ComponentA2 overlaps ComponentA1 on chr1.
+        'ComponentA2\tchr1\t93.0\t98\t7\t0\t1\t98\t1050\t1147\t1e-35\t180\n'
+        # ComponentA3 sits well clear of the other two.
+        'ComponentA3\tchr1\t90.0\t95\t10\t0\t1\t95\t2000\t2094\t1e-30\t160\n'
+        'ComponentB1\tchr2\t92.0\t100\t8\t0\t1\t100\t500\t599\t1e-38\t190\n'
+        # ComponentB2 overlaps ComponentB1 on chr2.
+        'ComponentB2\tchr2\t88.0\t96\t12\t0\t1\t96\t520\t615\t1e-32\t170\n'
+    )
+    return str(path)
 
 
 @pytest.fixture
-def nhmmer_result_file():
-    """Create a temporary nhmmer result file."""
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.nhmmer', delete=False) as f:
-        # Format expected by import_nhmmer: space-delimited with specific column order
-        # target, accession, query, accession, model, hmmstart, hmmend, hitstart, hitend, strand, trunc, pass, gc, bias, score, evalue, inc, description
-        f.write(
-            '#target name         accession query name           accession mdl mdl from   '
-            'mdl to seq from   seq to strand trunc pass   gc  bias  score   E-value inc '
-            'description of target\n'
-        )
-        f.write(
-            '#------------------- --------- -------------------- --------- --- -------- '
-            '-------- -------- -------- ------ ----- ---- ---- ----- ------ --------- '
-            '--- ---------------------\n'
-        )
-        # Format: target accession model accession mdl hmmFrom hmmTo seqFrom seqTo strand trunc pass gc bias score evalue inc desc
-        f.write(
-            'chr1                 -         ComponentA1          -          cm        1       '
-            '60     1000     1059      +    no    1 0.45   0.0   45.2   1.2e-10 yes -\n'
-        )
-        f.write(
-            'chr1                 -         ComponentA2          -          cm        1       '
-            '58     1020     1077      +    no    1 0.42   0.0   42.1   2.5e-09 yes -\n'
-        )
-        fname = f.name
-    yield fname
-    os.unlink(fname)
+def nhmmer_result_file(tmp_path):
+    """Create a temporary nhmmer ``--tblout`` result file.
+
+    Column order, which ``import_nhmmer`` and ``detect_input_format`` both
+    index positionally: target name, accession, query name, accession,
+    hmmfrom, hmm to, alifrom, ali to, envfrom, env to, sq len, strand,
+    E-value, score, bias, description.
+    """
+    path = tmp_path / 'hits.nhmmer'
+    path.write_text(
+        '# target name  accession  query name  accession  hmmfrom  hmm to  alifrom  '
+        'ali to  envfrom  env to  sq len  strand  E-value  score  bias  description\n'
+        'chr1 - ComponentA1 - 1 60 1000 1059 1000 1059 100000 + 1.2e-10 45.2 0.0 -\n'
+        'chr1 - ComponentA2 - 1 58 1020 1077 1020 1077 100000 + 2.5e-09 42.1 0.0 -\n'
+    )
+    return str(path)
 
 
 @pytest.fixture
@@ -143,32 +126,26 @@ class TestClusterMapping:
         assert cluster_map['ClusterB'] == ['ComponentB1', 'ComponentB2']
         assert cluster_map['ClusterC'] == ['ComponentC1']
 
-    def test_parse_cluster_mapping_empty_file(self):
+    def test_parse_cluster_mapping_empty_file(self, tmp_path):
         """Test parsing an empty cluster mapping file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('# Only comments\n')
-            fname = f.name
+        path = tmp_path / 'empty.tsv'
+        path.write_text('# Only comments\n')
 
-        try:
-            cluster_map = parse_cluster_mapping(fname)
-            assert cluster_map == {}
-        finally:
-            os.unlink(fname)
+        cluster_map = parse_cluster_mapping(str(path))
+        assert cluster_map == {}
 
-    def test_parse_cluster_mapping_invalid_lines(self):
+    def test_parse_cluster_mapping_invalid_lines(self, tmp_path):
         """Test parsing cluster mapping file with invalid lines."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('ValidCluster\tComp1\tComp2\n')
-            f.write('InvalidLine\n')  # Only one column
-            f.write('\tNoClusterName\n')  # Empty cluster name
-            fname = f.name
+        path = tmp_path / 'invalid.tsv'
+        path.write_text(
+            'ValidCluster\tComp1\tComp2\n'
+            'InvalidLine\n'  # Only one column
+            '\tNoClusterName\n'  # Empty cluster name
+        )
 
-        try:
-            cluster_map = parse_cluster_mapping(fname)
-            assert len(cluster_map) == 1
-            assert 'ValidCluster' in cluster_map
-        finally:
-            os.unlink(fname)
+        cluster_map = parse_cluster_mapping(str(path))
+        assert len(cluster_map) == 1
+        assert 'ValidCluster' in cluster_map
 
     def test_validate_cluster_mapping_valid(self):
         """Test validation of a valid cluster mapping."""
@@ -238,32 +215,26 @@ class TestPairingMap:
         assert pairing_map['LeftA'] == 'RightA'
         assert pairing_map['LeftB'] == 'RightB'
 
-    def test_parse_pairing_map_empty(self):
+    def test_parse_pairing_map_empty(self, tmp_path):
         """Test parsing an empty pairing map file."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('# Comments only\n')
-            fname = f.name
+        path = tmp_path / 'empty.tsv'
+        path.write_text('# Comments only\n')
 
-        try:
-            pairing_map = parse_pairing_map(fname)
-            assert pairing_map == {}
-        finally:
-            os.unlink(fname)
+        pairing_map = parse_pairing_map(str(path))
+        assert pairing_map == {}
 
-    def test_parse_pairing_map_invalid_lines(self):
+    def test_parse_pairing_map_invalid_lines(self, tmp_path):
         """Test parsing pairing map with invalid lines."""
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.tsv', delete=False) as f:
-            f.write('ValidLeft\tValidRight\n')
-            f.write('TooMany\tColumns\tHere\n')  # 3 columns
-            f.write('OnlyOne\n')  # 1 column
-            fname = f.name
+        path = tmp_path / 'invalid.tsv'
+        path.write_text(
+            'ValidLeft\tValidRight\n'
+            'TooMany\tColumns\tHere\n'  # 3 columns
+            'OnlyOne\n'  # 1 column
+        )
 
-        try:
-            pairing_map = parse_pairing_map(fname)
-            assert len(pairing_map) == 1
-            assert 'ValidLeft' in pairing_map
-        finally:
-            os.unlink(fname)
+        pairing_map = parse_pairing_map(str(path))
+        assert len(pairing_map) == 1
+        assert 'ValidLeft' in pairing_map
 
 
 # -----------------------------------------------------------------------------
@@ -285,23 +256,20 @@ class TestHitLoading:
         assert 'ComponentA1' in hit_table['model'].values
 
     def test_load_nhmmer_hits(self, nhmmer_result_file):
-        """Test loading hits from nhmmer file.
+        """Test loading hits from an nhmmer file.
 
-        Note: There is a format mismatch between the column indices expected by
-        `detect_input_format` (strand at index 9, evalue at index 15) and
-        `import_nhmmer` (strand at index 11, evalue at index 12). This is an
-        existing issue in the codebase that predates this feature. The test
-        fixture may not parse correctly due to this inconsistency. This test
-        verifies the loading mechanism doesn't crash rather than precise parsing.
+        This used to assert only that loading did not crash, because the
+        fixture's column layout did not match what `import_nhmmer` reads and
+        so parsed to zero rows. Both the fixture and `detect_input_format` now
+        use the real `--tblout` layout, so the parsed content can be checked.
         """
         from pathlib import Path
 
-        # Just verify the function doesn't crash - actual parsing may vary
-        # due to existing inconsistencies in nhmmer format handling
         hit_table = load_hits_from_files(nhmmer_files=[Path(nhmmer_result_file)])
 
-        # The loading should not raise an exception
-        assert isinstance(hit_table, pd.DataFrame)
+        assert len(hit_table) == 2
+        assert sorted(hit_table['model'].unique()) == ['ComponentA1', 'ComponentA2']
+        assert set(hit_table['target']) == {'chr1'}
 
     def test_load_no_files_raises_error(self):
         """Test that loading with no files raises an error."""
@@ -435,6 +403,55 @@ class TestHitMerging:
 class TestNestedHitRemoval:
     """Tests for removing nested weak hits between paired features."""
 
+    def test_removes_nested_hit_on_opposite_strand(self):
+        """The canonical F,R case: paired termini sit on OPPOSITE strands.
+
+        This is the situation the step exists to handle, and it was previously
+        invisible: grouping by (target, strand) meant LeftA on '+' and RightA
+        on '-' were never compared, so no nested cross-hit between a left and
+        right terminus of the same element was ever removed.
+        """
+        hit_table = pd.DataFrame(
+            {
+                'model': ['LeftA', 'RightA'],
+                'target': ['chr1', 'chr1'],
+                'hitStart': ['1000', '1020'],  # RightA nested inside LeftA
+                'hitEnd': ['1200', '1080'],
+                'strand': ['+', '-'],  # opposite strands, as F,R implies
+                'evalue': ['1e-40', '1e-20'],
+                'score': ['200', '100'],
+                'bias': ['NA', 'NA'],
+                'hmmStart': ['1', '1'],
+                'hmmEnd': ['100', '60'],
+            }
+        )
+
+        result = remove_nested_paired_hits(hit_table, {'LeftA': 'RightA'})
+
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'LeftA'
+
+    def test_non_nested_opposite_strand_hits_both_kept(self):
+        """Comparing across strands must not remove hits that do not nest."""
+        hit_table = pd.DataFrame(
+            {
+                'model': ['LeftA', 'RightA'],
+                'target': ['chr1', 'chr1'],
+                'hitStart': ['1000', '5000'],
+                'hitEnd': ['1200', '5200'],
+                'strand': ['+', '-'],
+                'evalue': ['1e-40', '1e-20'],
+                'score': ['200', '100'],
+                'bias': ['NA', 'NA'],
+                'hmmStart': ['1', '1'],
+                'hmmEnd': ['100', '60'],
+            }
+        )
+
+        result = remove_nested_paired_hits(hit_table, {'LeftA': 'RightA'})
+
+        assert len(result) == 2
+
     def test_remove_nested_hit_weak(self):
         """Test removal of weak hit nested within stronger paired hit."""
         hit_table = pd.DataFrame(
@@ -460,11 +477,11 @@ class TestNestedHitRemoval:
         assert result.iloc[0]['model'] == 'LeftA'
 
     def test_keep_nested_hit_strong(self):
-        """Test keeping nested hit that is relatively strong.
+        """Test keeping a nested hit that outscores its container.
 
-        The default min_score_ratio is 1.5, meaning the nested hit is removed
-        if (nested_score / enclosing_score) < 1.5.
-        To keep the nested hit, we need nested_score >= enclosing_score * 1.5.
+        The default min_score_ratio is 1.5: the nested hit is removed only
+        when the ENCLOSING hit scores at least 1.5x better. Here the nested
+        hit scores higher than its container (160 vs 100), so both are kept.
         """
         hit_table = pd.DataFrame(
             {
@@ -486,6 +503,85 @@ class TestNestedHitRemoval:
         result = remove_nested_paired_hits(hit_table, pairing_map)
 
         assert len(result) == 2  # Both kept because nested score is relatively high
+
+    def _nested_pair(self, enclosing_score, nested_score):
+        """Build LeftA enclosing a nested RightA with the given scores."""
+        return pd.DataFrame(
+            {
+                'model': ['LeftA', 'RightA'],
+                'target': ['chr1', 'chr1'],
+                'hitStart': ['1000', '1020'],
+                'hitEnd': ['1200', '1080'],
+                'strand': ['+', '+'],
+                'evalue': ['1e-40', '1e-20'],
+                'score': [str(enclosing_score), str(nested_score)],
+                'bias': ['NA', 'NA'],
+                'hmmStart': ['1', '1'],
+                'hmmEnd': ['100', '60'],
+            }
+        )
+
+    def test_equal_scoring_nested_hit_is_kept(self):
+        """Two equally good hits are not decisive, so both survive.
+
+        This is the regression test for the inverted ratio. The old rule
+        removed the nested hit unless nested/enclosing >= 1.5, so an
+        equal-scoring nested hit (ratio 1.0) was deleted.
+        """
+        result = remove_nested_paired_hits(
+            self._nested_pair(200, 200), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 2
+
+    def test_better_scoring_nested_hit_is_kept(self):
+        """A nested hit scoring better than its container is kept.
+
+        Under the old rule 140/100 = 1.4 < 1.5, so this hit was deleted
+        despite outscoring the hit that contained it.
+        """
+        result = remove_nested_paired_hits(
+            self._nested_pair(100, 140), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 2
+
+    def test_much_weaker_nested_hit_is_removed(self):
+        """A decisively worse nested hit is still removed."""
+        result = remove_nested_paired_hits(
+            self._nested_pair(300, 100), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'LeftA'
+
+    def test_ratio_boundary_is_inclusive(self):
+        """Exactly min_score_ratio counts as decisive."""
+        result = remove_nested_paired_hits(
+            self._nested_pair(150, 100), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 1
+
+    def test_just_below_ratio_boundary_keeps_both(self):
+        """Just short of the threshold, the nested hit survives."""
+        result = remove_nested_paired_hits(
+            self._nested_pair(149, 100), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 2
+
+    def test_zero_score_nested_hit_is_removed(self):
+        """A zero-scoring nested hit cannot defend itself.
+
+        Guarded explicitly rather than by division: with the ratio flipped,
+        dividing by the nested score would raise ZeroDivisionError.
+        """
+        result = remove_nested_paired_hits(
+            self._nested_pair(200, 0), {'LeftA': 'RightA'}
+        )
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'LeftA'
+
+    def test_two_zero_score_hits_are_both_kept(self):
+        """Two unscored hits are indistinguishable, so neither is removed."""
+        result = remove_nested_paired_hits(self._nested_pair(0, 0), {'LeftA': 'RightA'})
+        assert len(result) == 2
 
     def test_no_removal_different_targets(self):
         """Test no removal when hits are on different targets."""
@@ -586,8 +682,16 @@ class TestFilterBestModelPerLocus:
         result = filter_best_model_per_locus(hit_table, pairing_map)
         assert len(result) == 2
 
-    def test_no_removal_different_strands(self):
-        """Overlapping hits on different strands are treated independently."""
+    def test_removes_weaker_hit_across_strands(self):
+        """Overlapping cross-model hits are compared regardless of strand.
+
+        This asserted the opposite until the strand-blindness fix. Grouping by
+        (target, strand) meant a weaker hit survived merely by sitting on the
+        opposite strand from the better one. Under the canonical F,R
+        orientation the two termini of an element are on opposite strands by
+        construction, so strand-splitting defeated the filter in the common
+        case.
+        """
         hit_table = pd.DataFrame(
             [
                 self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200, strand='+'),
@@ -596,6 +700,26 @@ class TestFilterBestModelPerLocus:
         )
         pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
         result = filter_best_model_per_locus(hit_table, pairing_map)
+
+        # 200 / 50 = 4.0, comfortably past the 1.5 decisiveness threshold.
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'Family1_LEFT'
+
+    def test_non_overlapping_hits_on_different_strands_both_kept(self):
+        """Strand-blindness must not make the filter over-eager.
+
+        Hits that do not overlap are untouched no matter what strands they are
+        on, so the fix only affects genuinely competing hits.
+        """
+        hit_table = pd.DataFrame(
+            [
+                self._make_hit('Family1_LEFT', 'chr1', 1000, 1200, 200, strand='+'),
+                self._make_hit('Family2_LEFT', 'chr1', 5000, 5200, 50, strand='-'),
+            ]
+        )
+        pairing_map = {'Family1_LEFT': 'Family1_RIGHT', 'Family2_LEFT': 'Family2_RIGHT'}
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+
         assert len(result) == 2
 
     def test_model_not_in_pairing_map_is_preserved(self):
@@ -942,11 +1066,8 @@ class TestFilterHitsByAnchor:
         assert result.empty
 
     def test_missing_model_length_raises_error(self):
-        """Raises EnsembleSearchError when model length is required but unavailable."""
-        from tirmite.cli.ensemble_search import (
-            EnsembleSearchError,
-            filter_hits_by_anchor,
-        )
+        """Raises AnchorFilterError under the mode the search workflow uses."""
+        from tirmite.cli.ensemble_search import AnchorFilterError, filter_hits_by_anchor
 
         df = self._make_hit_table(
             [
@@ -964,8 +1085,10 @@ class TestFilterHitsByAnchor:
                 }
             ]
         )
-        with pytest.raises(EnsembleSearchError, match='model length'):
-            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+        with pytest.raises(AnchorFilterError, match='model length'):
+            filter_hits_by_anchor(
+                df, {}, max_offset=5, orientation='F,R', on_missing_length='raise'
+            )
 
     def test_ff_symmetric_no_pairing_map_keeps_hits(self):
         """F,F symmetric without pairing map: terminus type unknown → hits kept."""
@@ -1583,41 +1706,87 @@ class TestAnchorFilterRR:
 
 
 class TestAnchorFilterMissingLength:
-    """Tests for error behaviour when model lengths are unavailable."""
+    """Tests for error behaviour when model lengths are unavailable.
+
+    The search workflow passes ``on_missing_length='raise'`` so that asking
+    for anchor filtering without the lengths needed to perform it is a hard
+    error rather than a silently unfiltered result. ``tirmite pair`` uses the
+    default ``'warn'`` instead, which is why these tests state the mode
+    explicitly.
+    """
 
     def test_raises_error_when_length_missing_fr(self):
-        """Raises EnsembleSearchError when F,R hit has no model length."""
-        from tirmite.cli.ensemble_search import (
-            EnsembleSearchError,
-            filter_hits_by_anchor,
-        )
+        """Raises AnchorFilterError when an F,R hit has no model length."""
+        from tirmite.cli.ensemble_search import AnchorFilterError, filter_hits_by_anchor
 
         df = _anchor_df([_make_row('TIR', '+', hmm_start=1, hmm_end=80)])
-        with pytest.raises(EnsembleSearchError, match='model length'):
-            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+        with pytest.raises(AnchorFilterError, match='model length'):
+            filter_hits_by_anchor(
+                df, {}, max_offset=5, orientation='F,R', on_missing_length='raise'
+            )
 
     def test_raises_error_names_missing_model(self):
         """Error message includes the name of the missing model."""
-        from tirmite.cli.ensemble_search import (
-            EnsembleSearchError,
-            filter_hits_by_anchor,
-        )
+        from tirmite.cli.ensemble_search import AnchorFilterError, filter_hits_by_anchor
 
         df = _anchor_df([_make_row('MyMissingModel', '+', hmm_start=1, hmm_end=80)])
-        with pytest.raises(EnsembleSearchError, match='MyMissingModel'):
-            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+        with pytest.raises(AnchorFilterError, match='MyMissingModel'):
+            filter_hits_by_anchor(
+                df, {}, max_offset=5, orientation='F,R', on_missing_length='raise'
+            )
 
-    def test_ff_same_strand_no_pairing_map_no_error(self):
-        """F,F without pairing map: both-ends check needs length → error if missing."""
-        from tirmite.cli.ensemble_search import (
-            EnsembleSearchError,
-            filter_hits_by_anchor,
+    def test_ff_same_strand_no_pairing_map_raises(self):
+        """F,F without a pairing map needs the length for the both-ends check."""
+        from tirmite.cli.ensemble_search import AnchorFilterError, filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
+        with pytest.raises(AnchorFilterError, match='model lengths'):
+            filter_hits_by_anchor(
+                df, {}, max_offset=5, orientation='F,F', on_missing_length='raise'
+            )
+
+    def test_warn_mode_keeps_hit_unchecked(self, caplog):
+        """The default 'warn' mode keeps the hit and logs, matching tirmite pair."""
+        from tirmite.cli.ensemble_search import filter_hits_by_anchor
+
+        df = _anchor_df([_make_row('TIR', '+', hmm_start=1, hmm_end=80)])
+        result = filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,R')
+
+        assert len(result) == 1
+        assert 'Model length not found' in caplog.text
+
+    def test_search_pipeline_reports_missing_length_as_search_error(self, tmp_path):
+        """_process_hits translates AnchorFilterError into EnsembleSearchError.
+
+        The CLI presents a single exception type to the user, so unifying the
+        two anchor-filter copies must not change what `tirmite search` raises.
+        """
+        import argparse
+
+        from tirmite.cli.ensemble_search import EnsembleSearchError, _process_hits
+
+        blast_file = tmp_path / 'hits.blast'
+        blast_file.write_text(
+            'UnknownModel\tchr1\t95.0\t100\t5\t0\t1\t100\t1000\t1099\t1e-40\t200\n'
         )
 
-        # Now that F,F checks both ends, missing length raises an error
-        df = _anchor_df([_make_row('TIR', '+', hmm_start=50, hmm_end=100)])
+        args = argparse.Namespace(
+            max_evalue=1.0,
+            max_offset=5,
+            orientation='F,R',
+            pairing_map=None,
+            cluster_map=None,
+        )
+
+        # query_lengths is empty, so the anchor filter has no length for
+        # UnknownModel and must fail rather than pass the hit through.
         with pytest.raises(EnsembleSearchError, match='model lengths'):
-            filter_hits_by_anchor(df, {}, max_offset=5, orientation='F,F')
+            _process_hits(
+                args,
+                blast_files=[blast_file],
+                nhmmer_files=[],
+                query_lengths={},
+            )
 
 
 class TestAnchorFilterLogging:
@@ -2082,3 +2251,372 @@ class TestFilterBestModelPerLocusSummary:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ---------------------------------------------------------------------------
+# Overlap arithmetic, merge gap semantics, and the exposed filter thresholds
+# ---------------------------------------------------------------------------
+
+
+def _locus_hit(model, target, start, end, score, strand='+'):
+    """Build one hit row for the cross-model locus filter."""
+    return {
+        'model': model,
+        'target': target,
+        'hitStart': str(start),
+        'hitEnd': str(end),
+        'strand': strand,
+        'evalue': '1e-10',
+        'score': str(score),
+        'bias': 'NA',
+        'hmmStart': '1',
+        'hmmEnd': '100',
+    }
+
+
+class TestOverlapArithmetic:
+    """Hit coordinates are 1-based and inclusive at both ends."""
+
+    def test_hits_sharing_exactly_one_base_overlap(self):
+        """A single shared base is an overlap of 1, not 0.
+
+        `write_hits_table` computes length as abs(end - start) + 1, so the
+        overlap calculation must use the same convention. Without the +1 two
+        hits sharing exactly one base scored 0 and were treated as disjoint.
+        """
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('ModelA', 'chr1', 1000, 1100, 300),
+                # Starts on the last base of ModelA's span.
+                _locus_hit('ModelB', 'chr1', 1100, 1200, 100),
+            ]
+        )
+        pairing_map = {'ModelA': 'RightA', 'ModelB': 'RightB'}
+
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+
+        assert len(result) == 1
+        assert result.iloc[0]['model'] == 'ModelA'
+
+    def test_abutting_hits_do_not_overlap(self):
+        """Adjacent but non-touching hits share no base and are both kept."""
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('ModelA', 'chr1', 1000, 1100, 300),
+                _locus_hit('ModelB', 'chr1', 1101, 1200, 100),
+            ]
+        )
+        pairing_map = {'ModelA': 'RightA', 'ModelB': 'RightB'}
+
+        result = filter_best_model_per_locus(hit_table, pairing_map)
+
+        assert len(result) == 2
+
+
+class TestMergeMaxGap:
+    """max_gap is a gap tolerance: larger values merge more."""
+
+    def _cluster_hits(self, gap):
+        """Two same-cluster hits separated by `gap` bases."""
+        second_start = 1101 + gap
+        return pd.DataFrame(
+            [
+                _locus_hit('Comp1', 'chr1', 1000, 1100, 200),
+                _locus_hit('Comp2', 'chr1', second_start, second_start + 100, 150),
+            ]
+        )
+
+    def test_zero_gap_requires_abutting_or_overlapping(self):
+        """With max_gap=0 a one-base gap is not bridged."""
+        result = merge_overlapping_cluster_hits(
+            self._cluster_hits(gap=1), {'ClusterA': ['Comp1', 'Comp2']}, max_gap=0
+        )
+        assert len(result) == 2
+
+    def test_larger_gap_bridges_more(self):
+        """Raising max_gap merges hits that a smaller value left separate."""
+        cluster_map = {'ClusterA': ['Comp1', 'Comp2']}
+
+        assert (
+            len(
+                merge_overlapping_cluster_hits(
+                    self._cluster_hits(gap=50), cluster_map, max_gap=10
+                )
+            )
+            == 2
+        )
+        assert (
+            len(
+                merge_overlapping_cluster_hits(
+                    self._cluster_hits(gap=50), cluster_map, max_gap=100
+                )
+            )
+            == 1
+        )
+
+    def test_min_overlap_alias_still_works_and_warns(self, caplog):
+        """The old parameter name is honoured for one release, with a warning."""
+        import logging
+
+        cluster_map = {'ClusterA': ['Comp1', 'Comp2']}
+        with caplog.at_level(logging.WARNING):
+            result = merge_overlapping_cluster_hits(
+                self._cluster_hits(gap=50), cluster_map, min_overlap=100
+            )
+
+        assert len(result) == 1
+        assert 'deprecated' in caplog.text
+
+
+class TestClusterMapMatchesNothing:
+    """A cluster map that matches no model is an error, not an empty result."""
+
+    def test_raises_when_no_model_matches(self):
+        """Exiting 0 with an empty file reads as 'no hits found'.
+
+        That is indistinguishable from a genuine empty result, and the usual
+        cause is a transposed or mismatched cluster map.
+        """
+        hit_table = pd.DataFrame([_locus_hit('ActualModel', 'chr1', 1000, 1100, 200)])
+
+        with pytest.raises(EnsembleSearchError, match='matched none of'):
+            merge_overlapping_cluster_hits(hit_table, {'ClusterA': ['SomethingElse']})
+
+    def test_error_names_the_models_present(self):
+        """The message lists what the hits actually contained."""
+        hit_table = pd.DataFrame([_locus_hit('ActualModel', 'chr1', 1000, 1100, 200)])
+
+        with pytest.raises(EnsembleSearchError, match='ActualModel'):
+            merge_overlapping_cluster_hits(hit_table, {'ClusterA': ['SomethingElse']})
+
+    def test_partially_unclustered_hits_are_reported_by_name(self, caplog):
+        """Dropped models are named, not just counted."""
+        import logging
+
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('Comp1', 'chr1', 1000, 1100, 200),
+                _locus_hit('Stray', 'chr1', 5000, 5100, 150),
+            ]
+        )
+
+        with caplog.at_level(logging.ERROR):
+            result = merge_overlapping_cluster_hits(hit_table, {'ClusterA': ['Comp1']})
+
+        assert len(result) == 1
+        assert 'Stray' in caplog.text
+        assert 'DISCARDED' in caplog.text
+
+
+class TestThresholdFlagsAreReachable:
+    """--min-score-ratio and --merge-max-gap actually reach the filters."""
+
+    def test_parser_exposes_the_flags(self):
+        """The documented knobs exist on the search parser."""
+        from tirmite.cli.ensemble_search import create_search_parser
+
+        options = {
+            option
+            for action in create_search_parser()._actions
+            for option in action.option_strings
+        }
+        assert '--min-score-ratio' in options
+        assert '--merge-max-gap' in options
+
+    def test_min_score_ratio_changes_nested_removal(self):
+        """A higher ratio keeps hits that the default would discard."""
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('LeftA', 'chr1', 1000, 1200, 200),
+                _locus_hit('RightA', 'chr1', 1020, 1080, 100),
+            ]
+        )
+        pairing_map = {'LeftA': 'RightA'}
+
+        # 200/100 = 2.0: decisive at the 1.5 default, not at 3.0.
+        assert len(remove_nested_paired_hits(hit_table, pairing_map)) == 1
+        assert (
+            len(remove_nested_paired_hits(hit_table, pairing_map, min_score_ratio=3.0))
+            == 2
+        )
+
+    def test_min_score_ratio_changes_cross_model_filtering(self):
+        """The same threshold governs the cross-model step."""
+        hit_table = pd.DataFrame(
+            [
+                _locus_hit('ModelA', 'chr1', 1000, 1100, 200),
+                _locus_hit('ModelB', 'chr1', 1050, 1150, 100),
+            ]
+        )
+        pairing_map = {'ModelA': 'RightA', 'ModelB': 'RightB'}
+
+        assert len(filter_best_model_per_locus(hit_table, pairing_map)) == 1
+        assert (
+            len(
+                filter_best_model_per_locus(hit_table, pairing_map, min_score_ratio=3.0)
+            )
+            == 2
+        )
+
+
+class TestTransposedClusterMapWarning:
+    """Recognise a cluster map written with the columns the wrong way round."""
+
+    def test_warns_on_model_first_layout(self, tmp_path, caplog):
+        """The old documented layout parses cleanly but matches nothing.
+
+        One `model<TAB>cluster` line per model is what earlier documentation
+        showed. It produces clusters named after each model, so no hit ever
+        matches, and previously the only symptom was an empty result.
+        """
+        import logging
+
+        path = tmp_path / 'transposed.tsv'
+        path.write_text(
+            'MY_TIR_subtype1\tMY_TIR\n'
+            'MY_TIR_subtype2\tMY_TIR\n'
+            'MY_TIR_subtype3\tMY_TIR\n'
+        )
+
+        with caplog.at_level(logging.WARNING):
+            parse_cluster_mapping(path)
+
+        assert 'transposed' in caplog.text
+        assert 'cluster name FIRST' in caplog.text
+
+    def test_does_not_warn_on_valid_two_column_map(self, tmp_path, caplog):
+        """A legitimate single-component-per-cluster map must not warn.
+
+        Guards against a false positive: here every cluster name is distinct,
+        so column 1 does not repeat and the shape is not the transposed one.
+        """
+        import logging
+
+        path = tmp_path / 'valid.tsv'
+        path.write_text('ClusterA\tComp1\nClusterB\tComp2\nClusterC\tComp3\n')
+
+        with caplog.at_level(logging.WARNING):
+            parse_cluster_mapping(path)
+
+        assert 'transposed' not in caplog.text
+
+    def test_does_not_warn_on_multi_component_map(self, tmp_path, caplog):
+        """The normal layout has more than two columns and never warns."""
+        import logging
+
+        path = tmp_path / 'normal.tsv'
+        path.write_text('ClusterA\tComp1\tComp2\tComp3\nClusterB\tComp4\n')
+
+        with caplog.at_level(logging.WARNING):
+            parse_cluster_mapping(path)
+
+        assert 'transposed' not in caplog.text
+
+    def test_empty_map_does_not_warn(self, tmp_path, caplog):
+        """A comments-only file has no shape to judge."""
+        import logging
+
+        path = tmp_path / 'empty.tsv'
+        path.write_text('# nothing here\n')
+
+        with caplog.at_level(logging.WARNING):
+            parse_cluster_mapping(path)
+
+        assert 'transposed' not in caplog.text
+
+
+class TestGreedyRemovalOrder:
+    """Pin the order-dependent behaviour of filter_best_model_per_locus.
+
+    That function skips hits already marked for removal (`if idx in
+    hits_to_remove: continue`), so a hit removed by one comparison can no
+    longer eliminate anything itself. The outcome therefore depends on the
+    traversal order, which is DataFrame row order.
+
+    No test previously failed if that order changed, which makes the function
+    unsafe to convert into a coordinate-ordered sweep without noticing. These
+    tests exist so an optimisation has to preserve it deliberately.
+
+    remove_nested_paired_hits has no such skip -- its result is the set union
+    of all pairwise decisions -- so it is order-independent and may be freely
+    reordered.
+    """
+
+    def _chain(self, scores):
+        """Three mutually overlapping hits from three different models."""
+        return pd.DataFrame(
+            [
+                _locus_hit(f'Model{i}', 'chr1', 1000 + i * 20, 1200 + i * 20, s)
+                for i, s in enumerate(scores)
+            ]
+        )
+
+    def _pairing_map(self, n=3):
+        """Map each ModelN to a distinct partner so all are 'paired features'."""
+        return {f'Model{i}': f'Partner{i}' for i in range(n)}
+
+    def test_transitive_chain_outcome_is_pinned(self):
+        """A middle hit removed early cannot then remove the third.
+
+        Scores 300 / 100 / 90: Model0 beats Model1 (3.0) and Model2 (3.33), so
+        both go. Model1 would also have beaten... nothing, but the point is
+        that the result is exactly one survivor and it is the strongest.
+        """
+        result = filter_best_model_per_locus(
+            self._chain([300, 100, 90]), self._pairing_map()
+        )
+
+        assert list(result['model']) == ['Model0']
+
+    def test_middle_hit_removed_first_cannot_evict_the_third(self):
+        """The greedy skip is load-bearing here.
+
+        Model0 (300) removes Model1 (100). Model1 would have been decisive
+        against Model2 (60) at ratio 1.67, but it is already removed, so it
+        gets no say. Model0 vs Model2 is 5.0, so Model2 goes too.
+        """
+        result = filter_best_model_per_locus(
+            self._chain([300, 100, 60]), self._pairing_map()
+        )
+
+        assert list(result['model']) == ['Model0']
+
+    def test_non_decisive_chain_keeps_everything(self):
+        """When no pair is decisive, order cannot matter."""
+        result = filter_best_model_per_locus(
+            self._chain([100, 95, 90]), self._pairing_map()
+        )
+
+        assert len(result) == 3
+
+    def test_row_order_determines_the_survivor_for_equal_scores(self):
+        """With equal scores nothing is decisive, so all survive.
+
+        Pinning this guards the boundary: a sweep that reordered comparisons
+        must not start removing equal-scoring hits.
+        """
+        result = filter_best_model_per_locus(
+            self._chain([100, 100, 100]), self._pairing_map()
+        )
+
+        assert len(result) == 3
+
+    def test_nested_removal_is_order_independent(self):
+        """remove_nested_paired_hits evaluates every pair regardless.
+
+        It has no already-removed skip, so reversing the input row order must
+        give the same set of survivors.
+        """
+        rows = [
+            _locus_hit('LeftA', 'chr1', 1000, 1400, 300),
+            _locus_hit('RightA', 'chr1', 1100, 1200, 50),
+        ]
+        pairing_map = {'LeftA': 'RightA'}
+
+        forward = remove_nested_paired_hits(pd.DataFrame(rows), pairing_map)
+        reverse = remove_nested_paired_hits(
+            pd.DataFrame(list(reversed(rows))), pairing_map
+        )
+
+        assert sorted(forward['model']) == sorted(reverse['model'])
+        assert list(forward['model']) == ['LeftA']

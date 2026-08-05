@@ -9,7 +9,6 @@ Provides tools for:
 - Legacy compatibility functions
 """
 
-from collections import Counter
 from contextlib import contextmanager
 import gzip
 import logging
@@ -17,12 +16,16 @@ import os
 from pathlib import Path
 import re
 import shutil
-import sys
 import tempfile
 from typing import Any, Generator, Optional, Tuple, Union
 
-from Bio import SeqIO  # type: ignore[import-not-found]
-from pyfaidx import Fasta  # type: ignore[import-not-found]
+from pyfaidx import Fasta
+
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 
 @contextmanager
@@ -80,9 +83,8 @@ def temporary_directory(
                 shutil.rmtree(temp_dir)
             except OSError as e:
                 # Log warning but don't fail the entire operation
-                import logging
 
-                logging.warning(
+                logger.warning(
                     f'Failed to clean up temporary directory {temp_dir}: {e}'
                 )
 
@@ -177,9 +179,7 @@ def validate_input_files(args: Any) -> None:
 
         path = Path(file_path)
         if not path.exists():
-            import logging
-
-            logging.warning(f'Optional {file_type} not found: {file_path}')
+            logger.warning(f'Optional {file_type} not found: {file_path}')
 
 
 def setup_directories(args: Any) -> Tuple[Path, Path]:
@@ -263,74 +263,16 @@ def cleanup_temp_directory(temp_dir: Union[str, Path], keep_temp: bool = False) 
     temp_path = Path(temp_dir)
 
     if keep_temp:
-        import logging
-
-        logging.info(f'Temporary directory preserved: {temp_path}')
+        logger.info(f'Temporary directory preserved: {temp_path}')
         return
 
     if temp_path.exists() and temp_path.is_dir():
         try:
             shutil.rmtree(temp_path)
-            import logging
 
-            logging.debug(f'Cleaned up temporary directory: {temp_path}')
+            logger.debug(f'Cleaned up temporary directory: {temp_path}')
         except OSError as e:
-            import logging
-
-            logging.warning(f'Failed to clean up temporary directory {temp_path}: {e}')
-
-
-# Legacy function for backwards compatibility
-def dochecks(args: Any) -> Tuple[Path, Path]:
-    """
-    DEPRECATED: Use setup_directories() instead.
-
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Command-line arguments.
-
-    Returns
-    -------
-    tuple
-        (outdir, tempdir) paths as strings.
-    """
-    import warnings
-
-    warnings.warn(
-        'dochecks() is deprecated. Use setup_directories() instead.',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    return setup_directories(args)
-
-
-def isfile(path: str) -> None:
-    """
-    DEPRECATED: Use validate_input_files() instead.
-
-    Parameters
-    ----------
-    path : str
-        File path to check.
-
-    Returns
-    -------
-    None
-        No return value. Raises SystemExit if file not found.
-    """
-    import warnings
-
-    warnings.warn(
-        'isfile() is deprecated. Use validate_input_files() instead.',
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
-    if not os.path.isfile(path):
-        print('Input file not found: %s' % path)
-        sys.exit(1)
+            logger.warning(f'Failed to clean up temporary directory {temp_path}: {e}')
 
 
 def cleanID(s: str) -> str:
@@ -358,69 +300,50 @@ def cleanID(s: str) -> str:
     return s
 
 
-def manageTemp(
-    record: Any = None, tempPath: Optional[str] = None, scrub: bool = False
-) -> None:
+def extract_model_name_from_path(model_path: Optional[str]) -> Optional[str]:
     """
-    Write sequence record to temporary file or delete temporary file.
+    Extract HMM model name from file path by parsing the HMM file header.
 
     Parameters
     ----------
-    record : Bio.SeqRecord.SeqRecord, optional
-        Sequence record to write to file. Required if scrub is False.
-    tempPath : str, optional
-        Path to temporary file for writing or deletion.
-    scrub : bool, default False
-        If True, deletes file at tempPath. If False, writes record to tempPath.
+    model_path : str or Path, optional
+        Path to an HMM file. May be None.
 
     Returns
     -------
-    None
-        No return value.
+    str or None
+        Model name taken from the ``NAME`` field in the HMM file. Falls back
+        to the filename stem if the field is absent or the file cannot be
+        read. Returns None if ``model_path`` is None.
 
     Notes
     -----
-    This is a legacy function. Consider using temporary_directory()
-    context manager for more robust temporary file handling.
+    An HMMER3 model file declares its name on a line beginning with ``NAME``
+    followed by two spaces, e.g. ``NAME  MY_TIR``. The name recorded inside
+    the file is authoritative: it, not the filename, is what nhmmer reports in
+    its output, so hit tables must be keyed on it for the pairing and anchor
+    filters to match models to hits.
+
+    Examples
+    --------
+    >>> extract_model_name_from_path(None) is None
+    True
     """
-    if scrub and tempPath:
-        try:
-            os.remove(tempPath)
-        except OSError:
-            pass
-    elif tempPath:
-        with open(tempPath, 'w') as f:
-            SeqIO.write(record, f, 'fasta')
+    if not model_path:
+        return None
 
+    try:
+        with open(model_path, 'r') as f:
+            for line in f:
+                if line.startswith('NAME  '):
+                    return line.split()[1].strip()
+    except (FileNotFoundError, IOError):
+        # An unreadable model file is not fatal here; the caller only needs a
+        # label, and the filename stem is a reasonable approximation.
+        return Path(model_path).stem
 
-def checkUniqueID(records: Any) -> None:
-    """
-    Verify that all sequence IDs in record list are unique.
-
-    Parameters
-    ----------
-    records : list of Bio.SeqRecord.SeqRecord
-        List of sequence records to check.
-
-    Returns
-    -------
-    None
-        No return value.
-
-    Raises
-    ------
-    SystemExit
-        If duplicate IDs are found, prints duplicate IDs and exits with code 1.
-    """
-    seqIDs = [records[x].id for x in range(len(records))]
-    IDcounts = Counter(seqIDs)
-    duplicates = [k for k, v in IDcounts.items() if v > 1]
-    if duplicates:
-        print('Input sequence IDs not unique. Quiting.')
-        print(duplicates)
-        sys.exit(1)
-    else:
-        pass
+    # File was readable but carried no NAME field.
+    return Path(model_path).stem
 
 
 def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
@@ -460,8 +383,8 @@ def indexGenome(genomePath: Union[str, Path]) -> Tuple[Fasta, dict]:
     # Extract descriptions
     descriptions = extract_genome_descriptions(genome_path)
 
-    logging.info(f'Indexed genome with {len(genome.keys())} sequences')
-    logging.debug(f'Extracted descriptions for {len(descriptions)} sequences')
+    logger.info(f'Indexed genome with {len(genome.keys())} sequences')
+    logger.debug(f'Extracted descriptions for {len(descriptions)} sequences')
 
     return genome, descriptions
 
@@ -501,7 +424,7 @@ def extract_genome_descriptions(genome_path: Union[str, Path]) -> dict:
                     descriptions[seq_id] = description
 
     except Exception as e:
-        logging.warning(f'Could not extract genome descriptions: {e}')
+        logger.warning(f'Could not extract genome descriptions: {e}')
 
     return descriptions
 
@@ -590,14 +513,14 @@ def decompress_genome(
 
     output_path = output_dir / output_name
 
-    logging.info(f'Decompressing {genome_path.name} to {output_path}')
+    logger.info(f'Decompressing {genome_path.name} to {output_path}')
 
     try:
         with gzip.open(genome_path, 'rb') as f_in:
             with open(output_path, 'wb') as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
-        logging.debug(f'Decompression complete: {output_path}')
+        logger.debug(f'Decompression complete: {output_path}')
         return output_path
 
     except Exception as e:
@@ -642,7 +565,7 @@ def prepare_genome_file(
 
     # Check if file is gzipped
     if is_gzipped_file(genome_path):
-        logging.info(f'Detected gzip-compressed genome: {genome_path.name}')
+        logger.info(f'Detected gzip-compressed genome: {genome_path.name}')
         return decompress_genome(genome_path, temp_dir)
     else:
         return genome_path

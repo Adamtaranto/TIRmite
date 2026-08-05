@@ -15,6 +15,7 @@ Validates:
 import os
 import tempfile
 
+from conftest import MockGenome
 import pytest
 
 from tirmite.tirmitetools import (
@@ -467,25 +468,8 @@ class TestFormatInterleavedFlanks:
 # ---------------------------------------------------------------------------
 
 
-class MockChrom:
-    """Minimal pyfaidx Fasta chromosome substitute."""
-
-    def __init__(self, seq):
-        self._seq = seq
-
-    def __len__(self):
-        return len(self._seq)
-
-    def __getitem__(self, key):
-        return self._seq[key]
-
-
-class MockGenome(dict):
-    """Dict-based mock for pyfaidx.Fasta."""
-
-    def __init__(self, chrom_seqs):
-        for name, seq in chrom_seqs.items():
-            self[name] = MockChrom(seq)
+# MockChrom / MockGenome now live in tests/conftest.py so that this module and
+# test_flank_extraction.py share a single definition.
 
 
 class TestWriteTargetSites:

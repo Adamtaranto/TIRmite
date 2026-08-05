@@ -13,37 +13,17 @@ temporary file management.
 
 import logging
 from pathlib import Path
-import re
 import shutil
 from typing import List, Optional, Tuple, Union
 
 from tirmite.runners.wrapping import run_commands_sequential
+from tirmite.utils.utils import cleanID
 
-
-def cleanID(sequence_id: str) -> str:
-    """
-    Remove non-alphanumeric characters and normalize whitespace in string.
-
-    Parameters
-    ----------
-    sequence_id : str
-        Input string to clean (typically a model or sequence name).
-
-    Returns
-    -------
-    str
-        Cleaned string with only alphanumeric characters and underscores.
-
-    Examples
-    --------
-    >>> cleanID("My Model-Name 1")
-    'My_Model_Name_1'
-    """
-    # Remove non-alphanumeric characters except whitespace
-    cleaned = re.sub(r'[^\w\s]', '', sequence_id)
-    # Replace whitespace with underscores
-    cleaned = re.sub(r'\s+', '_', cleaned)
-    return cleaned
+# Library modules acquire a named logger and attach a NullHandler, so that
+# importing TIRmite as a library emits nothing until the host application
+# configures logging. Handler setup belongs to the CLI, not here.
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 
 def build_hmmbuild_command(
@@ -362,7 +342,7 @@ def process_hmmer_workflow(
         for hmm_file_path in hmm_dir_path.glob('*.hmm'):
             shutil.copy2(hmm_file_path, hmm_db_path)
             if verbose:
-                logging.info(f'Copied HMM file: {hmm_file_path.name}')
+                logger.info(f'Copied HMM file: {hmm_file_path.name}')
 
     if hmm_file:
         hmm_file_path = Path(hmm_file)
@@ -371,7 +351,7 @@ def process_hmmer_workflow(
 
         shutil.copy2(hmm_file_path, hmm_db_path)
         if verbose:
-            logging.info(f'Copied HMM file: {hmm_file_path.name}')
+            logger.info(f'Copied HMM file: {hmm_file_path.name}')
 
     # Copy left and right model files
     if left_model:
@@ -381,7 +361,7 @@ def process_hmmer_workflow(
 
         shutil.copy2(left_model_path, hmm_db_path)
         if verbose:
-            logging.info(f'Copied left model file: {left_model_path.name}')
+            logger.info(f'Copied left model file: {left_model_path.name}')
 
     if right_model:
         right_model_path = Path(right_model)
@@ -390,7 +370,7 @@ def process_hmmer_workflow(
 
         shutil.copy2(right_model_path, hmm_db_path)
         if verbose:
-            logging.info(f'Copied right model file: {right_model_path.name}')
+            logger.info(f'Copied right model file: {right_model_path.name}')
 
     # Build HMMs from alignments
     if alignment_dir:
@@ -407,7 +387,7 @@ def process_hmmer_workflow(
             alignment_files.extend(alignment_path.glob(pattern))
 
         if not alignment_files:
-            logging.warning(f'No alignment files found in {alignment_path}')
+            logger.warning(f'No alignment files found in {alignment_path}')
 
         for alignment_file in alignment_files:
             model_name = alignment_file.stem
@@ -423,24 +403,24 @@ def process_hmmer_workflow(
                 build_commands.append(command)
 
                 if verbose:
-                    logging.info(f'Prepared hmmbuild command for {model_name}')
+                    logger.info(f'Prepared hmmbuild command for {model_name}')
 
             except Exception as e:
-                logging.error(f'Failed to prepare hmmbuild for {alignment_file}: {e}')
+                logger.error(f'Failed to prepare hmmbuild for {alignment_file}: {e}')
                 continue
 
         # Execute all build commands
         if build_commands:
-            logging.info(f'Building {len(build_commands)} HMM models...')
+            logger.info(f'Building {len(build_commands)} HMM models...')
             try:
                 run_commands_sequential(
                     cmds=build_commands,
                     verbose=verbose,
-                    stop_on_error=True,  # type: ignore[arg-type]
+                    stop_on_error=True,
                 )
-                logging.info('HMM building completed successfully')
+                logger.info('HMM building completed successfully')
             except Exception as e:
-                logging.error(f'HMM building failed: {e}')
+                logger.error(f'HMM building failed: {e}')
                 raise
 
     # Process all HMM files: press and search
@@ -480,24 +460,24 @@ def process_hmmer_workflow(
                 results_dir = current_results_dir
 
             if verbose:
-                logging.info(f'Prepared search commands for {hmm_file_path.name}')
+                logger.info(f'Prepared search commands for {hmm_file_path.name}')
 
         except Exception as e:
-            logging.error(f'Failed to prepare commands for {hmm_file_path}: {e}')
+            logger.error(f'Failed to prepare commands for {hmm_file_path}: {e}')
             continue
 
     # Execute all search commands
     if search_commands:
-        logging.info(f'Executing {len(search_commands)} HMMER commands...')
+        logger.info(f'Executing {len(search_commands)} HMMER commands...')
         try:
             run_commands_sequential(
                 cmds=search_commands,
                 verbose=verbose,
-                stop_on_error=True,  # type: ignore[arg-type]
+                stop_on_error=True,
             )
-            logging.info('HMMER search completed successfully')
+            logger.info('HMMER search completed successfully')
         except Exception as e:
-            logging.error(f'HMMER search failed: {e}')
+            logger.error(f'HMMER search failed: {e}')
             raise
 
     if results_dir is None:

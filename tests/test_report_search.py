@@ -360,7 +360,16 @@ class TestSearchCli:
         clusters = tmp_path / 'clusters.tsv'
         clusters.write_text('TIR_cluster\tTIR_L\tTIR_R\n')
 
-        return {'hits': hits, 'lengths': lengths, 'clusters': clusters}
+        genome = tmp_path / 'genome.fa'
+        seq = ('ACGT' * 12_500)[:50_000]
+        genome.write_text('>chr1\n' + seq + '\n')
+
+        return {
+            'hits': hits,
+            'lengths': lengths,
+            'clusters': clusters,
+            'genome': genome,
+        }
 
     def make_args(self, inputs, outdir, **overrides):
         import argparse
@@ -469,6 +478,70 @@ class TestSearchCli:
         assert main(args) == 0
         assert target.exists()
 
+    def test_alignment_panels_are_built_with_a_genome(self, inputs, tmp_path):
+        from tirmite.cli.ensemble_search import main
+
+        outdir = tmp_path / 'out'
+        args = self.make_args(
+            inputs,
+            outdir,
+            report=True,
+            report_msa='anchor',
+            genome=inputs['genome'],
+        )
+        assert main(args) == 0
+
+        payload = json.loads(
+            PAYLOAD_RE.search(
+                (outdir / 'test_report.html').read_text(encoding='utf-8')
+            ).group(1)
+        )
+        assert [panel['model'] for panel in payload['msa']] == ['TIR_cluster']
+        panel = payload['msa'][0]
+        assert panel['aligner'] == 'anchor'
+        assert panel['n_rows_shown'] == 6
+        assert all(row['seq'] for row in panel['rows'])
+
+    def test_genome_gives_true_contig_lengths_even_without_panels(
+        self, inputs, tmp_path
+    ):
+        from tirmite.cli.ensemble_search import main
+
+        outdir = tmp_path / 'out'
+        # Indexing happens for the axes too, not only for the panels.
+        args = self.make_args(
+            inputs, outdir, report=True, report_msa='off', genome=inputs['genome']
+        )
+        assert main(args) == 0
+        payload = json.loads(
+            PAYLOAD_RE.search(
+                (outdir / 'test_report.html').read_text(encoding='utf-8')
+            ).group(1)
+        )
+        assert payload['contigs'][0]['length_source'] == 'source'
+        assert payload['contigs'][0]['length'] == 50_000
+
+    def test_no_temporary_files_are_left_in_the_output_directory(
+        self, inputs, tmp_path
+    ):
+        from tirmite.cli.ensemble_search import main
+
+        outdir = tmp_path / 'out'
+        args = self.make_args(
+            inputs,
+            outdir,
+            report=True,
+            report_msa='anchor',
+            genome=inputs['genome'],
+        )
+        assert main(args) == 0
+        # MAFFT's scratch space belongs in a temporary directory, not beside
+        # the user's results.
+        assert sorted(p.name for p in outdir.iterdir()) == [
+            'test_hits.tab',
+            'test_report.html',
+        ]
+
     def test_msa_without_a_genome_is_rejected(self, inputs, tmp_path):
         from tirmite.cli.ensemble_search import (
             EnsembleSearchError,
@@ -493,3 +566,122 @@ class TestSearchCli:
         args = self.make_args(inputs, tmp_path / 'out', report=True, **{field: 0})
         with pytest.raises(EnsembleSearchError, match=field.replace('_', '-')):
             _validate_search_args(args)
+
+
+class TestMultiFastaSource:
+    """A run over several genomes must be able to read every hit."""
+
+    def make_genome(self, tmp_path, name, contigs):
+        from tirmite.utils.utils import indexGenome
+
+        path = tmp_path / name
+        path.write_text(''.join(f'>{sid}\n{seq}\n' for sid, seq in contigs.items()))
+        genome, _ = indexGenome(path)
+        return genome
+
+    def test_dispatches_by_sequence_name(self, tmp_path):
+        from tirmite.utils.extract import MultiFastaSource
+
+        a = self.make_genome(tmp_path, 'a.fa', {'chrA': 'ACGT' * 10})
+        b = self.make_genome(tmp_path, 'b.fa', {'chrB': 'TTTT' * 10})
+        source = MultiFastaSource([a, b])
+
+        assert source.contig_length('chrA') == 40
+        assert source.contig_length('chrB') == 40
+        assert source.fetch_raw('chrA', 1, 4) == 'ACGT'
+        assert source.fetch_raw('chrB', 1, 4) == 'TTTT'
+
+    def test_unknown_sequence_returns_none(self, tmp_path):
+        from tirmite.utils.extract import MultiFastaSource
+
+        a = self.make_genome(tmp_path, 'a.fa', {'chrA': 'ACGT'})
+        source = MultiFastaSource([a])
+        assert source.contig_length('nope') is None
+        assert source.fetch_raw('nope', 1, 2) is None
+
+    def test_duplicate_name_takes_the_first_genome_and_warns(self, tmp_path, caplog):
+        from tirmite.utils.extract import MultiFastaSource
+
+        a = self.make_genome(tmp_path, 'a.fa', {'shared': 'AAAA'})
+        b = self.make_genome(tmp_path, 'b.fa', {'shared': 'CCCC'})
+        source = MultiFastaSource([a, b])
+        assert source.fetch_raw('shared', 1, 4) == 'AAAA'
+        assert 'appears in more than one genome' in caplog.text
+
+    def test_works_through_fetch_region_padded(self, tmp_path):
+        from tirmite.utils.extract import MultiFastaSource, fetch_region_padded
+
+        a = self.make_genome(tmp_path, 'a.fa', {'chrA': 'ACGTACGTAC'})
+        source = MultiFastaSource([a])
+        # Off the start, so the region is padded rather than short: this is the
+        # path the alignment panels take.
+        region = fetch_region_padded(source, 'chrA', -1, 4, pad_char='-')
+        assert region.seq == '--ACGT'
+        assert region.left_pad == 2
+
+
+class TestReportGenomeResolution:
+    def test_single_genome(self, tmp_path):
+        import argparse
+
+        from tirmite.cli.ensemble_search import _report_genome_paths
+
+        genome = tmp_path / 'g.fa'
+        genome.write_text('>chr1\nACGT\n')
+        args = argparse.Namespace(genome=genome, genome_list=None)
+        assert _report_genome_paths(args) == [genome]
+
+    def test_genome_list_wins_and_is_expanded(self, tmp_path):
+        import argparse
+
+        from tirmite.cli.ensemble_search import _report_genome_paths
+
+        first = tmp_path / 'a.fa'
+        second = tmp_path / 'b.fa'
+        for path in (first, second):
+            path.write_text('>chr\nACGT\n')
+        listing = tmp_path / 'genomes.txt'
+        listing.write_text(f'{first}\n{second}\n')
+
+        args = argparse.Namespace(genome=tmp_path / 'ignored.fa', genome_list=listing)
+        assert _report_genome_paths(args) == [first, second]
+
+    def test_missing_files_are_dropped(self, tmp_path):
+        import argparse
+
+        from tirmite.cli.ensemble_search import _report_genome_paths
+
+        args = argparse.Namespace(genome=tmp_path / 'absent.fa', genome_list=None)
+        assert _report_genome_paths(args) == []
+
+    def test_no_genome_gives_no_source(self):
+        from tirmite.cli.ensemble_search import _index_report_source
+
+        assert _index_report_source([]) is None
+
+    def test_several_genomes_give_a_multi_source(self, tmp_path):
+        from tirmite.cli.ensemble_search import _index_report_source
+        from tirmite.utils.extract import MultiFastaSource
+
+        paths = []
+        for name, sid in (('a.fa', 'chrA'), ('b.fa', 'chrB')):
+            path = tmp_path / name
+            path.write_text(f'>{sid}\nACGTACGT\n')
+            paths.append(path)
+
+        source = _index_report_source(paths)
+        assert isinstance(source, MultiFastaSource)
+        assert source.contig_length('chrA') == 8
+        assert source.contig_length('chrB') == 8
+
+    def test_unreadable_genome_is_skipped_not_fatal(self, tmp_path):
+        from tirmite.cli.ensemble_search import _index_report_source
+
+        good = tmp_path / 'good.fa'
+        good.write_text('>chrA\nACGT\n')
+        broken = tmp_path / 'broken.fa'
+        broken.write_text('not a fasta at all')
+
+        source = _index_report_source([broken, good])
+        assert source is not None
+        assert source.contig_length('chrA') == 4

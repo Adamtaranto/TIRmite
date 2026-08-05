@@ -51,9 +51,13 @@ from tirmite.core.parsers import (  # noqa: F401
 from tirmite.runners.hmmer_wrappers import build_nhmmer_command
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
-from tirmite.utils.extract import make_source
+from tirmite.utils.extract import MultiFastaSource, make_source
 from tirmite.utils.logs import init_logging
-from tirmite.utils.utils import prepare_genome_file, temporary_directory
+from tirmite.utils.utils import (
+    indexGenome,
+    prepare_genome_file,
+    temporary_directory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2437,6 +2441,69 @@ def _validate_report_args(args: argparse.Namespace) -> None:
             )
 
 
+def _report_genome_paths(args: argparse.Namespace) -> List[Path]:
+    """
+    Collect the genome files a report can read sequence from.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments.
+
+    Returns
+    -------
+    list of pathlib.Path
+        Existing genome paths, empty when the run had none.
+    """
+    genomes: List[Path] = []
+    if args.genome_list:
+        genomes.extend(parse_genome_list(args.genome_list))
+    elif args.genome:
+        genomes.append(args.genome)
+    return [path for path in genomes if path.exists()]
+
+
+def _index_report_source(genomes: List[Path]) -> Optional[Any]:
+    """
+    Index the run's genomes into a sequence source for the report.
+
+    Parameters
+    ----------
+    genomes : list of pathlib.Path
+        Genome FASTA files.
+
+    Returns
+    -------
+    SequenceSource or None
+        A source spanning every genome, or None when there are none or none
+        could be indexed.
+
+    Notes
+    -----
+    A multi-genome run gets a source spanning all of them rather than just the
+    first. Sequence names are unique across a run's genomes -- the pipeline
+    rejects a name that is not -- so dispatching on name is unambiguous, and
+    reading only the first genome would silently drop every hit found in the
+    others from the alignment panels.
+    """
+    if not genomes:
+        return None
+
+    indexed = []
+    for path in genomes:
+        try:
+            genome, _descriptions = indexGenome(path)
+            indexed.append(genome)
+        except Exception as exc:  # noqa: BLE001 - the report is optional
+            logger.warning(f'Could not index {path} for the report: {exc}')
+
+    if not indexed:
+        return None
+    if len(indexed) == 1:
+        return make_source(genome=indexed[0])
+    return MultiFastaSource(indexed)
+
+
 def _write_search_report(
     args: argparse.Namespace,
     hit_table: pd.DataFrame,
@@ -2482,11 +2549,13 @@ def _write_search_report(
         from tirmite.report.render import write_search_report
         from tirmite.report.search import SearchReportAccumulator
 
-        genome_label = 'sequences'
-        if args.genome:
-            genome_label = Path(args.genome[0]).name if args.genome else genome_label
+        genomes = _report_genome_paths(args)
+        if genomes:
+            genome_label = genomes[0].name
         elif args.blast_db:
             genome_label = Path(args.blast_db).name
+        else:
+            genome_label = 'sequences'
 
         accumulator = SearchReportAccumulator(
             tirmite_version=__version__,
@@ -2507,39 +2576,35 @@ def _write_search_report(
             max_rows=args.report_max_rows,
         )
 
-        # Alignment panels are the only part that needs sequence, so the
-        # source is built only when they were asked for.
-        source = None
-        tempdir = None
-        msa_mode = getattr(args, 'report_msa', 'off')
-        if msa_mode != 'off':
-            genomes = list(args.genome or [])
-            if args.genome_list:
-                genomes = parse_genome_list(args.genome_list)
-            if genomes:
-                source = make_source(genome=str(genomes[0]))
-                tempdir = str(args.outdir / f'{args.prefix}_report_tmp')
-                if len(genomes) > 1:
-                    accumulator.warnings.append(
-                        f'Alignment panels read sequence from {Path(genomes[0]).name} '
-                        f'only; this run searched {len(genomes)} genomes.'
-                    )
-
+        # Indexing the genome gives the report true contig lengths for its
+        # track axes, so it is worth doing even when the alignment panels are
+        # off -- without it every axis is only estimated from the hits.
+        source = _index_report_source(genomes)
         if source is not None:
             accumulator.contig_length = source.contig_length
 
-        logger.info('Building HTML report...')
-        data = accumulator.finalise(
-            hit_table,
-            summary=summary,
-            source=source,
-            tempdir=tempdir,
-            msa_mode=msa_mode,
-            msa_max_rows=args.report_msa_max_rows,
-        )
+        msa_mode = getattr(args, 'report_msa', 'off')
+        if msa_mode != 'off' and source is None:
+            logger.warning(
+                'No genome could be read, so the alignment panels are omitted.'
+            )
+            msa_mode = 'off'
 
         outpath = Path(args.report_out or args.outdir / f'{args.prefix}_report.html')
-        write_search_report(data, outpath)
+
+        logger.info('Building HTML report...')
+        # MAFFT's intermediate files go in a temporary directory that is
+        # removed with it, rather than left behind in the user's output.
+        with temporary_directory(prefix='tirmite_report_') as tempdir:
+            data = accumulator.finalise(
+                hit_table,
+                summary=summary,
+                source=source,
+                tempdir=str(tempdir),
+                msa_mode=msa_mode,
+                msa_max_rows=args.report_msa_max_rows,
+            )
+            write_search_report(data, outpath)
     except Exception as exc:  # noqa: BLE001 - see the note above
         logger.error(f'HTML report generation failed: {exc}')
         logger.exception('Full traceback:')

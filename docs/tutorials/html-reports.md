@@ -224,6 +224,33 @@ What each cluster was assembled from, how many hits merging collapsed, and —
 when a pairing map was used — which model won each contested locus, from the
 nested-hit and cross-model filter steps.
 
+### Query alignments
+
+Every hit for each query, stacked and aligned — the same panel as the pairing
+report, with the same grey-versus-blank distinction between "the model was not
+matched here" and "this sequence does not exist". Each panel downloads as FASTA,
+aligned or unaligned.
+
+This is often the fastest way to see that a query is matching two different
+things: hits that belong together align cleanly, and ones that do not stand out
+immediately as a block with a different pattern.
+
+Panels are **off by default** here — they re-read sequence for every hit, which
+a search run has no other reason to do. Turn them on with `--report-msa auto`
+and supply `--genome` or `--genome-list`.
+
+```bash
+tirmite search ... --genome $GENOME --report --report-msa auto
+```
+
+!!! tip "Supply a genome even without panels"
+    The report indexes it for true sequence lengths on the track axes. Without
+    one, every axis is estimated from the hits and the report says so.
+
+With `--genome-list`, panels read from every genome in the list, not just the
+first. Sequence names are unique across a run's genomes, so a hit is always
+read from the assembly it was found in.
+
 ### Filtering
 
 Hits remaining after each pipeline stage, with the change at each step, so a

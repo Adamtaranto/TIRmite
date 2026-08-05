@@ -532,22 +532,7 @@ class PairReportAccumulator:
             Ready to render.
         """
         colours = group_colours(self._group_ids)
-        groups = [
-            PairingGroup(
-                group_id=g.group_id,
-                label=g.label,
-                left_model=g.left_model,
-                right_model=g.right_model,
-                orientation=g.orientation,
-                colour=colours[g.group_id],
-                n_pairs=g.n_pairs,
-                n_elements=g.n_elements,
-                n_unpaired=g.n_unpaired,
-                hits_per_model=g.hits_per_model,
-            )
-            for g in self._groups
-        ]
-        group_index = {g.group_id: i for i, g in enumerate(groups)}
+        group_index = {g.group_id: i for i, g in enumerate(self._groups)}
 
         hits = self._select_hits()
         contig_lengths = self._resolve_contig_lengths(hits)
@@ -589,6 +574,7 @@ class PairReportAccumulator:
         sequences = self._build_sequences(
             elements, embed_sequences, max_seq_bytes, elements_fasta_path
         )
+        groups = self._build_groups(hits, elements, colours)
 
         return ReportData(
             kind='pair',
@@ -608,6 +594,64 @@ class PairReportAccumulator:
             sequences=sequences,
             warnings=list(self.warnings),
         )
+
+    def _build_groups(
+        self,
+        hits: Sequence[HitRecord],
+        elements: Sequence[ElementRecord],
+        colours: Dict[str, Tuple[str, str]],
+    ) -> List[PairingGroup]:
+        """
+        Finalise the pairing groups, counting outcomes from the reported data.
+
+        Parameters
+        ----------
+        hits : sequence of HitRecord
+            The hits included in the report, with pairing already annotated.
+        elements : sequence of ElementRecord
+            The element records included in the report.
+        colours : dict
+            Group id to ``(light, dark)`` colour.
+
+        Returns
+        -------
+        list of PairingGroup
+            One per pairing procedure, in the order they ran.
+
+        Notes
+        -----
+        Pair and unpaired counts are derived from the hits and elements that
+        actually made it into the report rather than taken from the caller's
+        summary. Otherwise a cap that dropped hits, or a caller that omitted
+        the summary, would leave the tables disagreeing with the tracks.
+        """
+        unpaired: Dict[str, int] = {}
+        for hit in hits:
+            if hit.pair_id is not None:
+                continue
+            for group_id in hit.group_ids:
+                unpaired[group_id] = unpaired.get(group_id, 0) + 1
+
+        pairs: Dict[int, int] = {}
+        for element in elements:
+            pairs[element.group_i] = pairs.get(element.group_i, 0) + 1
+
+        return [
+            PairingGroup(
+                group_id=group.group_id,
+                label=group.label,
+                left_model=group.left_model,
+                right_model=group.right_model,
+                orientation=group.orientation,
+                colour=colours[group.group_id][0],
+                colour_dark=colours[group.group_id][1],
+                n_pairs=pairs.get(i, 0),
+                n_elements=group.n_elements,
+                n_unpaired=unpaired.get(group.group_id, 0),
+                hits_per_model=group.hits_per_model,
+            )
+            for i, group in enumerate(self._groups)
+        ]
 
     def _select_hits(self) -> List[HitRecord]:
         """

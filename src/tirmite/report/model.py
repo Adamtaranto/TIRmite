@@ -315,7 +315,12 @@ class PairingGroup:
     orientation : str
         Orientation code the pairing used, e.g. 'F,R'.
     colour : str
-        Hex colour used for this group throughout the report.
+        Hex colour used for this group throughout the report on a light
+        surface.
+    colour_dark : str
+        The same hue re-stepped for a dark surface. Selected rather than
+        derived: inverting a light-mode colour does not reliably stay
+        colour-vision-safe.
     n_pairs, n_elements, n_unpaired : int
         Outcome counts for the group.
     hits_per_model : dict of str to int
@@ -328,6 +333,7 @@ class PairingGroup:
     right_model: str
     orientation: str
     colour: str
+    colour_dark: str = ''
     n_pairs: int = 0
     n_elements: int = 0
     n_unpaired: int = 0

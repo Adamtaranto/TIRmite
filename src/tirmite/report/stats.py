@@ -10,11 +10,19 @@ the :class:`PairSummary` directly.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Set
+from statistics import median
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle avoidance for annotations
+    from tirmite.report.model import ReportData
 
 __all__ = [
     'PairSummary',
+    'contig_table',
+    'filter_table',
     'format_pair_summary',
+    'group_table',
+    'model_table',
     'pair_summary_stats',
 ]
 
@@ -234,3 +242,245 @@ def format_pair_summary(summary: PairSummary) -> str:
     lines.append(f'Total unpaired hits: {summary.total_unpaired}\n')
 
     return ''.join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Report tables
+#
+# Each returns rows ready for the shared table template. A cell is either a
+# plain value or a dict of {value, sort, colour}: `sort` carries the underlying
+# number when the display text is formatted for reading and would sort wrongly
+# as a string, and `colour` attaches a pairing-group swatch so identity is not
+# carried by position alone.
+# ---------------------------------------------------------------------------
+
+
+def _bp(value: Optional[int]) -> Dict[str, Any]:
+    """
+    Format a base-pair count as a readable, correctly sortable cell.
+
+    Parameters
+    ----------
+    value : int or None
+        Length in base pairs.
+
+    Returns
+    -------
+    dict
+        Cell with a human-readable value and its numeric sort key.
+    """
+    if value is None:
+        return {'value': '–', 'sort': None}
+    if value >= 1_000_000:
+        text = f'{value / 1_000_000:.2f} Mb'
+    elif value >= 10_000:
+        text = f'{value / 1000:.1f} kb'
+    else:
+        text = f'{value:,} bp'
+    return {'value': text, 'sort': value}
+
+
+def _pct(value: Optional[float]) -> Dict[str, Any]:
+    """
+    Format a fraction as a percentage cell.
+
+    Parameters
+    ----------
+    value : float or None
+        Fraction between 0 and 1.
+
+    Returns
+    -------
+    dict
+        Cell with a percentage string and its numeric sort key.
+    """
+    if value is None:
+        return {'value': '–', 'sort': None}
+    return {'value': f'{value * 100:.0f}%', 'sort': value}
+
+
+def group_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the per-pairing-group statistics rows.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per pairing group.
+    """
+    lengths_by_group: Dict[int, List[int]] = {}
+    for element in data.elements:
+        lengths_by_group.setdefault(element.group_i, []).append(element.length)
+
+    rows = []
+    for i, group in enumerate(data.groups):
+        lengths = lengths_by_group.get(i, [])
+        rows.append(
+            {
+                'group': {
+                    'value': group.label,
+                    'sort': group.label,
+                    # A custom property rather than the hex, so the swatch
+                    # follows the surface into dark mode.
+                    'colour': f'var(--group-{i})',
+                },
+                'orientation': group.orientation or '–',
+                'pairs': {'value': f'{group.n_pairs:,}', 'sort': group.n_pairs},
+                'elements': {
+                    'value': f'{group.n_elements:,}',
+                    'sort': group.n_elements,
+                },
+                'unpaired': {
+                    'value': f'{group.n_unpaired:,}',
+                    'sort': group.n_unpaired,
+                },
+                'median_length': _bp(int(median(lengths)) if lengths else None),
+            }
+        )
+    return rows
+
+
+def model_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the per-model statistics rows.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per terminus model.
+    """
+    return [
+        {
+            'model': model.name,
+            'length': {
+                'value': f'{model.length:,}' if model.length else '–',
+                'sort': model.length,
+            },
+            'hits': {'value': f'{model.n_hits:,}', 'sort': model.n_hits},
+            'contigs': {'value': f'{model.n_contigs:,}', 'sort': model.n_contigs},
+            'paired': {'value': f'{model.n_paired:,}', 'sort': model.n_paired},
+            'coverage': _pct(model.median_model_coverage),
+            'full': _pct(model.frac_full_length),
+            'clipped': _pct(model.frac_clipped),
+        }
+        for model in data.models
+    ]
+
+
+def contig_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the per-sequence statistics rows.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per sequence carrying at least one hit, ordered by descending
+        pair count so the sequences worth looking at appear first.
+    """
+    ordered = sorted(data.contigs, key=lambda c: (-c.n_pairs, -c.n_hits, c.name))
+    rows: List[Dict[str, Any]] = []
+    for contig in ordered:
+        per_mb = contig.n_elements / (contig.length / 1_000_000) if contig.length else 0
+        rows.append(
+            {
+                'contig': contig.name
+                + (' (estimated length)' if contig.length_source == 'inferred' else ''),
+                'length': _bp(contig.length),
+                'hits': {'value': f'{contig.n_hits:,}', 'sort': contig.n_hits},
+                'pairs': {'value': f'{contig.n_pairs:,}', 'sort': contig.n_pairs},
+                'element_bp': _bp(contig.element_bp),
+                'density': {'value': f'{per_mb:.2f}', 'sort': per_mb},
+            }
+        )
+    return rows
+
+
+def filter_table(filter_stats: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Build the filtering statistics rows.
+
+    Parameters
+    ----------
+    filter_stats : dict
+        Statistics as accumulated by the CLI.
+
+    Returns
+    -------
+    list of dict
+        One row per filter that was actually applied. A filter that was not
+        configured is omitted rather than shown as zero, which would imply it
+        ran and excluded nothing.
+    """
+    if not filter_stats:
+        return []
+
+    rows: List[Dict[str, Any]] = []
+
+    initial = filter_stats.get('initial_hits')
+    if initial is not None:
+        rows.append(
+            {
+                'filter': 'Hits imported',
+                'setting': '–',
+                'excluded': {'value': f'{initial:,}', 'sort': initial},
+            }
+        )
+
+    ignored = filter_stats.get('pairing_map_models_ignored')
+    if ignored:
+        excluded = filter_stats.get('pairing_map_hits_ignored', 0)
+        rows.append(
+            {
+                'filter': 'Pairing-map model filter',
+                'setting': f'{len(ignored)} model(s) not in map: '
+                + ', '.join(sorted(ignored)),
+                'excluded': {'value': f'{excluded:,}', 'sort': excluded},
+            }
+        )
+
+    for key, label, setting_key in (
+        ('coverage_excluded', 'Coverage filter', 'mincov'),
+        ('evalue_excluded', 'E-value filter', 'maxeval'),
+        ('anchor_excluded', 'Anchor offset filter', 'max_offset'),
+    ):
+        setting = filter_stats.get(setting_key)
+        if setting is None:
+            continue
+        excluded = filter_stats.get(key)
+        rows.append(
+            {
+                'filter': label,
+                'setting': f'{setting_key} = {setting}',
+                'excluded': {
+                    'value': f'{excluded:,}' if excluded is not None else 'unknown',
+                    'sort': excluded,
+                },
+            }
+        )
+
+    remaining = filter_stats.get('after_filtering')
+    if remaining is not None:
+        rows.append(
+            {
+                'filter': 'Hits remaining',
+                'setting': '–',
+                'excluded': {'value': f'{remaining:,}', 'sort': remaining},
+            }
+        )
+
+    return rows

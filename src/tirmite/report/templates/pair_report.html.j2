@@ -54,7 +54,7 @@
   <h2>Distributions</h2>
   <div class="figures">
     {% for figure in data.figures %}
-    <figure id="figure-{{ figure.id }}">
+    <figure id="figure-{{ figure.id }}" {% if figure.wide %}class="wide"{% endif %}>
       <h3>{{ figure.title }}</h3>
       {{ figure.svg | safe }}
       <figcaption>{{ figure.caption }}</figcaption>

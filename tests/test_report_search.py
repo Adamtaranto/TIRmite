@@ -311,7 +311,7 @@ class TestSearchRendering:
             acc.finalise(table, summary=SearchFilterSummary()),
             template='search_report.html.j2',
         )
-        assert 'No cross-matches were detected' in html
+        assert 'No cluster-level cross-matches were detected' in html
         assert 'No cluster map was used' in html
 
     def test_write_search_report_creates_parent_directories(self, report, tmp_path):
@@ -685,3 +685,218 @@ class TestReportGenomeResolution:
         source = _index_report_source([broken, good])
         assert source is not None
         assert source.contig_length('chrA') == 4
+
+
+class TestCountModelOverlaps:
+    def test_counts_pairs_of_models_sharing_a_locus(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        rows = [
+            {'model': 'A', 'hitStart': '100', 'hitEnd': '200'},
+            {'model': 'B', 'hitStart': '150', 'hitEnd': '250'},
+            {'model': 'C', 'hitStart': '900', 'hitEnd': '950'},
+        ]
+        assert count_model_overlaps(make_table(rows)) == [
+            {'a': 'A', 'b': 'B', 'hits': 1}
+        ]
+
+    def test_pairs_are_unordered_and_counted_once(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        rows = [
+            {'model': 'B', 'hitStart': '100', 'hitEnd': '200'},
+            {'model': 'A', 'hitStart': '150', 'hitEnd': '250'},
+            {'model': 'A', 'hitStart': '1000', 'hitEnd': '1100'},
+            {'model': 'B', 'hitStart': '1050', 'hitEnd': '1150'},
+        ]
+        # Both loci name the same unordered pair, so one row of two.
+        assert count_model_overlaps(make_table(rows)) == [
+            {'a': 'A', 'b': 'B', 'hits': 2}
+        ]
+
+    def test_same_model_overlaps_are_reported_as_redundancy(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        rows = [
+            {'model': 'A', 'hitStart': '100', 'hitEnd': '200'},
+            {'model': 'A', 'hitStart': '150', 'hitEnd': '250'},
+        ]
+        assert count_model_overlaps(make_table(rows)) == [
+            {'a': 'A', 'b': 'A', 'hits': 1}
+        ]
+
+    def test_different_contigs_never_overlap(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        rows = [
+            {'model': 'A', 'target': 'chr1', 'hitStart': '100', 'hitEnd': '200'},
+            {'model': 'B', 'target': 'chr2', 'hitStart': '100', 'hitEnd': '200'},
+        ]
+        assert count_model_overlaps(make_table(rows)) == []
+
+    def test_abutting_hits_do_not_overlap(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        rows = [
+            {'model': 'A', 'hitStart': '100', 'hitEnd': '200'},
+            {'model': 'B', 'hitStart': '201', 'hitEnd': '300'},
+        ]
+        assert count_model_overlaps(make_table(rows)) == []
+
+    def test_single_shared_base_counts(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        # Coordinates are inclusive, so sharing one base is an overlap of 1.
+        rows = [
+            {'model': 'A', 'hitStart': '100', 'hitEnd': '200'},
+            {'model': 'B', 'hitStart': '200', 'hitEnd': '300'},
+        ]
+        assert count_model_overlaps(make_table(rows))[0]['hits'] == 1
+
+    def test_busiest_pair_comes_first(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        rows = [
+            {'model': 'X', 'hitStart': '10', 'hitEnd': '99'},
+            {'model': 'Y', 'hitStart': '50', 'hitEnd': '150'},
+        ]
+        for i in range(3):
+            base = 1000 + i * 500
+            rows.append({'model': 'A', 'hitStart': str(base), 'hitEnd': str(base + 99)})
+            rows.append(
+                {'model': 'B', 'hitStart': str(base + 50), 'hitEnd': str(base + 149)}
+            )
+        result = count_model_overlaps(make_table(rows))
+        assert result[0] == {'a': 'A', 'b': 'B', 'hits': 3}
+
+    def test_empty_table(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        assert count_model_overlaps(pd.DataFrame(columns=COLUMNS)) == []
+
+
+class TestMultiClusterWarning:
+    def test_model_in_two_clusters_is_warned_about(self):
+        acc = SearchReportAccumulator(
+            cluster_map={'A': ['shared', 'a1'], 'B': ['shared', 'b1']},
+        )
+        assert any('more than one cluster' in w for w in acc.warnings)
+        assert any('shared in A, B' in w for w in acc.warnings)
+
+    def test_clean_cluster_map_warns_about_nothing(self):
+        acc = SearchReportAccumulator(
+            cluster_map={'A': ['a1', 'a2'], 'B': ['b1']},
+        )
+        assert acc.warnings == []
+
+    def test_the_warning_reaches_the_report(self):
+        acc = SearchReportAccumulator(
+            cluster_map={'A': ['shared'], 'B': ['shared']},
+            contig_length=lambda name: 5000,
+        )
+        data = acc.finalise(make_table([{'model': 'shared'}]))
+        assert any('more than one cluster' in w for w in data.warnings)
+
+
+class TestOverlapHeatmap:
+    def build_report(self, overlaps, cluster_map, models=None):
+        summary = SearchFilterSummary()
+        summary.model_overlaps = overlaps
+        summary.hits_per_model_before_merge = dict.fromkeys(models or [], 1)
+        acc = SearchReportAccumulator(
+            cluster_map=cluster_map, contig_length=lambda name: 5000
+        )
+        rows = [
+            {'model': m, 'hitStart': str(100 + i * 500), 'hitEnd': str(180 + i * 500)}
+            for i, m in enumerate(models or ['x'])
+        ]
+        return acc.finalise(make_table(rows), summary=summary)
+
+    def test_models_sort_by_cluster_then_name(self):
+        from tirmite.report.figures import _model_order
+
+        data = self.build_report(
+            [{'a': 'b2', 'b': 'a1', 'hits': 3}],
+            {'zebra': ['a1', 'a2'], 'alpha': ['b1', 'b2']},
+            models=['a1', 'a2', 'b1', 'b2', 'loner'],
+        )
+        order, blocks = _model_order(data)
+        # Cluster 'alpha' precedes 'zebra'; unclustered models come last.
+        assert order == ['b1', 'b2', 'a1', 'a2', 'loner']
+        assert blocks == [('alpha', 0, 1), ('zebra', 2, 3)]
+
+    def test_cluster_order_is_case_insensitive(self):
+        from tirmite.report.figures import _model_order
+
+        data = self.build_report(
+            [{'a': 'h1', 'b': 'M1', 'hits': 1}],
+            {'Mut_cluster': ['M1'], 'hAT_cluster': ['h1']},
+            models=['h1', 'M1'],
+        )
+        order, _ = _model_order(data)
+        # 'hAT_cluster' must not sort after 'Mut_cluster' on case alone.
+        assert order == ['h1', 'M1']
+
+    def test_a_model_in_two_clusters_lands_in_the_first(self):
+        from tirmite.report.figures import _model_order
+
+        data = self.build_report(
+            [{'a': 'shared', 'b': 'a1', 'hits': 1}],
+            {'B_cluster': ['shared', 'b1'], 'A_cluster': ['a1']},
+            models=['a1', 'b1', 'shared'],
+        )
+        order, blocks = _model_order(data)
+        assert order.index('shared') > order.index('a1')
+        assert ('A_cluster', 0, 0) in blocks
+
+    def test_heatmap_is_built_for_a_search_report(self):
+        from tirmite.report.figures import build_figures
+
+        data = self.build_report(
+            [{'a': 'a1', 'b': 'a2', 'hits': 4}, {'a': 'a1', 'b': 'b1', 'hits': 1}],
+            {'A': ['a1', 'a2'], 'B': ['b1']},
+            models=['a1', 'a2', 'b1'],
+        )
+        figure = next(
+            (f for f in build_figures(data) if f.id == 'model-overlaps'), None
+        )
+        assert figure is not None
+        assert figure.svg.startswith('<svg')
+        assert figure.wide is True
+        assert 'Boxes enclose models' in figure.caption
+
+    def test_no_overlaps_means_no_heatmap(self):
+        from tirmite.report.figures import build_figures
+
+        data = self.build_report([], {'A': ['a1']}, models=['a1'])
+        assert not [f for f in build_figures(data) if f.id == 'model-overlaps']
+
+    def test_pairing_outcome_is_not_built_for_a_search_report(self):
+        from tirmite.report.figures import build_figures
+
+        data = self.build_report(
+            [{'a': 'a1', 'b': 'a2', 'hits': 2}],
+            {'A': ['a1', 'a2']},
+            models=['a1', 'a2'],
+        )
+        # Every search hit is "unpaired", so that chart would say nothing.
+        assert not [f for f in build_figures(data) if f.id == 'pairing-outcome']
+
+    def test_table_twin_labels_the_relationship(self):
+        from tirmite.report.stats import search_model_overlap_table
+
+        data = self.build_report(
+            [
+                {'a': 'a1', 'b': 'a2', 'hits': 5},
+                {'a': 'a1', 'b': 'b1', 'hits': 2},
+                {'a': 'a1', 'b': 'a1', 'hits': 1},
+            ],
+            {'A': ['a1', 'a2'], 'B': ['b1']},
+            models=['a1', 'a2', 'b1'],
+        )
+        rows = {
+            (r['a'], r['b']): r['relation'] for r in search_model_overlap_table(data)
+        }
+        assert rows[('a1', 'a2')] == 'same cluster (A)'
+        assert rows[('a1', 'b1')] == 'different clusters'
+        assert rows[('a1', 'a1')] == 'same model (redundant hits)'

@@ -28,6 +28,7 @@ __all__ = [
     'search_contested_table',
     'search_cross_match_matrix',
     'search_cross_match_table',
+    'search_model_overlap_table',
     'search_query_table',
     'search_stage_table',
 ]
@@ -756,6 +757,54 @@ def search_contested_table(data: 'ReportData') -> List[Dict[str, Any]]:
                 'removed': model,
                 'kept': '—',
                 'hits': {'value': f'{count:,}', 'sort': count},
+            }
+        )
+    return rows
+
+
+def search_model_overlap_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the pairwise model-overlap rows shown beside the heatmap.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per pair of models sharing at least one locus, busiest first.
+        Same-model pairs are labelled as redundancy rather than as a shared
+        locus between two models.
+
+    Notes
+    -----
+    This is the heatmap's table view: the figure shows the pattern, and the
+    exact counts are readable here without hovering a cell.
+    """
+    cluster_map = data.stats.get('cluster_map', {})
+    owner: Dict[str, str] = {}
+    for cluster in sorted(cluster_map):
+        for component in cluster_map[cluster]:
+            owner.setdefault(component, cluster)
+
+    rows = []
+    for entry in data.stats.get('model_overlaps', []):
+        a, b = entry['a'], entry['b']
+        cluster_a, cluster_b = owner.get(a), owner.get(b)
+        if a == b:
+            relation = 'same model (redundant hits)'
+        elif cluster_a is not None and cluster_a == cluster_b:
+            relation = f'same cluster ({cluster_a})'
+        else:
+            relation = 'different clusters' if cluster_a or cluster_b else 'unclustered'
+        rows.append(
+            {
+                'a': a,
+                'b': b,
+                'relation': relation,
+                'hits': {'value': f'{entry["hits"]:,}', 'sort': entry['hits']},
             }
         )
     return rows

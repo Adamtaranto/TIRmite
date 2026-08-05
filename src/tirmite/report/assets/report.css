@@ -826,6 +826,15 @@ figure {
   padding: 16px;
 }
 
+/* A square matrix is unreadable at the width a histogram is content with. */
+figure.wide {
+  grid-column: 1 / -1;
+}
+
+figure.wide svg {
+  margin: 0 auto;
+}
+
 figure h3 {
   margin: 0 0 10px;
   font-size: 14px;

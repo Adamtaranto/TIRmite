@@ -53,7 +53,7 @@
   <h2>Distributions</h2>
   <div class="figures">
     {% for figure in data.figures %}
-    <figure id="figure-{{ figure.id }}">
+    <figure id="figure-{{ figure.id }}" {% if figure.wide %}class="wide"{% endif %}>
       <h3>{{ figure.title }}</h3>
       {{ figure.svg | safe }}
       <figcaption>{{ figure.caption }}</figcaption>
@@ -114,6 +114,26 @@
     filter later resolved it.
   </p>
 
+  {% if stats_model_overlaps %}
+  <h3>Shared loci between query models</h3>
+  <p class="note">
+    Every pair of query models whose hits share a locus, counted before
+    clustering. The heatmap above shows the same numbers; this is the readable
+    version. Overlap within one cluster is expected — that is what a cluster
+    asserts — so the relationship column says which case each row is.
+  </p>
+  {% set table_id = 'model-overlaps' %}
+  {% set caption = 'Pairs of query models whose hits share a locus.' %}
+  {% set columns = [
+    {'key': 'a', 'label': 'Model A', 'num': false},
+    {'key': 'b', 'label': 'Model B', 'num': false},
+    {'key': 'relation', 'label': 'Relationship', 'num': false},
+    {'key': 'hits', 'label': 'Shared loci', 'num': true},
+  ] %}
+  {% set rows = stats_model_overlaps %}
+  {% include "_stats_table.html.j2" %}
+  {% endif %}
+
   {% if stats_cross_matches %}
   {% if cross_matrix.labels %}
   <h3>Contested loci per pair of groups</h3>
@@ -163,8 +183,8 @@
   {% include "_stats_table.html.j2" %}
   {% else %}
   <div class="empty-state">
-    No cross-matches were detected. Either no cluster map was supplied, or no
-    two groups hit the same locus.
+    No cluster-level cross-matches were detected. Either no cluster map was
+    supplied, or no two clusters hit the same locus.
   </div>
   {% endif %}
 </section>

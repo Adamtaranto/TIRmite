@@ -520,12 +520,16 @@ class FigureSpec:
         Explanatory caption.
     svg : str
         The SVG markup, with its internal ids already namespaced.
+    wide : bool
+        True when the figure needs more than one column of the figure grid.
+        A square matrix is unreadable at the width a histogram is happy with.
     """
 
     id: str
     title: str
     caption: str
     svg: str = ''
+    wide: bool = False
 
 
 @dataclass

@@ -14,7 +14,7 @@ not reconfigure its host's plotting.
 import io
 import logging
 import re
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from tirmite.report.model import FigureSpec, ReportData
 
@@ -548,6 +548,227 @@ def _evalues(data: ReportData, plt: Any) -> Optional[FigureSpec]:
     )
 
 
+def _model_order(data: ReportData) -> Any:
+    """
+    Order query models by cluster, then by name, and locate the cluster blocks.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    tuple of (list, list)
+        ``(models, blocks)`` where models is the axis order and blocks is a
+        list of ``(label, first_index, last_index)`` for each cluster
+        occupying a contiguous run.
+
+    Notes
+    -----
+    A model listed in two clusters is placed under the first alphabetically.
+    Any other choice is equally arbitrary; what matters is that it is stated,
+    which the report does in a warning.
+    """
+    overlaps = data.stats.get('model_overlaps', [])
+    cluster_map = data.stats.get('cluster_map', {})
+
+    models = set()
+    for entry in overlaps:
+        models.add(entry['a'])
+        models.add(entry['b'])
+    models |= set(data.stats.get('hits_per_model_before_merge', {}))
+    if not models:
+        return [], []
+
+    owner: Dict[str, str] = {}
+    for cluster in sorted(cluster_map):
+        for component in cluster_map[cluster]:
+            owner.setdefault(component, cluster)
+
+    # Case-insensitive, so 'hAT_cluster' does not sort after 'Mut_cluster'
+    # merely because of its leading lowercase letter. Unclustered models sort
+    # after every cluster, under a high sentinel key.
+    ordered = sorted(
+        models,
+        key=lambda m: (owner.get(m, '￿').casefold(), m.casefold(), m),
+    )
+    return ordered, _rebuild_blocks(ordered, data)
+
+
+def _model_overlap_heatmap(data: ReportData, plt: Any) -> Optional[FigureSpec]:
+    """
+    Plot which query models share hit loci, as a model-by-model heatmap.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+    plt : module
+        ``matplotlib.pyplot``.
+
+    Returns
+    -------
+    FigureSpec or None
+        The figure, or None if no two models share a locus.
+
+    Notes
+    -----
+    A sequential single-hue ramp, because the value is a magnitude: a
+    categorical or diverging scheme would imply a distinction the counts do not
+    carry. The diagonal counts two hits of the *same* model at one locus, which
+    is redundancy rather than confusion between models, so it is drawn but
+    described separately in the caption.
+
+    Boxes mark models that share a cluster. Overlaps inside a box are expected
+    -- that is what a cluster asserts. Colour outside the boxes is the finding.
+    """
+    overlaps = data.stats.get('model_overlaps', [])
+    if not overlaps:
+        return None
+
+    models, blocks = _model_order(data)
+    if len(models) < 2:
+        return None
+
+    # Past this the cells are too small to read and the labels collide.
+    limit = 40
+    truncated = False
+    if len(models) > limit:
+        busiest: Dict[str, int] = {}
+        for entry in overlaps:
+            busiest[entry['a']] = busiest.get(entry['a'], 0) + entry['hits']
+            busiest[entry['b']] = busiest.get(entry['b'], 0) + entry['hits']
+        keep = set(sorted(busiest, key=lambda m: -busiest[m])[:limit])
+        models = [m for m in models if m in keep]
+        blocks = _rebuild_blocks(models, data)
+        truncated = True
+
+    index = {model: i for i, model in enumerate(models)}
+    size = len(models)
+    matrix = [[0 for _ in range(size)] for _ in range(size)]
+    for entry in overlaps:
+        i = index.get(entry['a'])
+        j = index.get(entry['b'])
+        if i is None or j is None:
+            continue
+        matrix[i][j] = entry['hits']
+        matrix[j][i] = entry['hits']
+
+    peak = max((max(row) for row in matrix), default=0)
+    if not peak:
+        return None
+
+    side = min(6.5, max(SINGLE_COLUMN_IN, 0.22 * size + 1.4))
+    fig, ax = plt.subplots(figsize=(side, side))
+
+    image = ax.imshow(
+        matrix,
+        cmap='Blues',
+        vmin=0,
+        vmax=peak,
+        interpolation='nearest',
+    )
+
+    ax.set_xticks(range(size))
+    ax.set_yticks(range(size))
+    ax.set_xticklabels(models, rotation=90, fontsize=5.5)
+    ax.set_yticklabels(models, fontsize=5.5)
+    ax.tick_params(length=0, pad=1)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    # Cell counts, while they still fit.
+    if size <= 14:
+        for i in range(size):
+            for j in range(size):
+                value = matrix[i][j]
+                if not value:
+                    continue
+                ax.text(
+                    j,
+                    i,
+                    str(value),
+                    ha='center',
+                    va='center',
+                    fontsize=5.5,
+                    color='white' if value > peak * 0.6 else '#1a1a19',
+                )
+
+    # A cluster's members are expected to overlap; the box says so, leaving
+    # colour outside it as the thing worth looking at.
+    from matplotlib.patches import Rectangle
+
+    for _label, lo, hi in blocks:
+        ax.add_patch(
+            Rectangle(
+                (lo - 0.5, lo - 0.5),
+                hi - lo + 1,
+                hi - lo + 1,
+                fill=False,
+                edgecolor='#eb6834',
+                linewidth=1.0,
+            )
+        )
+
+    bar = fig.colorbar(image, ax=ax, fraction=0.046, pad=0.04)
+    bar.ax.tick_params(labelsize=6, length=2, width=0.5)
+    bar.outline.set_linewidth(0.5)
+    bar.set_label('Overlapping hits', fontsize=6.5)
+
+    caption = (
+        'Pairs of query models whose hits share a locus, counted before '
+        'clustering. Boxes enclose models that belong to the same cluster, '
+        'where overlap is expected; colour outside a box is two unrelated '
+        'models claiming the same sequence. The diagonal counts overlapping '
+        'hits from one model, which is redundancy rather than confusion.'
+    )
+    if truncated:
+        caption += f' Showing the {limit} models with the most overlap.'
+
+    return FigureSpec(
+        id='model-overlaps',
+        title='Shared hit loci between models',
+        caption=caption,
+        svg=_to_svg(fig, 'model-overlaps'),
+        wide=True,
+    )
+
+
+def _rebuild_blocks(models: List[str], data: ReportData) -> List[Any]:
+    """
+    Recompute cluster blocks for a reduced model list.
+
+    Parameters
+    ----------
+    models : list of str
+        Models in axis order, after any truncation.
+    data : ReportData
+        The report, for its cluster map.
+
+    Returns
+    -------
+    list of tuple
+        ``(label, first_index, last_index)`` per contiguous cluster run.
+    """
+    cluster_map = data.stats.get('cluster_map', {})
+    owner: Dict[str, str] = {}
+    for cluster in sorted(cluster_map):
+        for component in cluster_map[cluster]:
+            owner.setdefault(component, cluster)
+
+    blocks = []
+    start = 0
+    for i, model in enumerate(models):
+        current = owner.get(model)
+        nxt = owner.get(models[i + 1]) if i + 1 < len(models) else None
+        if current != nxt:
+            if current is not None:
+                blocks.append((current, start, i))
+            start = i + 1
+    return blocks
+
+
 def build_figures(data: ReportData) -> List[FigureSpec]:
     """
     Build every static figure the report can show for this run.
@@ -580,13 +801,26 @@ def build_figures(data: ReportData) -> List[FigureSpec]:
         logger.warning(f'matplotlib is unavailable, skipping figures: {exc}')
         return []
 
-    builders = (
-        _element_lengths,
-        _pairing_outcome,
-        _model_coverage,
-        _hits_per_contig,
-        _evalues,
-    )
+    # A search report has no pairs, so the pairing-outcome bar would show every
+    # hit as "unpaired" -- true but vacuous. The overlap heatmap answers the
+    # question a search run actually raises, and needs pre-merge data a pairing
+    # run never collects.
+    builders: Tuple[Callable[[ReportData, Any], Optional[FigureSpec]], ...]
+    if data.kind == 'search':
+        builders = (
+            _model_overlap_heatmap,
+            _model_coverage,
+            _hits_per_contig,
+            _evalues,
+        )
+    else:
+        builders = (
+            _element_lengths,
+            _pairing_outcome,
+            _model_coverage,
+            _hits_per_contig,
+            _evalues,
+        )
 
     figures: List[FigureSpec] = []
     with plt.rc_context(nature_rcparams()):

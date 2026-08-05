@@ -168,6 +168,43 @@ class TestOrientation:
         assert forward == 'AAAACCCC'
         assert reverse == 'GGGGTTTT'
 
+    def test_mafft_receives_strand_corrected_sequence(self, monkeypatch, tmp_path):
+        # The rows handed to the aligner must already be in model orientation.
+        # Feeding raw genomic sequence would ask MAFFT to align a terminus
+        # against its own reverse complement, which it cannot do.
+        seen = []
+
+        def capture(records, tmpdir):
+            seen.extend(str(r.seq) for r in records)
+            return None  # force the fallback; only the input matters here
+
+        monkeypatch.setattr('tirmite.runners.mafft.mafft_available', lambda: True)
+        monkeypatch.setattr('tirmite.runners.mafft.align_in_memory', capture)
+
+        source = FakeSource({'chr1': 'AAAACCCCGGGGTTTT'})
+        hits = [make_hit(0, 'chr1', 1, 8), make_hit(1, 'chr1', 1, 8, strand='-')]
+        msa.build_msa_panels(
+            hits, GROUPS, MODELS, source=source, tmpdir=str(tmp_path), mode='auto'
+        )
+        assert seen == ['AAAACCCC', 'GGGGTTTT']
+
+    def test_every_row_is_in_model_orientation(self, monkeypatch):
+        # A mixed-strand panel must not contain a row that is the reverse
+        # complement of its neighbours.
+        source = FakeSource({'chr1': 'ACGTTTGCAAACGTAC' * 4})
+        hits = [
+            make_hit(0, 'chr1', 1, 16),
+            make_hit(1, 'chr1', 17, 32, strand='-'),
+            make_hit(2, 'chr1', 33, 48),
+        ]
+        panel = build(hits, source, monkeypatch)[0]
+        rows = {row.uid: row.seq for row in panel.rows}
+        genome = source.contigs['chr1']
+        complement = str.maketrans('ACGT', 'TGCA')
+        assert rows[0] == genome[0:16]
+        assert rows[1] == genome[16:32].translate(complement)[::-1]
+        assert rows[2] == genome[32:48]
+
     def test_minus_strand_model_pad_moves_to_the_other_end(self, monkeypatch):
         # Model positions 16-20 are unmatched, and on the minus strand they lie
         # at the *lower* genomic coordinate. Rows are shown in model

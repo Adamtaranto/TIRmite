@@ -29,6 +29,7 @@ from tirmite.report.stats import (
     search_contested_table,
     search_cross_match_matrix,
     search_cross_match_table,
+    search_model_overlap_table,
     search_query_table,
     search_stage_table,
 )
@@ -178,6 +179,7 @@ def render_report(
                 'stats_stages': search_stage_table(data),
                 'stats_cross_matches': search_cross_match_table(data),
                 'cross_matrix': search_cross_match_matrix(data),
+                'stats_model_overlaps': search_model_overlap_table(data),
                 'stats_clusters': search_cluster_table(data),
                 'stats_contested': search_contested_table(data),
             }

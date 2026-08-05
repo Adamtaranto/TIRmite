@@ -95,6 +95,10 @@ class SearchFilterSummary:
     cross_cluster_overlaps : list of dict
         Every cross-cluster overlap found, as returned by
         :func:`check_cross_cluster_overlaps`.
+    model_overlaps : list of dict
+        Pairwise counts of overlapping hits between query models, as returned
+        by :func:`count_model_overlaps`. Recorded before cluster merging, which
+        is the only point at which the component behind each hit is known.
     hits_per_model_before_merge : dict
         Hits per component model immediately before cluster merging, so the
         report can show what each cluster was assembled from.
@@ -110,6 +114,7 @@ class SearchFilterSummary:
     cross_model_removed: Dict[Tuple[str, str], int] = field(default_factory=dict)
     stages: List[Tuple[str, int]] = field(default_factory=list)
     cross_cluster_overlaps: List[Dict[str, Any]] = field(default_factory=list)
+    model_overlaps: List[Dict[str, Any]] = field(default_factory=list)
     hits_per_model_before_merge: Dict[str, int] = field(default_factory=dict)
 
     def record_stage(self, label: str, hit_table: Any) -> None:
@@ -991,6 +996,77 @@ def _create_merged_hit(
         'hmmStart': best_hit['hmmStart'],
         'hmmEnd': best_hit['hmmEnd'],
     }
+
+
+def count_model_overlaps(
+    hit_table: pd.DataFrame,
+    min_overlap: int = 1,
+) -> List[Dict[str, Any]]:
+    """
+    Count overlapping hits between every pair of query models.
+
+    Parameters
+    ----------
+    hit_table : pandas.DataFrame
+        Hit table with 'model', 'target', 'hitStart' and 'hitEnd' columns.
+    min_overlap : int, default 1
+        Minimum shared bases for two hits to count as overlapping.
+
+    Returns
+    -------
+    list of dict
+        One record per model pair that shares at least one locus, with keys
+        'a', 'b' and 'hits'. Pairs are unordered and reported once, under the
+        alphabetically first model. Self-pairs are included: two hits of the
+        same model at one locus is redundancy worth seeing.
+
+    Notes
+    -----
+    Must be called **before** cluster merging, which renames every hit to its
+    cluster. After that point the component that produced each hit is gone, and
+    a model-level matrix cannot be recovered.
+
+    The sweep is the same shape as :func:`check_cross_cluster_overlaps`: sort
+    by start, and stop the inner scan once a candidate begins after the current
+    hit ends, since nothing later can overlap either.
+    """
+    if hit_table.empty:
+        return []
+
+    counts: Dict[Tuple[str, str], int] = {}
+    table = hit_table.copy()
+    table['hitStart_int'] = table['hitStart'].astype(int)
+    table['hitEnd_int'] = table['hitEnd'].astype(int)
+
+    for _target, group in table.groupby('target'):
+        if len(group) < 2:
+            continue
+        group = group.sort_values('hitStart_int')
+        models = group['model'].to_numpy()
+        starts = group['hitStart_int'].to_numpy()
+        ends = group['hitEnd_int'].to_numpy()
+        n_hits = len(group)
+
+        for i in range(n_hits):
+            end1 = int(ends[i])
+            for j in range(i + 1, n_hits):
+                start2 = int(starts[j])
+                if start2 > end1:
+                    break
+                # Inclusive coordinates, so hits sharing one base overlap by 1.
+                overlap = min(end1, int(ends[j])) - max(int(starts[i]), start2) + 1
+                if overlap >= min_overlap:
+                    key = (
+                        (str(models[i]), str(models[j]))
+                        if str(models[i]) <= str(models[j])
+                        else (str(models[j]), str(models[i]))
+                    )
+                    counts[key] = counts.get(key, 0) + 1
+
+    return [
+        {'a': a, 'b': b, 'hits': count}
+        for (a, b), count in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
 
 
 def check_cross_cluster_overlaps(
@@ -2978,6 +3054,16 @@ def _process_hits(
         report_hit_statistics(hit_table, stage='(after anchor filtering)')
         report_summary.record_stage(f'Anchor offset filter (≤ {max_offset})', hit_table)
 
+    # Recorded here, before cluster merging renames every hit to its cluster:
+    # after that the component behind each hit is gone, and a model-level
+    # overlap matrix cannot be rebuilt. Useful with or without a cluster map,
+    # so it is not inside the branch below.
+    report_summary.model_overlaps = count_model_overlaps(hit_table)
+    report_summary.hits_per_model_before_merge = {
+        str(model): int(count)
+        for model, count in hit_table['model'].value_counts().items()
+    }
+
     # Apply cluster mapping if provided. This renames each hit's model to its
     # cluster name, so every step after this point sees cluster-level names.
     if cluster_map:
@@ -2996,14 +3082,6 @@ def _process_hits(
         report_summary.cross_cluster_overlaps = check_cross_cluster_overlaps(
             hit_table, cluster_map
         )
-
-        # Recorded before merging renames every model to its cluster: this is
-        # the only point at which the component that produced each hit is
-        # still visible.
-        report_summary.hits_per_model_before_merge = {
-            str(model): int(count)
-            for model, count in hit_table['model'].value_counts().items()
-        }
 
         # Merge overlapping hits within clusters
         hit_table = merge_overlapping_cluster_hits(

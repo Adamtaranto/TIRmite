@@ -80,8 +80,10 @@ without pairs** toggle reveals them, and the search box filters by name.
 
 #### Terminus alignments
 
-Every hit for a terminus model, stacked and aligned in model orientation
-(minus-strand hits are reverse-complemented).
+Every hit for a terminus model, stacked and aligned in model orientation.
+Minus-strand hits are reverse-complemented before alignment, so every row reads
+in the model's own direction and MAFFT is never asked to align a terminus
+against its own reverse complement.
 
 Two kinds of missing sequence are shown differently, for the same reason as
 above:
@@ -217,6 +219,29 @@ contests, and a table of every one with spans and overlap length.
 
 This is worth reading whether or not a later filter resolved the conflict. The
 log reports only the first ten such overlaps; the report has them all.
+
+### Shared hit loci
+
+A model-by-model heatmap of how many loci each pair of queries both hit,
+counted **before** clustering — the only point at which the model behind each
+hit is still known.
+
+Models are ordered by cluster, then by name, and a box is drawn around each
+cluster's block. That makes the reading simple: **colour inside a box is
+expected** — a cluster asserts that its members describe the same terminus —
+while **colour outside a box is two unrelated models claiming the same
+sequence**. The diagonal counts two hits of one model at the same locus, which
+is redundancy rather than confusion between models.
+
+The exact counts are also in a table below the heatmap, labelled by whether
+each pair is in the same cluster, different clusters, or unclustered.
+
+!!! warning "A model in two clusters"
+    If any query belongs to more than one cluster, the report says so in its
+    banner. Such a run is ambiguous rather than merely untidy: merging assigns
+    that model's hits to whichever cluster claimed them, and the heatmap has to
+    place the model in one block or the other — it uses the first cluster
+    alphabetically.
 
 ### Clustering
 

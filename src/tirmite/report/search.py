@@ -108,7 +108,49 @@ class SearchReportAccumulator(ReportAccumulatorBase):
         self.max_hits = max_hits
         self.max_rows = max_rows
         self.warnings: List[str] = []
+        self._check_cluster_membership()
         self._resolve_cluster_lengths()
+
+    def _check_cluster_membership(self) -> None:
+        """
+        Warn when a query model belongs to more than one cluster.
+
+        Returns
+        -------
+        None
+            Appends to `warnings`.
+
+        Notes
+        -----
+        A model in two clusters makes the run ambiguous rather than merely
+        untidy: merging assigns each of its hits to whichever cluster claims
+        them, and the overlap heatmap has to place the model in one block or
+        the other. The report names the offenders and states which cluster it
+        used, so the resulting layout is explicable rather than arbitrary.
+        """
+        owners: Dict[str, List[str]] = {}
+        for cluster, components in self.cluster_map.items():
+            for component in components:
+                owners.setdefault(component, []).append(cluster)
+
+        shared = {
+            model: sorted(clusters)
+            for model, clusters in owners.items()
+            if len(clusters) > 1
+        }
+        if not shared:
+            return
+
+        detail = '; '.join(
+            f'{model} in {", ".join(clusters)}'
+            for model, clusters in sorted(shared.items())
+        )
+        self.warnings.append(
+            f'{len(shared)} query model(s) belong to more than one cluster '
+            f'({detail}). Hits from a shared model are assigned to whichever '
+            'cluster claimed them during merging, and the overlap heatmap '
+            'places each such model under the first cluster alphabetically.'
+        )
 
     def _resolve_cluster_lengths(self) -> None:
         """
@@ -449,6 +491,7 @@ class SearchReportAccumulator(ReportAccumulatorBase):
             for label, count in getattr(summary, 'stages', [])
         ]
         stats['cross_matches'] = list(getattr(summary, 'cross_cluster_overlaps', []))
+        stats['model_overlaps'] = list(getattr(summary, 'model_overlaps', []))
         stats['hits_per_model_before_merge'] = dict(
             getattr(summary, 'hits_per_model_before_merge', {})
         )

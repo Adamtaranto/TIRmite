@@ -83,11 +83,16 @@ fallback-version = "0.0.0"
 version-file = "src/tirmite/_version.py"
 
 [tool.pytest.ini_options]
-addopts = "-v --cov=tirmite --cov-branch --cov-report=xml --cov-report=term"
+# Benchmarks are heavy and only meaningful under CodSpeed; exclude them from the
+# normal test run. Run them explicitly with: pytest tests/benchmarks --codspeed
+# Coverage is not enabled by default: CI measures it on one Python version only,
+# and coverage tracing would skew the CodSpeed benchmark timings. For a local
+# report run: pytest --cov=tirmite --cov-report=term
+addopts = "-v --ignore=tests/benchmarks"
 # Only `tests` is collected by default, so `pytest` never runs the benchmarks.
 # Run them explicitly with:  pytest benchmarks/ --codspeed --no-cov
 testpaths = ["tests"]
-# `bench_*.py` is listed so files under benchmarks/ are collected when that
+# `bench_*.py` is listed so files under tests/benchmarks/ are collected when that
 # directory is named explicitly. No such files exist under tests/.
 python_files = ["test_*.py", "bench_*.py"]
 markers = [
@@ -113,7 +118,7 @@ select = [
 ignore = [
     "C901", # max-complexity-10
     "E501", # line-too-long
-    #"I001", # isort-imports
+    #"I001", # isort-imports - Comment out to let ruff handle import sorting
     "B905", # `zip()` without an explicit `strict=` parameter
 ]
 

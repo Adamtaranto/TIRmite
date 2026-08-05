@@ -25,12 +25,23 @@ from tirmite.report.stats import (
     filter_table,
     group_table,
     model_table,
+    search_cluster_table,
+    search_contested_table,
+    search_cross_match_matrix,
+    search_cross_match_table,
+    search_query_table,
+    search_stage_table,
 )
 
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-__all__ = ['inline_asset', 'render_report', 'write_pair_report']
+__all__ = [
+    'inline_asset',
+    'render_report',
+    'write_pair_report',
+    'write_search_report',
+]
 
 _PACKAGE = 'tirmite.report'
 _ASSET_DIR = 'assets'
@@ -157,11 +168,28 @@ def render_report(
         'styles': [inline_asset(name) for name in _STYLES],
         'scripts': [inline_asset(name) for name in _SCRIPTS],
         'summary': _headline_numbers(data),
-        'stats_groups': group_table(data),
-        'stats_models': model_table(data),
         'stats_contigs': contig_table(data),
-        'stats_filters': filter_table(data.filter_stats),
     }
+
+    if data.kind == 'search':
+        context.update(
+            {
+                'stats_queries': search_query_table(data),
+                'stats_stages': search_stage_table(data),
+                'stats_cross_matches': search_cross_match_table(data),
+                'cross_matrix': search_cross_match_matrix(data),
+                'stats_clusters': search_cluster_table(data),
+                'stats_contested': search_contested_table(data),
+            }
+        )
+    else:
+        context.update(
+            {
+                'stats_groups': group_table(data),
+                'stats_models': model_table(data),
+                'stats_filters': filter_table(data.filter_stats),
+            }
+        )
     # jinja2 is untyped under `no_site_packages`, so render() is Any.
     html: str = env.get_template(template).render(**context)
     return html
@@ -183,10 +211,14 @@ def _headline_numbers(data: ReportData) -> List[Dict[str, Any]]:
 
     Notes
     -----
-    These are the four numbers a reader wants before scrolling anywhere: how
-    many elements were predicted, how much of the hit set paired up, how many
-    sequences are involved and how many pairing procedures ran.
+    These are the four numbers a reader wants before scrolling anywhere. What
+    those are differs by report: a pairing run is judged on how much of its
+    hit set paired up, a search run on what it found and where the models
+    disagreed.
     """
+    if data.kind == 'search':
+        return _search_headline_numbers(data)
+
     n_elements = len(data.elements)
     n_hits = data.hits.n
     n_paired_hits = sum(1 for ix in data.hits.pair_ix if ix is not None)
@@ -221,6 +253,89 @@ def _headline_numbers(data: ReportData) -> List[Dict[str, Any]]:
             'detail': f'{len(data.models):,} terminus model(s)',
         },
     ]
+
+
+def _search_headline_numbers(data: ReportData) -> List[Dict[str, Any]]:
+    """
+    Build the stat tiles for a search report.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        Tiles with 'label', 'value' and 'detail' keys.
+    """
+    stages = data.stats.get('stages', [])
+    loaded = stages[0]['hits'] if stages else data.hits.n
+    retained = data.hits.n
+    kept = (retained / loaded) if loaded else 0.0
+
+    cross = data.stats.get('cross_matches', [])
+    clusters = data.stats.get('cluster_map', {})
+
+    return [
+        {
+            'label': 'Hits retained',
+            'value': f'{retained:,}',
+            'detail': (
+                f'{kept:.0%} of {loaded:,} loaded' if loaded else 'no hits loaded'
+            ),
+        },
+        {
+            'label': 'Query termini',
+            'value': f'{len(data.models):,}',
+            'detail': (
+                f'grouped into {len(clusters):,} cluster(s)'
+                if clusters
+                else 'no clustering applied'
+            ),
+        },
+        {
+            'label': 'Sequences with hits',
+            'value': f'{len(data.contigs):,}',
+            'detail': f'{sum(c.n_hits for c in data.contigs):,} hits placed',
+        },
+        {
+            'label': 'Cross-matches',
+            'value': f'{len(cross):,}',
+            'detail': ('loci claimed by two groups' if cross else 'no contested loci'),
+        },
+    ]
+
+
+def write_search_report(
+    data: ReportData,
+    outpath: Union[str, Path],
+    *,
+    figures: Optional[Sequence[FigureSpec]] = None,
+) -> Path:
+    """
+    Render a search report and write it to disk.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report to render, with ``kind='search'``.
+    outpath : str or pathlib.Path
+        Destination file.
+    figures : sequence of FigureSpec, optional
+        Static figures to embed.
+
+    Returns
+    -------
+    pathlib.Path
+        The path written.
+    """
+    path = Path(outpath)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    html = render_report(data, figures=figures, template='search_report.html.j2')
+    path.write_text(html, encoding='utf-8')
+    logger.info(f'Wrote HTML report to {path} ({len(html) / 1024:.0f} KiB)')
+    return path
 
 
 def write_pair_report(

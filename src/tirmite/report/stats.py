@@ -24,6 +24,12 @@ __all__ = [
     'group_table',
     'model_table',
     'pair_summary_stats',
+    'search_cluster_table',
+    'search_contested_table',
+    'search_cross_match_matrix',
+    'search_cross_match_table',
+    'search_query_table',
+    'search_stage_table',
 ]
 
 
@@ -483,4 +489,273 @@ def filter_table(filter_stats: Dict[str, Any]) -> List[Dict[str, Any]]:
             }
         )
 
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Search report tables
+#
+# These read the `stats` payload the search accumulator assembles, rather than
+# the run's internals, so they stay usable from a saved report.
+# ---------------------------------------------------------------------------
+
+
+def search_query_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the per-query-terminus statistics rows.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per query model that produced a hit.
+    """
+    hits_before = data.stats.get('hits_per_model_before_merge', {})
+    cluster_map = data.stats.get('cluster_map', {})
+    rows = []
+    for model in data.models:
+        # After merging a row is a cluster, while the recorded counts are per
+        # component, so a cluster's figure is the sum of what it absorbed.
+        if model.name in cluster_map:
+            components = cluster_map[model.name]
+            contributions = [hits_before[c] for c in components if c in hits_before]
+            before = sum(contributions) if contributions else None
+        else:
+            before = hits_before.get(model.name)
+        rows.append(
+            {
+                'model': model.name,
+                'length': {
+                    'value': f'{model.length:,}' if model.length else '–',
+                    'sort': model.length,
+                },
+                'hits': {'value': f'{model.n_hits:,}', 'sort': model.n_hits},
+                'before_merge': {
+                    'value': f'{before:,}' if before is not None else '–',
+                    'sort': before,
+                },
+                'contigs': {'value': f'{model.n_contigs:,}', 'sort': model.n_contigs},
+                'coverage': _pct(model.median_model_coverage),
+                'full': _pct(model.frac_full_length),
+                'clipped': _pct(model.frac_clipped),
+            }
+        )
+    return rows
+
+
+def search_stage_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the pipeline-stage rows, showing where hits were lost.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per stage, with the change from the previous stage.
+
+    Notes
+    -----
+    The per-stage delta is the point of this table. The log records absolute
+    counts at each step, which leaves the reader subtracting to find the step
+    that removed everything.
+    """
+    stages = data.stats.get('stages', [])
+    rows = []
+    previous = None
+    for stage in stages:
+        count = stage['hits']
+        if previous is None:
+            change = {'value': '–', 'sort': None}
+        else:
+            delta = count - previous
+            change = {
+                'value': f'{delta:+,}' if delta else '0',
+                'sort': delta,
+            }
+        rows.append(
+            {
+                'stage': stage['label'],
+                'hits': {'value': f'{count:,}', 'sort': count},
+                'change': change,
+            }
+        )
+        previous = count
+    return rows
+
+
+def search_cross_match_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the cross-match rows: loci where two groups both hit.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per contested locus, longest overlap first.
+    """
+    matches = data.stats.get('cross_matches', [])
+    rows = []
+    for match in sorted(matches, key=lambda m: -m.get('overlap', 0)):
+        rows.append(
+            {
+                'contig': match['contig'],
+                'a': match['a_cluster'],
+                'a_span': {
+                    'value': f'{match["a_start"]:,}–{match["a_end"]:,}',
+                    'sort': match['a_start'],
+                },
+                'b': match['b_cluster'],
+                'b_span': {
+                    'value': f'{match["b_start"]:,}–{match["b_end"]:,}',
+                    'sort': match['b_start'],
+                },
+                'overlap': {
+                    'value': f'{match["overlap"]:,} bp',
+                    'sort': match['overlap'],
+                },
+            }
+        )
+    return rows
+
+
+def search_cross_match_matrix(data: 'ReportData') -> Dict[str, Any]:
+    """
+    Summarise cross-matches as a group-by-group count matrix.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    dict
+        With 'labels' (the groups involved) and 'counts', a mapping of
+        ``'a\\tb'`` to the number of contested loci. Empty when nothing
+        cross-matched.
+
+    Notes
+    -----
+    The pair is stored unordered -- the two groups are symmetric partners in a
+    conflict, not a direction -- so each pair is counted once under its
+    alphabetically first member.
+    """
+    matches = data.stats.get('cross_matches', [])
+    counts: Dict[str, int] = {}
+    labels = set()
+    for match in matches:
+        a, b = sorted((match['a_cluster'], match['b_cluster']))
+        labels.add(a)
+        labels.add(b)
+        key = f'{a}\t{b}'
+        counts[key] = counts.get(key, 0) + 1
+    return {'labels': sorted(labels), 'counts': counts}
+
+
+def search_cluster_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the clustering rows: what each cluster was assembled from.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per cluster, with its components and their hit counts.
+    """
+    cluster_map = data.stats.get('cluster_map', {})
+    hits_before = data.stats.get('hits_per_model_before_merge', {})
+    by_group = {group.group_id: group for group in data.groups}
+
+    rows = []
+    for cluster, components in sorted(cluster_map.items()):
+        group = by_group.get(cluster)
+        before = sum(hits_before.get(component, 0) for component in components)
+        after = group.n_unpaired if group else 0
+        rows.append(
+            {
+                'cluster': {
+                    'value': cluster,
+                    'sort': cluster,
+                    'colour': (
+                        f'var(--group-{list(by_group).index(cluster)})'
+                        if cluster in by_group
+                        else None
+                    ),
+                },
+                'components': ', '.join(sorted(components)),
+                'n_components': {
+                    'value': f'{len(components):,}',
+                    'sort': len(components),
+                },
+                'before': {'value': f'{before:,}', 'sort': before},
+                'after': {'value': f'{after:,}', 'sort': after},
+                'merged': {
+                    'value': f'{before - after:,}' if before >= after else '–',
+                    'sort': before - after,
+                },
+            }
+        )
+    return rows
+
+
+def search_contested_table(data: 'ReportData') -> List[Dict[str, Any]]:
+    """
+    Build the rows describing which model won each contested locus.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+
+    Returns
+    -------
+    list of dict
+        One row per (removed model, kept model) pair, from the nested-hit and
+        cross-model filter steps.
+    """
+    rows = []
+    for entry in data.stats.get('cross_model_removed', []):
+        rows.append(
+            {
+                'step': 'Cross-model overlap',
+                'removed': entry['removed'],
+                'kept': entry['kept'],
+                'hits': {'value': f'{entry["hits"]:,}', 'sort': entry['hits']},
+            }
+        )
+    for removed, containers in sorted(data.stats.get('nested_removed', {}).items()):
+        for container, count in sorted(containers.items()):
+            rows.append(
+                {
+                    'step': 'Nested in partner',
+                    'removed': removed,
+                    'kept': container,
+                    'hits': {'value': f'{count:,}', 'sort': count},
+                }
+            )
+    for model, count in sorted(data.stats.get('excluded_not_in_map', {}).items()):
+        rows.append(
+            {
+                'step': 'Not in pairing map',
+                'removed': model,
+                'kept': '—',
+                'hits': {'value': f'{count:,}', 'sort': count},
+            }
+        )
     return rows

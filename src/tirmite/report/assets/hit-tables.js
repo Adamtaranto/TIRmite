@@ -110,13 +110,15 @@
     { label: 'Completeness', get: truncationSummary },
     {
       label: 'Pairing group',
+      pairsOnly: true,
       get: function (h) {
         return h.groups.map(function (g) { return g.label; }).join(', ') || '—';
       },
     },
-    { label: 'Terminus', get: function (h) { return h.role || '—'; } },
+    { label: 'Terminus', pairsOnly: true, get: function (h) { return h.role || '—'; } },
     {
       label: 'Element',
+      pairsOnly: true,
       get: function (h) { return h.element ? h.element.element_id : '—'; },
       render: function (h) {
         if (!h.element) return null;
@@ -125,7 +127,11 @@
         });
       },
     },
-  ];
+  ].filter(function (column) {
+    // A search report has no pairs, so these columns would be a wall of
+    // em-dashes. The group column would also just repeat the model.
+    return !column.pairsOnly || data.kind !== 'search';
+  });
 
   var ELEMENT_COLUMNS = [
     {

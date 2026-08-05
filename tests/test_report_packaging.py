@@ -20,7 +20,12 @@ EXPECTED_ASSETS = [
     'hit-tables.js',
     'msa-panel.js',
 ]
-EXPECTED_TEMPLATES = ['_base.html.j2', 'pair_report.html.j2', '_stats_table.html.j2']
+EXPECTED_TEMPLATES = [
+    '_base.html.j2',
+    '_stats_table.html.j2',
+    'pair_report.html.j2',
+    'search_report.html.j2',
+]
 
 
 @pytest.mark.parametrize('name', EXPECTED_ASSETS)
@@ -50,6 +55,17 @@ def test_templates_resolve_through_the_jinja_loader():
     env = render._environment()
     for name in EXPECTED_TEMPLATES:
         assert env.get_template(name) is not None
+
+
+def test_declared_templates_match_the_shipped_directory():
+    # Catches a template added to the package but never listed here, which
+    # would otherwise go untested for shipping.
+    shipped = {
+        entry.name
+        for entry in resources.files('tirmite.report').joinpath('templates').iterdir()
+        if entry.name.endswith('.j2')
+    }
+    assert shipped == set(EXPECTED_TEMPLATES)
 
 
 def test_declared_assets_match_the_shipped_directory():

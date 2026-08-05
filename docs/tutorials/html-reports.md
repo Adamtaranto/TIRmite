@@ -1,15 +1,21 @@
 # HTML Reports
 
-`tirmite pair --report` writes a single self-contained HTML file summarising the
-whole run: annotation tracks for every sequence carrying a hit, stacked
-alignments of each terminus model's hits, distribution plots and statistics
-tables.
+Both `tirmite pair` and `tirmite search` can write a single self-contained HTML
+file summarising the run.
 
 The file has no external references — no stylesheets, scripts, fonts or images
 are fetched. It works from a local disk, over email, and years later from an
 archive. Open it by double-clicking; no server is needed.
 
-## Quick start
+| Report | What it answers |
+|---|---|
+| [`tirmite pair --report`](#tirmite-pair-report) | Which termini paired into elements, how long they are, and how well each hit matches its model |
+| [`tirmite search --report`](#tirmite-search-report) | What each query found, where two models claimed the same locus, and what clustering and filtering did |
+
+Both share the same annotation tracks, alignment panels and table behaviour, so
+what you learn from one applies to the other.
+
+## `tirmite pair --report`
 
 ```bash
 tirmite pair \
@@ -38,9 +44,9 @@ subdirectories.
     ones are held out of the embedded sequences with a warning — but the real
     fix is a `--maxdist` appropriate to your element family.
 
-## What the report contains
+### What the pairing report contains
 
-### Annotation tracks
+#### Annotation tracks
 
 One track per sequence carrying at least one hit, drawn as a genome browser.
 
@@ -72,7 +78,7 @@ as the other.
 Sequences without any terminus pair are hidden by default; the **Show sequences
 without pairs** toggle reveals them, and the search box filters by name.
 
-### Terminus alignments
+#### Terminus alignments
 
 Every hit for a terminus model, stacked and aligned in model orientation
 (minus-strand hits are reverse-complemented).
@@ -96,7 +102,7 @@ exist. The panel caption always states which was used.
     BED input carries no model coordinates, so coverage, torn edges and model
     anchoring are all unavailable. The report says so rather than guessing.
 
-### Distributions
+#### Distributions
 
 Predicted element lengths, pairing outcome per group, model coverage, hits per
 sequence and hit significance. All are print-ready inline SVG at Nature's
@@ -111,7 +117,7 @@ distribution is legible: everything below the line was removed before pairing.
     by the model length — which can exceed 1 when a hit contains insertions.
     Both are reported, labelled distinctly.
 
-### Hits and elements
+#### Hits and elements
 
 Every terminus hit and every predicted element, filterable and sortable.
 Coordinates are links: clicking one reveals that locus on its contig track.
@@ -122,13 +128,13 @@ Large tables render only their first rows, but that is a display limit alone —
 the filter searches every row, the count states the true total, and the
 download writes everything.
 
-### Statistics
+#### Statistics
 
 Sortable tables covering pairing groups, terminus models, sequences and the
 filters applied. Every value shown on a track or in a tooltip also appears
 here, so nothing is reachable only by hovering.
 
-## Options
+### Options
 
 | Option | Description |
 |--------|-------------|
@@ -142,7 +148,7 @@ here, so nothing is reachable only by hovering.
 | `--report-max-hits` | Hits included in the report (default: 200 000) |
 | `--report-max-rows` | Stacked annotation rows per sequence (default: 30) |
 
-### Keeping the report small
+#### Keeping the report small
 
 Element sequences are what make a report large. They are embedded shortest-first
 until the `--report-max-seq-mb` budget is spent, and any single element over
@@ -160,14 +166,14 @@ For a rough sense of scale: a run producing 100 000 terminus hits makes an
 18 MB report before any sequences are embedded, and takes about four seconds to
 build on top of the pairing run itself.
 
-### When alignments are slow or unwanted
+#### When alignments are slow or unwanted
 
 `--report-msa off` skips the alignment panels. `--report-msa anchor` keeps them
 but never calls MAFFT, which is faster and fully deterministic.
 `--report-msa mafft` fails the run's argument check if MAFFT is not installed,
 rather than silently falling back.
 
-## Interactions with other options
+### Interactions with other options
 
 | Option | Effect on the report |
 |--------|----------------------|
@@ -176,7 +182,84 @@ rather than silently falling back.
 | `--prefix` | Applied to the report filename |
 | `--keep-temp` | Unrelated; MAFFT's intermediate files live in the run's temporary directory and are cleaned up with it |
 
-## If the report fails
+## `tirmite search --report`
+
+```bash
+tirmite search \
+  --hmm MY_TIR.hmm \
+  --genome $GENOME \
+  --lengths-file model_lengths.txt \
+  --cluster-map clusters.tsv \
+  --outdir SEARCH_OUTPUT \
+  --prefix myrun \
+  --report
+```
+
+This writes `SEARCH_OUTPUT/myrun_report.html` alongside the usual
+`myrun_hits.tab`.
+
+A search report answers a different question from a pairing report — not
+"which termini pair up" but "what did each query find, and where did the models
+disagree". It carries no elements and no terminus pairs.
+
+### Query termini
+
+One row per query that produced a hit: hits, sequences, median model coverage,
+how many matched their model in full, and how many were truncated by a contig
+end. When a cluster map was used, "before merging" shows how many hits each
+cluster absorbed from its components.
+
+### Cross-matches
+
+Loci where hits from two different groups overlap — two models claiming the
+same sequence. Shown twice: a group-by-group matrix of how many loci each pair
+contests, and a table of every one with spans and overlap length.
+
+This is worth reading whether or not a later filter resolved the conflict. The
+log reports only the first ten such overlaps; the report has them all.
+
+### Clustering
+
+What each cluster was assembled from, how many hits merging collapsed, and —
+when a pairing map was used — which model won each contested locus, from the
+nested-hit and cross-model filter steps.
+
+### Filtering
+
+Hits remaining after each pipeline stage, with the change at each step, so a
+run that lost everything shows *where*.
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--report` | Write the HTML report |
+| `--report-out` | Path for the report (implies `--report`) |
+| `--report-title` | Heading shown at the top |
+| `--report-msa` | `auto`, `mafft`, `anchor` or `off` (default: `off`) |
+| `--report-msa-max-rows` | Hits per alignment panel (default: 500) |
+| `--report-max-hits` | Hits included (default: 200 000) |
+| `--report-max-rows` | Stacked annotation rows per sequence (default: 30) |
+
+!!! note "Alignment panels are off by default here"
+    They re-read sequence for every hit, which a search run has no other reason
+    to do, and they need `--genome` or `--genome-list`. Turn them on with
+    `--report-msa auto`.
+
+### Model coverage after clustering
+
+Cluster merging renames every hit to its cluster, but a lengths file is keyed
+by component. The report resolves a cluster's model length from its components
+when they all declare the same one, which is the usual case for a cluster of
+variants of one terminus.
+
+When components disagree there is no single denominator — a merged hit's
+alignment coordinates come from whichever component scored best, and that
+component is not recoverable from the merged row. Those clusters are left
+without a length, coverage and jagged edges are unavailable for them, and the
+report says so in its banner rather than inventing a number.
+
+## If a report fails
 
 Report generation runs **after** every other output is on disk. If it fails, the
 error is logged, the run still exits successfully, and your GFF3, FASTA and

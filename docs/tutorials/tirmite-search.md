@@ -315,6 +315,26 @@ This produces:
 | `<prefix>_hits.tab` | Merged, filtered hit table (BLAST tabular format) ready for `tirmite pair` |
 | `<prefix>_left_hits.tab` | Left model hits only (when `--split-paired-output` is used) |
 | `<prefix>_right_hits.tab` | Right model hits only (when `--split-paired-output` is used) |
+| `<prefix>_report.html` | Self-contained HTML report (when `--report` is used) |
+
+## HTML report
+
+`--report` writes a single self-contained HTML file summarising the run:
+annotation tracks for every sequence with a hit, per-query statistics, the loci
+where two groups both hit, and what clustering and filtering did to the hit set.
+
+```bash
+tirmite search \
+  --hmm $HMMFILE \
+  --genome $GENOME \
+  --lengths-file model_lengths.txt \
+  --cluster-map clusters.tsv \
+  --outdir SEARCH_OUTPUT \
+  --prefix myrun \
+  --report
+```
+
+See [HTML Reports](html-reports.md) for what it shows and how to tune it.
 
 ## Next Steps
 

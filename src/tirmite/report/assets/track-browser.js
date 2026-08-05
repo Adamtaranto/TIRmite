@@ -31,6 +31,13 @@
   var container = document.getElementById('tracks');
   if (!container) return;
 
+  /*
+   * A search report has no pairs at all, so "unpaired" is not a distinction it
+   * can draw -- every hit would be faded, saying nothing. Pair-dependent
+   * styling and labelling is switched off wholesale rather than per hit.
+   */
+  var HAS_PAIRS = data.kind !== 'search';
+
   var tooltip = document.getElementById('tooltip');
   var modal = document.getElementById('element-modal');
 
@@ -128,9 +135,8 @@
       (contig.length_source === 'inferred' ? ' (estimated)' : '') +
       ' · ' +
       T.formatInt(contig.n_hits) +
-      ' hits · ' +
-      T.formatInt(contig.n_pairs) +
-      ' pairs';
+      ' hits' +
+      (HAS_PAIRS ? ' · ' + T.formatInt(contig.n_pairs) + ' pairs' : '');
     head.appendChild(name);
     head.appendChild(stats);
 
@@ -462,7 +468,7 @@
       var jagLeft = !!h.truncLeft && !h.clipLeft;
       var jagRight = !!h.truncRight && !h.clipRight;
       var path = svgEl('path', {
-        class: 'glyph' + (h.element ? '' : ' unpaired'),
+        class: 'glyph' + (HAS_PAIRS && !h.element ? ' unpaired' : ''),
         d: glyphPath(x(h.start), x(h.end + 1), y, GLYPH_HEIGHT, {
           strand: h.strand,
           jagLeft: jagLeft,
@@ -739,7 +745,7 @@
       }
       row(dl, 'Between termini', T.formatBp(h.element.inner_distance));
       row(dl, 'Element', h.element.element_id + ' · ' + T.formatBp(h.element.length));
-    } else {
+    } else if (HAS_PAIRS) {
       row(dl, 'Pairing', 'unpaired');
     }
     tooltip.appendChild(dl);
@@ -855,7 +861,8 @@
       ? h.contig.name + ':' + element.start.toLocaleString() + '–' +
         element.end.toLocaleString() + ' · ' + T.formatBp(element.length)
       : h.contig.name + ':' + h.start.toLocaleString() + '–' +
-        h.end.toLocaleString() + ' · ' + T.formatBp(h.length) + ' · unpaired';
+        h.end.toLocaleString() + ' · ' + T.formatBp(h.length) +
+        (HAS_PAIRS ? ' · unpaired' : '');
 
     titles.appendChild(h3);
     titles.appendChild(sub);
@@ -1010,7 +1017,7 @@
       }
       row(dl, 'Between termini', T.formatBp(element.inner_distance));
       row(dl, 'Element length', T.formatBp(element.length));
-    } else {
+    } else if (HAS_PAIRS) {
       row(dl, 'Pairing', 'unpaired');
     }
 

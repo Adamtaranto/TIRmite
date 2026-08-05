@@ -105,7 +105,7 @@ See the [online tutorials](https://adamtaranto.github.io/TIRmite) for detailed w
 - [**Using tirmite search**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-search/) — ensemble BLAST/nhmmer search and hit merging.
 - [**Using tirmite pair**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-pair/) — pairing terminus hits, flank extraction and target site reconstruction.
 - [**Reconstructing and validating target sites**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-validate/) — validate reconstructed target sites with `tirmite validate`.
-- [**HTML reports**](https://adamtaranto.github.io/TIRmite/tutorials/html-reports/) — interactive annotation tracks, terminus alignments and summary plots from `tirmite pair --report`.
+- [**HTML reports**](https://adamtaranto.github.io/TIRmite/tutorials/html-reports/) — interactive annotation tracks, terminus alignments and summary plots from `tirmite pair --report` and `tirmite search --report`.
 
 #### Quick start
 

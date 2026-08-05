@@ -38,7 +38,7 @@ from tirmite.report.stats import PairSummary
 logger = logging.getLogger(__name__)
 logger.addHandler(logging.NullHandler())
 
-__all__ = ['PairReportAccumulator', 'model_truncation']
+__all__ = ['PairReportAccumulator', 'ReportAccumulatorBase', 'model_truncation']
 
 # Per-element ceiling on embedded sequence. A single multi-megabase "element"
 # is almost always a mis-pairing, and embedding it would blow the whole budget
@@ -146,7 +146,285 @@ def model_truncation(
     return start_deficit, end_deficit
 
 
-class PairReportAccumulator:
+class ReportAccumulatorBase:
+    """
+    The parts of report building that do not depend on pairing.
+
+    Both the ``tirmite pair`` and ``tirmite search`` accumulators resolve
+    contig lengths, decide which truncations are contig ends, stack annotation
+    rows, and summarise contigs and models. Only the pairing-specific work --
+    groups, elements, terminus roles, embedded sequences -- differs, so it
+    lives in the subclasses.
+
+    Attributes
+    ----------
+    warnings : list of str
+        Caveats accumulated while building, surfaced at the top of the report.
+    contig_length : callable or None
+        Called with a contig name, returning its length or None.
+    model_lengths : dict
+        Model name to declared length.
+    max_rows : int
+        Cap on stacked annotation rows per contig.
+    """
+
+    warnings: List[str]
+    contig_length: Optional[Callable[[str], Optional[int]]]
+    model_lengths: Dict[str, int]
+    max_rows: int
+
+    def _resolve_contig_lengths(
+        self, hits: Sequence[HitRecord]
+    ) -> Dict[str, Tuple[int, str]]:
+        """
+        Determine each contig's length and where that length came from.
+
+        Parameters
+        ----------
+        hits : sequence of HitRecord
+            The hits to be reported.
+
+        Returns
+        -------
+        dict
+            Mapping of contig name to ``(length, source)`` where source is
+            'source' or 'inferred'.
+        """
+        furthest: Dict[str, int] = {}
+        for hit in hits:
+            if hit.end > furthest.get(hit.contig, 0):
+                furthest[hit.contig] = hit.end
+
+        lengths: Dict[str, Tuple[int, str]] = {}
+        inferred = 0
+        for name, max_end in furthest.items():
+            length = None
+            if self.contig_length is not None:
+                try:
+                    length = self.contig_length(name)
+                except Exception as exc:  # noqa: BLE001 - a length is optional
+                    logger.debug(f'Could not read length of contig {name}: {exc}')
+            if length:
+                lengths[name] = (int(length), 'source')
+            else:
+                # Without a sequence source the axis can only be approximate.
+                # Pad past the last hit so the final annotation is not flush
+                # against the edge of the track.
+                lengths[name] = (int(max_end * 1.05) + 1, 'inferred')
+                inferred += 1
+
+        if inferred:
+            self.warnings.append(
+                f'Contig lengths were unavailable for {inferred:,} sequence(s) '
+                'and have been estimated from the hits. Track axes for those '
+                'contigs are approximate.'
+            )
+        return lengths
+
+    def _apply_clipping(
+        self,
+        hits: List[HitRecord],
+        contig_lengths: Dict[str, Tuple[int, str]],
+    ) -> None:
+        """
+        Mark truncations that are caused by a contig end.
+
+        Parameters
+        ----------
+        hits : list of HitRecord
+            Hits to update. Replaced in place.
+        contig_lengths : dict
+            Contig name to ``(length, source)``.
+
+        Returns
+        -------
+        None
+            Rewrites the list in place.
+
+        Notes
+        -----
+        A hit is short for one of two reasons: it only partially matched its
+        model, or the sequence ran out. The report draws those differently -- a
+        jagged edge versus a contig-end cap -- so they must be distinguished
+        here. Only a truncation that would need bases beyond the contig counts
+        as clipped.
+        """
+        for i, hit in enumerate(hits):
+            length, source = contig_lengths.get(hit.contig, (0, 'inferred'))
+            clip_left = bool(hit.trunc_left and hit.start - hit.trunc_left < 1)
+            clip_right = bool(
+                source == 'source'
+                and hit.trunc_right
+                and hit.end + hit.trunc_right > length
+            )
+            if clip_left or clip_right:
+                hits[i] = _replace_hit(hit, clip_left=clip_left, clip_right=clip_right)
+
+    def _stack(
+        self,
+        hits: List[HitRecord],
+        pairs_by_contig: Dict[str, List[Tuple[int, int]]],
+        contig_lengths: Dict[str, Tuple[int, str]],
+    ) -> List[HitRecord]:
+        """
+        Assign a track row to every hit.
+
+        Parameters
+        ----------
+        hits : list of HitRecord
+            Hits sorted by contig then start.
+        pairs_by_contig : dict
+            Pair memberships per contig. Empty for a search report, where
+            every hit stacks on its own.
+        contig_lengths : dict
+            Contig name to ``(length, source)``.
+
+        Returns
+        -------
+        list of HitRecord
+            The same hits with `row` and `row_overflow` set.
+        """
+        by_contig: Dict[str, List[HitRecord]] = {}
+        for hit in hits:
+            by_contig.setdefault(hit.contig, []).append(hit)
+
+        rows: Dict[int, int] = {}
+        overflow: Set[int] = set()
+        for contig, contig_hits in by_contig.items():
+            length, _ = contig_lengths.get(contig, (1, 'inferred'))
+            contig_rows, contig_overflow = stack_contig(
+                contig_hits,
+                pairs_by_contig.get(contig, []),
+                length,
+                max_rows=self.max_rows,
+            )
+            rows.update(contig_rows)
+            overflow.update(contig_overflow)
+
+        return [
+            _replace_hit(
+                hit,
+                row=rows.get(hit.uid, 0),
+                row_overflow=hit.uid in overflow,
+            )
+            for hit in hits
+        ]
+
+    def _build_contigs(
+        self,
+        hits: Sequence[HitRecord],
+        elements: Sequence[ElementRecord],
+        contig_lengths: Dict[str, Tuple[int, str]],
+        element_contig: Optional[Dict[str, str]] = None,
+    ) -> List[ContigInfo]:
+        """
+        Summarise each contig that carries at least one hit.
+
+        Parameters
+        ----------
+        hits : sequence of HitRecord
+            Hits sorted by contig then start.
+        elements : sequence of ElementRecord
+            Element records. Empty for a search report.
+        contig_lengths : dict
+            Contig name to ``(length, source)``.
+        element_contig : dict, optional
+            Pair id to contig name. Required when `elements` is non-empty.
+
+        Returns
+        -------
+        list of ContigInfo
+            In the same order as `hits`, so the recorded slices stay valid.
+        """
+        element_contig = element_contig or {}
+        slices: Dict[str, Tuple[int, int]] = {}
+        n_hits: Dict[str, int] = {}
+        n_rows: Dict[str, int] = {}
+        for i, hit in enumerate(hits):
+            lo, _ = slices.get(hit.contig, (i, i))
+            slices[hit.contig] = (lo, i + 1)
+            n_hits[hit.contig] = n_hits.get(hit.contig, 0) + 1
+            n_rows[hit.contig] = max(n_rows.get(hit.contig, 1), hit.row + 1)
+
+        n_elements: Dict[str, int] = {}
+        element_bp: Dict[str, int] = {}
+        for element in elements:
+            contig = element_contig[element.pair_id]
+            n_elements[contig] = n_elements.get(contig, 0) + 1
+            element_bp[contig] = element_bp.get(contig, 0) + element.length
+
+        infos = []
+        for name, (lo, hi) in slices.items():
+            length, source = contig_lengths.get(name, (1, 'inferred'))
+            infos.append(
+                ContigInfo(
+                    name=name,
+                    length=length,
+                    length_source=source,
+                    n_hits=n_hits.get(name, 0),
+                    n_pairs=n_elements.get(name, 0),
+                    n_elements=n_elements.get(name, 0),
+                    n_rows=n_rows.get(name, 1),
+                    hit_lo=lo,
+                    hit_hi=hi,
+                    element_bp=element_bp.get(name, 0),
+                )
+            )
+
+        # Hits keep their (contig, start) ordering, so the slices stay valid
+        # only if the contig list is not reordered. Sort a copy of the display
+        # order instead and let the browser use it for presentation.
+        return sorted(infos, key=lambda c: c.hit_lo)
+
+    def _build_models(self, hits: Sequence[HitRecord]) -> List[ModelInfo]:
+        """
+        Summarise each model that produced at least one hit.
+
+        Parameters
+        ----------
+        hits : sequence of HitRecord
+            The hits to be reported.
+
+        Returns
+        -------
+        list of ModelInfo
+            Ordered by model name.
+        """
+        by_model: Dict[str, List[HitRecord]] = {}
+        for hit in hits:
+            by_model.setdefault(hit.model, []).append(hit)
+
+        infos = []
+        for name in sorted(by_model):
+            model_hits = by_model[name]
+            coverages = [
+                h.model_coverage for h in model_hits if h.model_coverage is not None
+            ]
+            n_paired = sum(1 for h in model_hits if h.pair_id is not None)
+            clipped = sum(1 for h in model_hits if h.clip_left or h.clip_right)
+            infos.append(
+                ModelInfo(
+                    name=name,
+                    length=self.model_lengths.get(name),
+                    n_hits=len(model_hits),
+                    n_contigs=len({h.contig for h in model_hits}),
+                    n_paired=n_paired,
+                    n_unpaired=len(model_hits) - n_paired,
+                    median_model_coverage=(
+                        round(median(coverages), 4) if coverages else None
+                    ),
+                    frac_full_length=(
+                        round(sum(1 for c in coverages if c >= 1.0) / len(coverages), 4)
+                        if coverages
+                        else None
+                    ),
+                    frac_clipped=round(clipped / len(model_hits), 4),
+                )
+            )
+        return infos
+
+
+class PairReportAccumulator(ReportAccumulatorBase):
     """
     Collect the results of a ``tirmite pair`` run into report data.
 
@@ -566,7 +844,9 @@ class PairReportAccumulator:
         hits = sorted(hits, key=lambda h: (h.contig, h.start, h.end, h.uid))
         hits = self._stack(hits, pairs_by_contig, contig_lengths)
 
-        contigs = self._build_contigs(hits, elements, contig_lengths)
+        contigs = self._build_contigs(
+            hits, elements, contig_lengths, element_contig=self._pair_contig
+        )
         contig_index = {c.name: i for i, c in enumerate(contigs)}
         models = self._build_models(hits)
         model_index = {m.name: i for i, m in enumerate(models)}
@@ -793,93 +1073,6 @@ class PairReportAccumulator:
         )
         return ranked[: self.max_hits]
 
-    def _resolve_contig_lengths(
-        self, hits: Sequence[HitRecord]
-    ) -> Dict[str, Tuple[int, str]]:
-        """
-        Determine each contig's length and where that length came from.
-
-        Parameters
-        ----------
-        hits : sequence of HitRecord
-            The hits to be reported.
-
-        Returns
-        -------
-        dict
-            Mapping of contig name to ``(length, source)`` where source is
-            'source' or 'inferred'.
-        """
-        furthest: Dict[str, int] = {}
-        for hit in hits:
-            if hit.end > furthest.get(hit.contig, 0):
-                furthest[hit.contig] = hit.end
-
-        lengths: Dict[str, Tuple[int, str]] = {}
-        inferred = 0
-        for name, max_end in furthest.items():
-            length = None
-            if self.contig_length is not None:
-                try:
-                    length = self.contig_length(name)
-                except Exception as exc:  # noqa: BLE001 - a length is optional
-                    logger.debug(f'Could not read length of contig {name}: {exc}')
-            if length:
-                lengths[name] = (int(length), 'source')
-            else:
-                # Without a sequence source the axis can only be approximate.
-                # Pad past the last hit so the final annotation is not flush
-                # against the edge of the track.
-                lengths[name] = (int(max_end * 1.05) + 1, 'inferred')
-                inferred += 1
-
-        if inferred:
-            self.warnings.append(
-                f'Contig lengths were unavailable for {inferred:,} sequence(s) '
-                'and have been estimated from the hits. Track axes for those '
-                'contigs are approximate.'
-            )
-        return lengths
-
-    def _apply_clipping(
-        self,
-        hits: List[HitRecord],
-        contig_lengths: Dict[str, Tuple[int, str]],
-    ) -> None:
-        """
-        Mark truncations that are caused by a contig end.
-
-        Parameters
-        ----------
-        hits : list of HitRecord
-            Hits to update. Replaced in place.
-        contig_lengths : dict
-            Contig name to ``(length, source)``.
-
-        Returns
-        -------
-        None
-            Rewrites the list in place.
-
-        Notes
-        -----
-        A hit is short for one of two reasons: it only partially matched its
-        model, or the sequence ran out. The report draws those differently -- a
-        jagged edge versus a contig-end cap -- so they must be distinguished
-        here. Only a truncation that would need bases beyond the contig counts
-        as clipped.
-        """
-        for i, hit in enumerate(hits):
-            length, source = contig_lengths.get(hit.contig, (0, 'inferred'))
-            clip_left = bool(hit.trunc_left and hit.start - hit.trunc_left < 1)
-            clip_right = bool(
-                source == 'source'
-                and hit.trunc_right
-                and hit.end + hit.trunc_right > length
-            )
-            if clip_left or clip_right:
-                hits[i] = _replace_hit(hit, clip_left=clip_left, clip_right=clip_right)
-
     def _pairs_on_contigs(
         self, hits: Sequence[HitRecord]
     ) -> Dict[str, List[Tuple[int, int]]]:
@@ -1022,165 +1215,6 @@ class PairReportAccumulator:
                 role=roles.get(hit.uid),
                 pair_id=pair_of.get(hit.uid),
             )
-
-    def _stack(
-        self,
-        hits: List[HitRecord],
-        pairs_by_contig: Dict[str, List[Tuple[int, int]]],
-        contig_lengths: Dict[str, Tuple[int, str]],
-    ) -> List[HitRecord]:
-        """
-        Assign a track row to every hit.
-
-        Parameters
-        ----------
-        hits : list of HitRecord
-            Hits sorted by contig then start.
-        pairs_by_contig : dict
-            Pair memberships per contig.
-        contig_lengths : dict
-            Contig name to ``(length, source)``.
-
-        Returns
-        -------
-        list of HitRecord
-            The same hits with `row` and `row_overflow` set.
-        """
-        by_contig: Dict[str, List[HitRecord]] = {}
-        for hit in hits:
-            by_contig.setdefault(hit.contig, []).append(hit)
-
-        rows: Dict[int, int] = {}
-        overflow: Set[int] = set()
-        for contig, contig_hits in by_contig.items():
-            length, _ = contig_lengths.get(contig, (1, 'inferred'))
-            contig_rows, contig_overflow = stack_contig(
-                contig_hits,
-                pairs_by_contig.get(contig, []),
-                length,
-                max_rows=self.max_rows,
-            )
-            rows.update(contig_rows)
-            overflow.update(contig_overflow)
-
-        return [
-            _replace_hit(
-                hit,
-                row=rows.get(hit.uid, 0),
-                row_overflow=hit.uid in overflow,
-            )
-            for hit in hits
-        ]
-
-    def _build_contigs(
-        self,
-        hits: Sequence[HitRecord],
-        elements: Sequence[ElementRecord],
-        contig_lengths: Dict[str, Tuple[int, str]],
-    ) -> List[ContigInfo]:
-        """
-        Summarise each contig that carries at least one hit.
-
-        Parameters
-        ----------
-        hits : sequence of HitRecord
-            Hits sorted by contig then start.
-        elements : sequence of ElementRecord
-            Element records.
-        contig_lengths : dict
-            Contig name to ``(length, source)``.
-
-        Returns
-        -------
-        list of ContigInfo
-            Ordered by descending pair count then descending hit count, so the
-            contigs most worth looking at appear first.
-        """
-        slices: Dict[str, Tuple[int, int]] = {}
-        n_hits: Dict[str, int] = {}
-        n_rows: Dict[str, int] = {}
-        for i, hit in enumerate(hits):
-            lo, _ = slices.get(hit.contig, (i, i))
-            slices[hit.contig] = (lo, i + 1)
-            n_hits[hit.contig] = n_hits.get(hit.contig, 0) + 1
-            n_rows[hit.contig] = max(n_rows.get(hit.contig, 1), hit.row + 1)
-
-        n_elements: Dict[str, int] = {}
-        element_bp: Dict[str, int] = {}
-        for element in elements:
-            contig = self._pair_contig[element.pair_id]
-            n_elements[contig] = n_elements.get(contig, 0) + 1
-            element_bp[contig] = element_bp.get(contig, 0) + element.length
-
-        infos = []
-        for name, (lo, hi) in slices.items():
-            length, source = contig_lengths.get(name, (1, 'inferred'))
-            infos.append(
-                ContigInfo(
-                    name=name,
-                    length=length,
-                    length_source=source,
-                    n_hits=n_hits.get(name, 0),
-                    n_pairs=n_elements.get(name, 0),
-                    n_elements=n_elements.get(name, 0),
-                    n_rows=n_rows.get(name, 1),
-                    hit_lo=lo,
-                    hit_hi=hi,
-                    element_bp=element_bp.get(name, 0),
-                )
-            )
-
-        # Hits keep their (contig, start) ordering, so the slices stay valid
-        # only if the contig list is not reordered. Sort a copy of the display
-        # order instead and let the browser use it for presentation.
-        return sorted(infos, key=lambda c: c.hit_lo)
-
-    def _build_models(self, hits: Sequence[HitRecord]) -> List[ModelInfo]:
-        """
-        Summarise each model that produced at least one hit.
-
-        Parameters
-        ----------
-        hits : sequence of HitRecord
-            The hits to be reported.
-
-        Returns
-        -------
-        list of ModelInfo
-            Ordered by model name.
-        """
-        by_model: Dict[str, List[HitRecord]] = {}
-        for hit in hits:
-            by_model.setdefault(hit.model, []).append(hit)
-
-        infos = []
-        for name in sorted(by_model):
-            model_hits = by_model[name]
-            coverages = [
-                h.model_coverage for h in model_hits if h.model_coverage is not None
-            ]
-            n_paired = sum(1 for h in model_hits if h.pair_id is not None)
-            clipped = sum(1 for h in model_hits if h.clip_left or h.clip_right)
-            infos.append(
-                ModelInfo(
-                    name=name,
-                    length=self.model_lengths.get(name),
-                    n_hits=len(model_hits),
-                    n_contigs=len({h.contig for h in model_hits}),
-                    n_paired=n_paired,
-                    n_unpaired=len(model_hits) - n_paired,
-                    median_model_coverage=(
-                        round(median(coverages), 4) if coverages else None
-                    ),
-                    frac_full_length=(
-                        round(sum(1 for c in coverages if c >= 1.0) / len(coverages), 4)
-                        if coverages
-                        else None
-                    ),
-                    frac_clipped=round(clipped / len(model_hits), 4),
-                )
-            )
-        return infos
 
     def _build_sequences(
         self,

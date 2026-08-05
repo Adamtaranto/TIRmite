@@ -25,6 +25,7 @@ import pandas as pd
 from rich.console import Console
 from rich.progress import track
 
+from tirmite._version import __version__
 from tirmite.cli._argtypes import (
     validate_evalue,
     validate_identity,
@@ -50,6 +51,7 @@ from tirmite.core.parsers import (  # noqa: F401
 from tirmite.runners.hmmer_wrappers import build_nhmmer_command
 from tirmite.runners.runBlastn import BlastError, run_blastn
 from tirmite.runners.wrapping import run_command
+from tirmite.utils.extract import make_source
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import prepare_genome_file, temporary_directory
 
@@ -82,11 +84,47 @@ class SearchFilterSummary:
     cross_model_removed : dict
         Hits removed at Step 2 (weaker overlapping cross-model hit).
         Mapping of ``{(removed_model, better_model): count}``.
+    stages : list of tuple
+        ``(stage_label, hit_count)`` after each pipeline step, in order. Only
+        the log recorded these before; the HTML report shows where a run lost
+        its hits, which a per-step log line makes the reader reconstruct.
+    cross_cluster_overlaps : list of dict
+        Every cross-cluster overlap found, as returned by
+        :func:`check_cross_cluster_overlaps`.
+    hits_per_model_before_merge : dict
+        Hits per component model immediately before cluster merging, so the
+        report can show what each cluster was assembled from.
+
+    Notes
+    -----
+    The last three fields are collected for the report and are never read by
+    :func:`log_filter_summary`, whose output is unchanged.
     """
 
     excluded_not_in_map: Dict[str, int] = field(default_factory=dict)
     nested_removed: Dict[str, Dict[str, int]] = field(default_factory=dict)
     cross_model_removed: Dict[Tuple[str, str], int] = field(default_factory=dict)
+    stages: List[Tuple[str, int]] = field(default_factory=list)
+    cross_cluster_overlaps: List[Dict[str, Any]] = field(default_factory=list)
+    hits_per_model_before_merge: Dict[str, int] = field(default_factory=dict)
+
+    def record_stage(self, label: str, hit_table: Any) -> None:
+        """
+        Record how many hits survive at a named pipeline stage.
+
+        Parameters
+        ----------
+        label : str
+            Human-readable stage name.
+        hit_table : pandas.DataFrame
+            The hit table as it stands after that stage.
+
+        Returns
+        -------
+        None
+            Appends to `stages`.
+        """
+        self.stages.append((label, 0 if hit_table is None else len(hit_table)))
 
 
 # -----------------------------------------------------------------------------
@@ -955,9 +993,9 @@ def check_cross_cluster_overlaps(
     hit_table: pd.DataFrame,
     cluster_map: Dict[str, List[str]],
     min_overlap: int = 1,
-) -> None:
+) -> List[Dict[str, Any]]:
     """
-    Check for and warn about overlapping hits between different clusters.
+    Find and warn about overlapping hits between different clusters.
 
     Parameters
     ----------
@@ -967,9 +1005,23 @@ def check_cross_cluster_overlaps(
         Dictionary mapping cluster names to component lists.
     min_overlap : int, default 1
         Minimum overlap to report.
+
+    Returns
+    -------
+    list of dict
+        One record per overlapping pair, with keys 'contig', 'a_cluster',
+        'a_start', 'a_end', 'b_cluster', 'b_start', 'b_end' and 'overlap'.
+        Every overlap found is returned, not only the ten that are logged.
+
+    Notes
+    -----
+    Logging is capped at ten warnings so a badly-specified cluster map cannot
+    bury the rest of the run, but the full list is returned for the HTML
+    report: a cross-match between two clusters is evidence about the models
+    themselves, and a count alone does not say which loci are contested.
     """
     if hit_table.empty:
-        return
+        return []
 
     component_to_cluster = build_component_to_cluster_map(cluster_map)
 
@@ -986,6 +1038,7 @@ def check_cross_cluster_overlaps(
     # termini are separated by the element body and never overlap, so dropping
     # strand from the grouping costs nothing there.
     warnings_reported = 0
+    overlaps: List[Dict[str, Any]] = []
     for target, group in hit_table.groupby('target'):
         if len(group) < 2:
             continue
@@ -1031,6 +1084,18 @@ def check_cross_cluster_overlaps(
                 overlap = max(0, overlap_end - overlap_start + 1)
 
                 if overlap >= min_overlap:
+                    overlaps.append(
+                        {
+                            'contig': str(target),
+                            'a_cluster': str(cluster1),
+                            'a_start': start1,
+                            'a_end': end1,
+                            'b_cluster': str(clusters[j]),
+                            'b_start': start2,
+                            'b_end': end2,
+                            'overlap': overlap,
+                        }
+                    )
                     if warnings_reported < 10:  # Limit warnings
                         logger.warning(
                             f'Cross-cluster overlap detected: {target}:{start1}-{end1} ({cluster1}) '
@@ -1040,6 +1105,8 @@ def check_cross_cluster_overlaps(
 
     if warnings_reported > 10:
         logger.warning(f'... and {warnings_reported - 10} more cross-cluster overlaps')
+
+    return overlaps
 
 
 # -----------------------------------------------------------------------------
@@ -2081,6 +2148,78 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
 
+    # Report options
+    report_group = parser.add_argument_group('Report Options')
+    report_group.add_argument(
+        '--report',
+        action='store_true',
+        default=False,
+        help=(
+            'Write a self-contained HTML report of the run: annotation tracks '
+            'for every sequence with a hit, per-query statistics, cross-matches '
+            'between groups, and the clustering and filtering decisions.'
+        ),
+    )
+    report_group.add_argument(
+        '--report-out',
+        type=Path,
+        default=None,
+        dest='report_out',
+        help=(
+            'Path for the HTML report. Implies --report. '
+            'Default: <outdir>/<prefix>_report.html'
+        ),
+    )
+    report_group.add_argument(
+        '--report-title',
+        type=str,
+        default=None,
+        dest='report_title',
+        help='Heading shown at the top of the HTML report.',
+    )
+    report_group.add_argument(
+        '--report-msa',
+        default='off',
+        dest='report_msa',
+        choices=['auto', 'mafft', 'anchor', 'off'],
+        help=(
+            'How to build the query alignment panels. Off by default because '
+            'it needs to re-read sequence for every hit, which a search run '
+            'has no other reason to do. Requires --genome or --genome-list. '
+            'Default: off'
+        ),
+    )
+    report_group.add_argument(
+        '--report-msa-max-rows',
+        type=int,
+        default=500,
+        dest='report_msa_max_rows',
+        help=(
+            'Maximum hits shown per query alignment panel, most significant '
+            'first. Default: 500'
+        ),
+    )
+    report_group.add_argument(
+        '--report-max-hits',
+        type=int,
+        default=200000,
+        dest='report_max_hits',
+        help=(
+            'Maximum hits included in the HTML report, most significant first. '
+            'Default: 200000'
+        ),
+    )
+    report_group.add_argument(
+        '--report-max-rows',
+        type=int,
+        default=30,
+        dest='report_max_rows',
+        help=(
+            'Maximum stacked annotation rows per sequence in the HTML report. '
+            'Default: 30'
+        ),
+    )
+
     # Processing options
     proc_group = parser.add_argument_group('Processing Options')
     proc_group.add_argument(
@@ -2236,6 +2375,175 @@ def _validate_search_args(args: argparse.Namespace) -> None:
             'left and right models.'
         )
 
+    _validate_report_args(args)
+
+
+def _validate_report_args(args: argparse.Namespace) -> None:
+    """
+    Validate and normalise the HTML report options.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Mutated in place: ``--report-out`` implies
+        ``--report``, and an alignment mode that cannot run is downgraded.
+
+    Raises
+    ------
+    EnsembleSearchError
+        If a report option was given a value that cannot be honoured.
+
+    Notes
+    -----
+    Tolerates a namespace built before these options existed, which the tests
+    and any library caller may pass.
+    """
+    if not hasattr(args, 'report'):
+        return
+
+    if getattr(args, 'report_out', None):
+        args.report = True
+
+    if not args.report:
+        return
+
+    for option, minimum in (
+        ('report_max_hits', 1),
+        ('report_max_rows', 1),
+        ('report_msa_max_rows', 1),
+    ):
+        value = getattr(args, option, minimum)
+        if value < minimum:
+            flag = '--' + option.replace('_', '-')
+            raise EnsembleSearchError(f'{flag} must be at least {minimum}')
+
+    msa_mode = getattr(args, 'report_msa', 'off')
+    if msa_mode != 'off' and not (args.genome or args.genome_list):
+        # The panels read hit sequence from the genome; a run against
+        # precomputed results alone has nothing to read.
+        raise EnsembleSearchError(
+            '--report-msa requires --genome or --genome-list, because the '
+            'alignment panels re-read each hit from the sequence it was found '
+            'in. Use --report-msa off to omit them.'
+        )
+    if msa_mode == 'mafft':
+        from tirmite.runners.mafft import mafft_available
+
+        if not mafft_available():
+            raise EnsembleSearchError(
+                '--report-msa mafft was requested but mafft was not found on '
+                'PATH. Install MAFFT, or use --report-msa auto to fall back to '
+                'placing hits by their model coordinates.'
+            )
+
+
+def _write_search_report(
+    args: argparse.Namespace,
+    hit_table: pd.DataFrame,
+    summary: 'SearchFilterSummary',
+    *,
+    query_lengths: Optional[Dict[str, int]] = None,
+    cluster_map: Optional[Dict[str, List[str]]] = None,
+    pairing_map: Optional[Dict[str, str]] = None,
+) -> None:
+    """
+    Build and write the HTML report, if one was requested.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments.
+    hit_table : pandas.DataFrame
+        The processed hit table, as written to disk.
+    summary : SearchFilterSummary
+        Per-stage counts, cross-cluster overlaps and filter statistics.
+    query_lengths : dict, optional
+        Query or model name to declared length.
+    cluster_map : dict, optional
+        Cluster name to component names.
+    pairing_map : dict, optional
+        Left model to right model.
+
+    Returns
+    -------
+    None
+        Writes the report to disk.
+
+    Notes
+    -----
+    Every failure here is logged and swallowed. The hit table is already on
+    disk by the time this runs, and losing a completed search to a broken
+    visualisation would be the wrong trade.
+    """
+    if not getattr(args, 'report', False):
+        return
+
+    try:
+        from tirmite.report.render import write_search_report
+        from tirmite.report.search import SearchReportAccumulator
+
+        genome_label = 'sequences'
+        if args.genome:
+            genome_label = Path(args.genome[0]).name if args.genome else genome_label
+        elif args.blast_db:
+            genome_label = Path(args.blast_db).name
+
+        accumulator = SearchReportAccumulator(
+            tirmite_version=__version__,
+            command=' '.join(sys.argv),
+            title=args.report_title or f'TIRmite search report — {genome_label}',
+            params={
+                'max_evalue': args.max_evalue,
+                'min_identity': args.min_identity,
+                'max_offset': getattr(args, 'max_offset', None),
+                'orientation': getattr(args, 'orientation', None),
+                'min_score_ratio': getattr(args, 'min_score_ratio', None),
+                'merge_max_gap': getattr(args, 'merge_max_gap', None),
+            },
+            model_lengths=query_lengths or {},
+            cluster_map=cluster_map,
+            pairing_map=pairing_map,
+            max_hits=args.report_max_hits,
+            max_rows=args.report_max_rows,
+        )
+
+        # Alignment panels are the only part that needs sequence, so the
+        # source is built only when they were asked for.
+        source = None
+        tempdir = None
+        msa_mode = getattr(args, 'report_msa', 'off')
+        if msa_mode != 'off':
+            genomes = list(args.genome or [])
+            if args.genome_list:
+                genomes = parse_genome_list(args.genome_list)
+            if genomes:
+                source = make_source(genome=str(genomes[0]))
+                tempdir = str(args.outdir / f'{args.prefix}_report_tmp')
+                if len(genomes) > 1:
+                    accumulator.warnings.append(
+                        f'Alignment panels read sequence from {Path(genomes[0]).name} '
+                        f'only; this run searched {len(genomes)} genomes.'
+                    )
+
+        if source is not None:
+            accumulator.contig_length = source.contig_length
+
+        logger.info('Building HTML report...')
+        data = accumulator.finalise(
+            hit_table,
+            summary=summary,
+            source=source,
+            tempdir=tempdir,
+            msa_mode=msa_mode,
+            msa_max_rows=args.report_msa_max_rows,
+        )
+
+        outpath = Path(args.report_out or args.outdir / f'{args.prefix}_report.html')
+        write_search_report(data, outpath)
+    except Exception as exc:  # noqa: BLE001 - see the note above
+        logger.error(f'HTML report generation failed: {exc}')
+        logger.exception('Full traceback:')
+
 
 def main(args: Optional[argparse.Namespace] = None) -> int:
     """
@@ -2332,6 +2640,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         if query_lengths:
             logger.info(f'Loaded query lengths for {len(query_lengths)} models')
+
+        # Collected whether or not a report is wanted: it is a handful of
+        # counters, and threading it conditionally would fork the pipeline.
+        filter_summary = SearchFilterSummary()
 
         # Run searches if needed
         if has_search_inputs:
@@ -2435,6 +2747,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     query_lengths,
                     cluster_map=cluster_map,
                     pairing_map=pairing_map,
+                    summary=filter_summary,
                 )
 
         else:
@@ -2446,6 +2759,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 query_lengths,
                 cluster_map=cluster_map,
                 pairing_map=pairing_map,
+                summary=filter_summary,
             )
 
         # Write final output
@@ -2457,6 +2771,18 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
             assert pairing_map is not None  # guaranteed by _validate_search_args
             validate_split_paired_output(pairing_map)
             write_split_hits(hit_table, pairing_map, args.outdir, args.prefix)
+
+        # Written last, after every other output is on disk, and its failures
+        # are logged rather than raised: a visualisation is not worth failing a
+        # completed search for.
+        _write_search_report(
+            args,
+            hit_table,
+            filter_summary,
+            query_lengths=query_lengths,
+            cluster_map=cluster_map,
+            pairing_map=pairing_map,
+        )
 
         # Log completion message with logfile location if enabled
         if logfile_path and args.logfile:
@@ -2480,6 +2806,7 @@ def _process_hits(
     query_lengths: Optional[Dict[str, int]] = None,
     cluster_map: Optional[Dict[str, List[str]]] = None,
     pairing_map: Optional[Dict[str, str]] = None,
+    summary: Optional['SearchFilterSummary'] = None,
 ) -> pd.DataFrame:
     """
     Process loaded hits: filter, merge, and clean.
@@ -2500,6 +2827,10 @@ def _process_hits(
     pairing_map : dict, optional
         Pre-parsed pairing map. Parsed from ``args.pairing_map`` if not
         supplied.
+    summary : SearchFilterSummary, optional
+        Populated in place with per-stage counts, cross-cluster overlaps and
+        the pairing-map filter statistics. Supplied by callers that build the
+        HTML report; when omitted the pipeline behaves exactly as before.
 
     Returns
     -------
@@ -2512,6 +2843,10 @@ def _process_hits(
     reads each file exactly once. ``main`` parses them and passes them in;
     direct callers may omit them and have them parsed here.
     """
+    # A local summary keeps the pairing-map branch below unconditional: it has
+    # always accumulated into one of these, and the caller's copy simply
+    # replaces it when a report is wanted.
+    report_summary = summary if summary is not None else SearchFilterSummary()
     # Load hits
     hit_table = load_hits_from_files(
         blast_files=blast_files if blast_files else None,
@@ -2524,12 +2859,14 @@ def _process_hits(
 
     # Report initial statistics
     report_hit_statistics(hit_table, stage='(before filtering)')
+    report_summary.record_stage('Hits loaded', hit_table)
 
     # Filter by e-value
     hit_table = filter_hits_by_evalue(hit_table, args.max_evalue)
 
     # Report post-filter statistics
     report_hit_statistics(hit_table, stage='(after e-value filtering)')
+    report_summary.record_stage(f'E-value filter (≤ {args.max_evalue})', hit_table)
 
     # Resolve the cluster and pairing maps. main parses them once and passes
     # them in; parsing here is the fallback for direct callers. The pairing map
@@ -2574,6 +2911,7 @@ def _process_hits(
 
         # Report post-anchor statistics
         report_hit_statistics(hit_table, stage='(after anchor filtering)')
+        report_summary.record_stage(f'Anchor offset filter (≤ {max_offset})', hit_table)
 
     # Apply cluster mapping if provided. This renames each hit's model to its
     # cluster name, so every step after this point sees cluster-level names.
@@ -2590,7 +2928,17 @@ def _process_hits(
             )
 
         # Check for cross-cluster overlaps before merging
-        check_cross_cluster_overlaps(hit_table, cluster_map)
+        report_summary.cross_cluster_overlaps = check_cross_cluster_overlaps(
+            hit_table, cluster_map
+        )
+
+        # Recorded before merging renames every model to its cluster: this is
+        # the only point at which the component that produced each hit is
+        # still visible.
+        report_summary.hits_per_model_before_merge = {
+            str(model): int(count)
+            for model, count in hit_table['model'].value_counts().items()
+        }
 
         # Merge overlapping hits within clusters
         hit_table = merge_overlapping_cluster_hits(
@@ -2599,12 +2947,13 @@ def _process_hits(
 
         # Report post-merge statistics
         report_hit_statistics(hit_table, stage='(after merging)')
+        report_summary.record_stage('Cluster merging', hit_table)
 
     # Pairing-map filtering. These steps run AFTER cluster merging, so the hit
     # models are cluster names by now and the pairing map is used as written,
     # without expansion.
     if pairing_map:
-        filter_summary = SearchFilterSummary()
+        filter_summary = report_summary
         # Both filter steps share one threshold: they answer the same question
         # (is one hit decisively better than another?) in different contexts.
         min_score_ratio = getattr(args, 'min_score_ratio', 1.5)
@@ -2616,6 +2965,7 @@ def _process_hits(
 
         # Report statistics after pairing map model filter
         report_hit_statistics(hit_table, stage='(after pairing map model filter)')
+        report_summary.record_stage('Pairing-map model filter', hit_table)
 
         # Step 1: remove hits from a paired model that are completely nested within
         # hits of its direct left/right partner and score significantly worse.
@@ -2628,6 +2978,7 @@ def _process_hits(
 
         # Report statistics after nested hit removal
         report_hit_statistics(hit_table, stage='(after nested hit removal)')
+        report_summary.record_stage('Nested hit removal', hit_table)
 
         # Step 2: remove lower-quality overlapping hits from competing models across
         # all pairs in the pairing map.  This handles the case where models from
@@ -2642,6 +2993,7 @@ def _process_hits(
 
         # Report final statistics
         report_hit_statistics(hit_table, stage='(after cross-model overlap filtering)')
+        report_summary.record_stage('Cross-model overlap filter', hit_table)
 
         # Emit consolidated summary report for all pairing map filtering steps
         log_filter_summary(filter_summary)

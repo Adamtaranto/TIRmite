@@ -1,0 +1,254 @@
+{% extends "_base.html.j2" %}
+
+{% block content %}
+
+<div class="tiles">
+  {% for tile in summary %}
+  <div class="tile">
+    <div class="label">{{ tile.label }}</div>
+    <div class="value">{{ tile.value }}</div>
+    <div class="detail">{{ tile.detail }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<section id="tracks-section">
+  <h2>Annotation tracks</h2>
+  <p class="note">
+    Every retained hit, on every sequence that carries one. Swipe or drag
+    sideways to pan, scroll vertically to zoom. Hover an annotation for a
+    summary; click it for full details.
+  </p>
+
+  {# Groups are clusters when clustering ran, models otherwise. Either way the
+     legend names them, so colour never carries identity alone. #}
+  <div class="legend">
+    {% for group in data.groups %}
+    <span class="legend-item">
+      <span class="swatch" style="background: var(--group-{{ loop.index0 }})"></span>
+      {{ group.label }}
+    </span>
+    {% endfor %}
+    <span class="legend-item"><span class="swatch clipped"></span>truncated by contig end</span>
+    <span class="legend-item muted">jagged edge = model not fully matched</span>
+  </div>
+
+  <div class="controls">
+    <label>
+      Find sequence
+      <input type="search" id="contig-search" placeholder="e.g. chr1" autocomplete="off">
+    </label>
+    <label>
+      <input type="checkbox" id="show-empty" checked>
+      Show all sequences
+    </label>
+    <span class="muted" id="track-count"></span>
+  </div>
+
+  <div id="tracks"></div>
+</section>
+
+{% if data.figures %}
+<section id="figures-section">
+  <h2>Distributions</h2>
+  <div class="figures">
+    {% for figure in data.figures %}
+    <figure id="figure-{{ figure.id }}">
+      <h3>{{ figure.title }}</h3>
+      {{ figure.svg | safe }}
+      <figcaption>{{ figure.caption }}</figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if data.msa %}
+<section id="alignments-section">
+  <h2>Query alignments</h2>
+  <p class="note">
+    Every hit for each query, aligned. Grey marks model positions the hit did
+    not match although the genome continues; blank marks sequence that does not
+    exist because the contig ended.
+  </p>
+  <div class="legend">
+    <span class="legend-item"><span class="swatch" style="background: var(--base-a)"></span>A</span>
+    <span class="legend-item"><span class="swatch" style="background: var(--base-c)"></span>C</span>
+    <span class="legend-item"><span class="swatch" style="background: var(--base-g)"></span>G</span>
+    <span class="legend-item"><span class="swatch" style="background: var(--base-t)"></span>T</span>
+    <span class="legend-item"><span class="swatch" style="background: var(--base-other)"></span>other base</span>
+    <span class="legend-item"><span class="swatch clipped"></span>model not matched</span>
+  </div>
+  <div id="msa-panels"></div>
+</section>
+{% endif %}
+
+<section id="queries-section">
+  <h2>Query termini</h2>
+  <p class="note">
+    One row per query that produced a hit. “Before merging” counts the hits
+    that component contributed before its cluster absorbed them; it is blank
+    when no cluster map was used.
+  </p>
+  {% set table_id = 'queries' %}
+  {% set caption = 'Hits and model coverage for each query terminus.' %}
+  {% set columns = [
+    {'key': 'model', 'label': 'Query', 'num': false},
+    {'key': 'length', 'label': 'Length', 'num': true},
+    {'key': 'hits', 'label': 'Hits', 'num': true},
+    {'key': 'before_merge', 'label': 'Before merging', 'num': true},
+    {'key': 'contigs', 'label': 'Sequences', 'num': true},
+    {'key': 'coverage', 'label': 'Median coverage', 'num': true},
+    {'key': 'full', 'label': 'Full length', 'num': true},
+    {'key': 'clipped', 'label': 'Contig-clipped', 'num': true},
+  ] %}
+  {% set rows = stats_queries %}
+  {% include "_stats_table.html.j2" %}
+</section>
+
+<section id="cross-section">
+  <h2>Cross-matches</h2>
+  <p class="note">
+    Loci where hits from two different groups overlap. A cross-match means two
+    models claim the same sequence, which is worth knowing whether or not a
+    filter later resolved it.
+  </p>
+
+  {% if stats_cross_matches %}
+  {% if cross_matrix.labels %}
+  <h3>Contested loci per pair of groups</h3>
+  <div class="table-wrap">
+    <table aria-describedby="cross-matrix-caption">
+      <caption id="cross-matrix-caption" class="visually-hidden">
+        Number of contested loci between each pair of groups.
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col">Group</th>
+          {% for label in cross_matrix.labels %}
+          <th scope="col" class="num">{{ label }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in cross_matrix.labels %}
+        <tr>
+          <th scope="row">{{ a }}</th>
+          {% for b in cross_matrix.labels %}
+          {% set key = (a ~ '\t' ~ b) if a <= b else (b ~ '\t' ~ a) %}
+          {% set count = cross_matrix.counts.get(key, 0) %}
+          <td class="num {% if a == b %}muted{% endif %}">
+            {% if a == b %}–{% else %}{{ count }}{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <h3>Every contested locus</h3>
+  {% set table_id = 'cross' %}
+  {% set caption = 'Overlapping hits from different groups.' %}
+  {% set columns = [
+    {'key': 'contig', 'label': 'Sequence', 'num': false},
+    {'key': 'a', 'label': 'Group A', 'num': false},
+    {'key': 'a_span', 'label': 'A span', 'num': true},
+    {'key': 'b', 'label': 'Group B', 'num': false},
+    {'key': 'b_span', 'label': 'B span', 'num': true},
+    {'key': 'overlap', 'label': 'Overlap', 'num': true},
+  ] %}
+  {% set rows = stats_cross_matches %}
+  {% include "_stats_table.html.j2" %}
+  {% else %}
+  <div class="empty-state">
+    No cross-matches were detected. Either no cluster map was supplied, or no
+    two groups hit the same locus.
+  </div>
+  {% endif %}
+</section>
+
+<section id="clustering-section">
+  <h2>Clustering</h2>
+
+  {% if stats_clusters %}
+  <h3>Cluster composition</h3>
+  <p class="note">
+    What each cluster was assembled from, and how many hits merging collapsed.
+  </p>
+  {% set table_id = 'clusters' %}
+  {% set caption = 'Components and hit counts for each cluster.' %}
+  {% set columns = [
+    {'key': 'cluster', 'label': 'Cluster', 'num': false},
+    {'key': 'n_components', 'label': 'Components', 'num': true},
+    {'key': 'components', 'label': 'Component queries', 'num': false},
+    {'key': 'before', 'label': 'Hits before merging', 'num': true},
+    {'key': 'after', 'label': 'Hits after merging', 'num': true},
+    {'key': 'merged', 'label': 'Collapsed', 'num': true},
+  ] %}
+  {% set rows = stats_clusters %}
+  {% include "_stats_table.html.j2" %}
+  {% else %}
+  <div class="empty-state">No cluster map was used in this run.</div>
+  {% endif %}
+
+  {% if stats_contested %}
+  <h3>Which model won each contested locus</h3>
+  <p class="note">
+    Hits discarded because another model explained the same locus better, or
+    because the model was absent from the pairing map.
+  </p>
+  {% set table_id = 'contested' %}
+  {% set caption = 'Hits removed by the cross-model and nested-hit filters.' %}
+  {% set columns = [
+    {'key': 'step', 'label': 'Filter step', 'num': false},
+    {'key': 'removed', 'label': 'Removed', 'num': false},
+    {'key': 'kept', 'label': 'In favour of', 'num': false},
+    {'key': 'hits', 'label': 'Hits', 'num': true},
+  ] %}
+  {% set rows = stats_contested %}
+  {% include "_stats_table.html.j2" %}
+  {% endif %}
+</section>
+
+<section id="hits-section">
+  <h2>All hits</h2>
+  <p class="note">
+    Every retained hit, filterable and sortable. Coordinates link to that
+    position on the sequence's track. Large tables show their first rows only;
+    the filter searches all of them, and the download writes the complete table
+    as TSV.
+  </p>
+  <div id="all-hits-table"></div>
+</section>
+
+<section id="stats-section">
+  <h2>Filtering</h2>
+  <p class="note">
+    Hits remaining after each step of the pipeline, so a run that lost
+    everything shows where.
+  </p>
+  {% set table_id = 'stages' %}
+  {% set caption = 'Hits remaining after each pipeline stage.' %}
+  {% set columns = [
+    {'key': 'stage', 'label': 'Stage', 'num': false},
+    {'key': 'hits', 'label': 'Hits remaining', 'num': true},
+    {'key': 'change', 'label': 'Change', 'num': true},
+  ] %}
+  {% set rows = stats_stages %}
+  {% include "_stats_table.html.j2" %}
+
+  <h3>Sequences</h3>
+  {% set table_id = 'contigs' %}
+  {% set caption = 'Every sequence carrying at least one hit.' %}
+  {% set columns = [
+    {'key': 'contig', 'label': 'Sequence', 'num': false},
+    {'key': 'length', 'label': 'Length', 'num': true},
+    {'key': 'hits', 'label': 'Hits', 'num': true},
+  ] %}
+  {% set rows = stats_contigs %}
+  {% include "_stats_table.html.j2" %}
+</section>
+
+{% endblock %}

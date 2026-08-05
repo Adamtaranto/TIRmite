@@ -75,6 +75,8 @@ below.
 
 #### Internals
 
+- `_write_pair_summary` in `tirmite.cli.hmm_pair` no longer both counts and formats. The counting is `tirmite.report.stats.pair_summary_stats` and the formatting is `format_pair_summary`; the CLI function writes the file and returns the `PairSummary`. The HTML report consumes the same object, so the two outputs cannot report different numbers for one run. The `*_summary.txt` file is byte-identical, which a golden-string test enforces.
+- `make_source` in `tirmite.cli.hmm_pair` is built whether or not the filtered hit table is empty, so the report can ask it for sequence lengths. Its arguments and behaviour are unchanged.
 - The core algorithms moved out of the 5,196-line `tirmite/tirmitetools.py` into focused modules under `tirmite/core/`: `parsers`, `filters`, `termini`, `extraction`, `flanks`, `tsd`, `pairing`, `output` and `hit_filters`. `tirmite.tirmitetools` remains as a re-export shim, so both `from tirmite.tirmitetools import X` and `import tirmite.tirmitetools as tirmite` keep working unchanged. New code should import from the specific `tirmite.core` module.
 - Logging uses a named logger per module (`logging.getLogger(__name__)`) instead of the root-logger convenience functions, across ~650 call sites, so records carry the emitting module name and per-module verbosity is possible.
 - `init_logging` configures the `tirmite` logger rather than the root logger, and no longer clears existing root handlers — importing TIRmite and calling a `main()` function previously replaced the handlers of whatever application was hosting it. Library modules attach a `NullHandler`, so importing TIRmite emits nothing until logging is configured, and propagation stays enabled so host handlers still receive TIRmite's records. Repeated calls no longer duplicate console output.
@@ -85,6 +87,16 @@ below.
 
 ### Added
 
+- **`tirmite pair --report` writes a self-contained HTML report.** One file per run, with no external stylesheets, scripts, fonts or images, so it opens from disk and still works years later out of an archive. It contains:
+  - Genome-browser annotation tracks for every sequence carrying a hit, with scroll-to-zoom, drag-to-pan and keyboard navigation. Each annotation shows strand as an arrow, pairing group as colour, and a thin line linking the two termini of an element. Clicking a paired terminus opens its element sequence with copy-to-clipboard and reverse-complement buttons.
+  - Stacked alignments of every hit to each terminus model, aligned with MAFFT when it is on `PATH` and placed by model coordinates otherwise.
+  - Distribution plots — element lengths, pairing outcome, model coverage against the `--mincov` setting, hits per sequence, and hit significance — as print-ready inline SVG.
+  - Sortable statistics tables covering pairing groups, models, sequences and the filters applied.
+
+  Two distinctions the report is careful about. A hit that only partially matched its model is drawn with a torn edge; one that is short because the contig ended gets a contig-end cap instead, because those are different findings. In the alignment panels the same split appears as grey (a model position the hit did not match, though the genome continues) versus blank (sequence that does not exist). The report also reports model coverage and the span-based coverage `--mincov` filters on as separate, labelled quantities — they differ, and the latter can exceed 1.
+
+  Report generation runs after every other output is on disk and its failures are logged rather than raised, so a broken visualisation cannot cost a completed analysis. Options: `--report-out`, `--report-title`, `--no-report-sequences`, `--report-max-seq-mb`, `--report-msa`, `--report-msa-max-rows`, `--report-max-hits`, `--report-max-rows`.
+- `jinja2` and `matplotlib` as runtime dependencies, for the report. Both are imported lazily, so a run that builds no report does not pay for them.
 - `--min-score-ratio` and `--merge-max-gap` for `tirmite search`. The score ratio was documented as configurable but was hardcoded at 1.5 and unreachable from the CLI.
 - `--logfile` and a full `--loglevel` choice list for `tirmite legacy` and `tirmite seed`. The other three subcommands already had them; these two could not write a log file at all.
 - A progress bar over the per-genome loop in `tirmite search`, shown only when searching more than one genome and only when stderr is a terminal.

@@ -637,6 +637,29 @@ tirmite pair \
   --outdir MY_TIR_OUTPUT
 ```
 
+### HTML report
+
+`--report` writes a single self-contained HTML file summarising the run:
+annotation tracks for every sequence with a hit, stacked alignments of each
+terminus model's hits, distribution plots and statistics tables. It has no
+external dependencies, so it opens straight from disk.
+
+```bash
+tirmite pair \
+  --genome $GENOME \
+  --nhmmer-file $NHMMERFILE \
+  --hmm-file $HMMFILE \
+  --orientation F,R \
+  --mincov 0.4 \
+  --maxdist 20000 \
+  --gff \
+  --report \
+  --outdir MY_TIR_OUTPUT
+```
+
+See [HTML Reports](html-reports.md) for what the report shows and how to tune
+its size.
+
 ### Disabling sequence extraction
 
 Extracting sequences from a large genome FASTA or BLAST database can be time-consuming. Use `--no-hits` and/or `--no-elements` to skip FASTA output when the sequences are not required.
@@ -693,4 +716,13 @@ tirmite pair \
 | `--gff` | Write GFF3 annotation file |
 | `--no-hits` | Skip writing individual hit sequences to FASTA |
 | `--no-elements` | Skip extraction and writing of paired element sequences to FASTA |
+| `--report` | Write a self-contained [HTML report](html-reports.md) |
+| `--report-out` | Path for the HTML report (implies `--report`) |
+| `--report-title` | Heading shown at the top of the HTML report |
+| `--no-report-sequences` | Do not embed element sequences in the HTML report |
+| `--report-max-seq-mb` | Budget for embedded element sequences (default: 20 MB) |
+| `--report-msa` | Terminus alignment mode: `auto`, `mafft`, `anchor` or `off` |
+| `--report-msa-max-rows` | Hits shown per terminus alignment panel (default: 500) |
+| `--report-max-hits` | Hits included in the HTML report (default: 200000) |
+| `--report-max-rows` | Stacked annotation rows per sequence (default: 30) |
 | `--logfile` | Write log to file |

@@ -105,6 +105,7 @@ See the [online tutorials](https://adamtaranto.github.io/TIRmite) for detailed w
 - [**Using tirmite search**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-search/) — ensemble BLAST/nhmmer search and hit merging.
 - [**Using tirmite pair**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-pair/) — pairing terminus hits, flank extraction and target site reconstruction.
 - [**Reconstructing and validating target sites**](https://adamtaranto.github.io/TIRmite/tutorials/tirmite-validate/) — validate reconstructed target sites with `tirmite validate`.
+- [**HTML reports**](https://adamtaranto.github.io/TIRmite/tutorials/html-reports/) — interactive annotation tracks, terminus alignments and summary plots from `tirmite pair --report`.
 
 #### Quick start
 
@@ -116,7 +117,7 @@ NHMMERFILE="MY_TIR_nhmmer_hits.tab"
 # 1. Search genome for terminus hits
 nhmmer --dna --cpu 8 --tblout $NHMMERFILE $HMMFILE $GENOME
 
-# 2. Pair hits and write elements + GFF3
+# 2. Pair hits and write elements + GFF3 + an HTML report
 tirmite pair \
   --genome $GENOME \
   --nhmmer-file $NHMMERFILE \
@@ -126,8 +127,15 @@ tirmite pair \
   --maxdist 20000 \
   --gff-report all \
   --gff \
+  --report \
   --outdir MY_TIR_OUTPUT
 ```
+
+`--report` writes `MY_TIR_OUTPUT/tirmite_pair_report.html`, a single
+self-contained file with zoomable annotation tracks for every sequence carrying
+a hit, stacked alignments of each terminus model's hits, distribution plots and
+sortable statistics. It fetches nothing over the network, so it opens straight
+from disk.
 
 ## Algorithm overview
 

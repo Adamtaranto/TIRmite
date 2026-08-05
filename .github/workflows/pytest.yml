@@ -69,7 +69,7 @@ jobs:
       - name: Test with pytest and coverage
         if: matrix.python-version == '3.14'
         run: |
-          pytest
+          pytest --cov=tirmite --cov-branch --cov-report=xml
         shell: bash -l {0}
       # Upload coverage report to Codecov. Only the job above produces a
       # coverage.xml, and every matrix job would otherwise report the same

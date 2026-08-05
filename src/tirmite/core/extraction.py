@@ -16,9 +16,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from Bio import Seq, SeqIO  # type: ignore[import-not-found]
-from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
+from Bio import Seq, SeqIO
+from Bio.SeqRecord import SeqRecord
+import pandas as pd
 
 from tirmite.core.termini import _model_deficit, _pair_roles, flipTIRs
 from tirmite.utils.extract import (
@@ -513,7 +513,7 @@ def fetchElements(
 
     TIRelements: Dict[str, List[Any]] = {}
     gffTup = namedtuple(
-        'gffTup',  # type: ignore[name-match]
+        'gffTup',
         [
             'model',
             'chromosome',

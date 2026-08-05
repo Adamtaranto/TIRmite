@@ -21,11 +21,11 @@ import sys
 import tempfile
 from typing import Any, Dict, List, Optional, Tuple, cast
 
-from Bio import SeqIO  # type: ignore[import-not-found]
-from Bio.Seq import Seq  # type: ignore[import-not-found]
-from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 
-from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite._version import __version__
 from tirmite.runners.mafft import align_in_memory, mafft_available
 from tirmite.utils.extract import (
     BlastDBSource,

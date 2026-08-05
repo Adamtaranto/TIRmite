@@ -21,17 +21,17 @@ import shutil
 import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
-from Bio import SeqIO  # type: ignore[import-not-found]
-from Bio.Seq import Seq  # type: ignore[import-not-found]
-from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
-from pyhmmer.easel import (  # type: ignore[import-not-found]
+from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+import pandas as pd
+from pyhmmer.easel import (
     Alphabet,
     DigitalMSA,
     MSAFile,
     SequenceFile,
 )
-from pyhmmer.plan7 import (  # type: ignore[import-not-found]
+from pyhmmer.plan7 import (
     Background,
     Builder,
 )
@@ -301,7 +301,7 @@ def compare_seeds(
     which may represent inverted repeats or conserved motifs.
     """
     from Bio import SeqIO
-    from Bio.Align import PairwiseAligner  # type: ignore[import-not-found]
+    from Bio.Align import PairwiseAligner
 
     logger.info('Comparing left and right seed sequences...')
 
@@ -1762,7 +1762,7 @@ def build_hmm_from_alignment_pyhmmer(
                 )
 
                 # Manual creation from BioPython records
-                import pyhmmer.easel  # type: ignore[import-not-found]
+                import pyhmmer.easel
 
                 text_sequences = []
                 for i, record in enumerate(alignment_records):

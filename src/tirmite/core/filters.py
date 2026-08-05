@@ -8,7 +8,7 @@ import glob
 import os
 from typing import Optional
 
-import pandas as pd  # type: ignore[import-untyped]
+import pandas as pd
 
 
 def filterHitsLen(
@@ -57,13 +57,13 @@ def filterHitsLen(
                 modelLens[hmmName] = hmmLen
     for model in modelLens.keys():
         minlen = modelLens[model] * mincov
-        hitTable = hitTable.loc[  # type: ignore[assignment]
+        hitTable = hitTable.loc[
             ~(
                 (hitTable['model'] == model)
                 & (
                     (hitTable['hitEnd'].astype(int) - hitTable['hitStart'].astype(int))
                     + 1
-                    < minlen  # type: ignore[operator]
+                    < minlen
                 )
             )
         ]

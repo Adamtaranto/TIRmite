@@ -20,8 +20,8 @@ import shutil
 import sys
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
-from Bio import SeqIO  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
+from Bio import SeqIO
+import pandas as pd
 from rich.console import Console
 from rich.progress import track
 

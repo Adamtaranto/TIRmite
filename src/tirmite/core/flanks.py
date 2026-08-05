@@ -9,9 +9,9 @@ import logging
 import os
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
-from Bio import Seq, SeqIO  # type: ignore[import-not-found]
-from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
+from Bio import Seq, SeqIO
+from Bio.SeqRecord import SeqRecord
+import pandas as pd
 
 from tirmite.core.termini import _model_deficit, _pair_roles, flipTIRs, resolve_terminus
 from tirmite.utils.extract import (
@@ -540,9 +540,9 @@ def writeFlanks(
         tuple of (int or None, int or None)
             (hmmStart, hmmEnd) as integers, or (None, None) if unavailable.
         """
-        if hit_idx not in hitTable.index:  # type: ignore[union-attr]
+        if hit_idx not in hitTable.index:
             return None, None
-        row = hitTable.loc[hit_idx]  # type: ignore[union-attr]
+        row = hitTable.loc[hit_idx]
         try:
             h_start = int(row['hmmStart'])
             h_end = int(row['hmmEnd'])
@@ -614,7 +614,7 @@ def writeFlanks(
             source=source,
             hit=hit,
             is_left=is_left,
-            model_len=model_lengths.get(hit.model) if model_lengths else None,  # type: ignore[union-attr]
+            model_len=model_lengths.get(hit.model) if model_lengths else None,
             hmm_start=hmm_start,
             hmm_end=hmm_end,
             flank_len=flank_len,

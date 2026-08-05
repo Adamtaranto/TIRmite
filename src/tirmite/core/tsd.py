@@ -9,9 +9,9 @@ import logging
 import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from Bio import Seq  # type: ignore[import-not-found]
-from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
+from Bio import Seq
+from Bio.SeqRecord import SeqRecord
+import pandas as pd
 
 from tirmite.core.flanks import (
     FlankResult,
@@ -455,9 +455,9 @@ def writeTargetSites(
         tuple of (int or None, int or None)
             (hmmStart, hmmEnd), or (None, None) if unavailable.
         """
-        if hit_idx not in hitTable.index:  # type: ignore[union-attr]
+        if hit_idx not in hitTable.index:
             return None, None
-        row = hitTable.loc[hit_idx]  # type: ignore[union-attr]
+        row = hitTable.loc[hit_idx]
         try:
             h_start = int(row['hmmStart'])
             h_end = int(row['hmmEnd'])
@@ -520,7 +520,7 @@ def writeTargetSites(
             source=source,
             hit=hit,
             is_left=is_left,
-            model_len=model_lengths.get(hit.model) if model_lengths else None,  # type: ignore[union-attr]
+            model_len=model_lengths.get(hit.model) if model_lengths else None,
             hmm_start=hmm_start,
             hmm_end=hmm_end,
             flank_len=flank_len,
@@ -599,7 +599,7 @@ def writeTargetSites(
         ``_compare_tsds``.
         """
         model = hit.model
-        model_len = model_lengths.get(model) if model_lengths else None  # type: ignore[union-attr]
+        model_len = model_lengths.get(model) if model_lengths else None
         if model_len is None:
             logger.warning(
                 f'Model length not found for {model}, skipping TSD extraction'

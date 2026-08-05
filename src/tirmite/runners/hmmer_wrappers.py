@@ -416,7 +416,7 @@ def process_hmmer_workflow(
                 run_commands_sequential(
                     cmds=build_commands,
                     verbose=verbose,
-                    stop_on_error=True,  # type: ignore[arg-type]
+                    stop_on_error=True,
                 )
                 logger.info('HMM building completed successfully')
             except Exception as e:
@@ -473,7 +473,7 @@ def process_hmmer_workflow(
             run_commands_sequential(
                 cmds=search_commands,
                 verbose=verbose,
-                stop_on_error=True,  # type: ignore[arg-type]
+                stop_on_error=True,
             )
             logger.info('HMMER search completed successfully')
         except Exception as e:

@@ -17,8 +17,8 @@ import logging
 import os
 from typing import Optional
 
-from Bio import AlignIO  # type: ignore[import-not-found]
-import pandas as pd  # type: ignore[import-untyped]
+from Bio import AlignIO
+import pandas as pd
 
 # Library modules acquire a named logger and attach a NullHandler, so that
 # importing TIRmite as a library emits nothing until the host application

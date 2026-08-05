@@ -20,7 +20,7 @@ import shutil
 import sys
 from typing import Any, Dict, List, Optional, Set, cast
 
-from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite._version import __version__
 from tirmite.core.extraction import (
     fetchElements,
     writeElements,

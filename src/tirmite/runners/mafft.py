@@ -25,9 +25,9 @@ import shutil
 import subprocess
 from typing import List, Optional, Sequence, Union
 
-from Bio import AlignIO, SeqIO  # type: ignore[import-not-found]
-from Bio.Seq import Seq  # type: ignore[import-not-found]
-from Bio.SeqRecord import SeqRecord  # type: ignore[import-not-found]
+from Bio import AlignIO, SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 
 # Library modules acquire a named logger and attach a NullHandler, so that
 # importing TIRmite as a library emits nothing until the host application

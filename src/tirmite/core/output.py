@@ -34,7 +34,7 @@ def fetchUnpaired(
     assert hitIndex is not None, 'hitIndex cannot be None'
     orphans = []
     gffTup = namedtuple(
-        'gffTup',  # type: ignore[name-match]
+        'gffTup',
         [
             'model',
             'chromosome',
@@ -109,7 +109,7 @@ def gffWrite(
     Features are sorted by model, chromosome, start, end.
     """
     if featureList is None:
-        featureList = {}  # type: ignore[assignment]
+        featureList = {}
     if prefix:
         prefix = cleanID(prefix) + '_'
     else:

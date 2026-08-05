@@ -18,7 +18,7 @@ import logging
 from operator import attrgetter
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import pandas as pd  # type: ignore[import-untyped]
+import pandas as pd
 
 # Library modules acquire a named logger and attach a NullHandler, so that
 # importing TIRmite as a library emits nothing until the host application
@@ -66,7 +66,7 @@ def table2dict(
     # Set up named tuple
     hitTup = namedtuple(
         'hitTup',
-        ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue'],  # type: ignore[name-match]
+        ['model', 'target', 'hitStart', 'hitEnd', 'strand', 'idx', 'evalue'],
     )
     # Add each record to dicts
     for row in hitTable.iterrows():
@@ -82,7 +82,7 @@ def table2dict(
         # Log hit for model on chromosome
         hitsDict[row[1].model][row[1].target].append(record)
         # Populate tracker - FIX: use row[1].model not hmm
-        hitIndex[row[1].model][row[0]] = {  # type: ignore[index]
+        hitIndex[row[1].model][row[0]] = {
             'rec': record,
             'partner': None,
             'candidates': [],

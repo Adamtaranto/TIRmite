@@ -29,7 +29,7 @@ Both subcommands now call this single implementation.
 import logging
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
-import pandas as pd  # type: ignore[import-untyped]
+import pandas as pd
 
 # Library modules acquire a named logger and attach a NullHandler, so that
 # importing TIRmite as a library emits nothing until the host application

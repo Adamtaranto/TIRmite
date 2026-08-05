@@ -8,7 +8,7 @@ import logging
 import sys
 from typing import Dict
 
-from tirmite._version import __version__  # type: ignore[import-not-found]
+from tirmite._version import __version__
 
 logger = logging.getLogger(__name__)
 

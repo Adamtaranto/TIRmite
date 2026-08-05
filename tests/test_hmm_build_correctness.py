@@ -191,3 +191,124 @@ class TestCleanHmmName:
     def test_empty_name_gets_a_placeholder(self):
         """A name that cleans away entirely still yields something usable."""
         assert clean_hmm_name('---') != ''
+
+
+class TestAddBlastHeader:
+    """The header is prepended by streaming, not by rewriting in memory."""
+
+    def _row(self, i):
+        """One BLAST tabular row in the format the seed search emits."""
+        return (
+            f'1\t100\t{i * 100}\t{i * 100 + 99}\t100\t95\t95.0\t100\t100000'
+            f'\t1\t1\tquery\tchr1\n'
+        )
+
+    def test_prepends_header_and_preserves_body(self, tmp_path):
+        """Every original byte survives, after the header."""
+        from tirmite.cli.hmm_build import add_blast_header
+
+        path = tmp_path / 'hits.tab'
+        body = ''.join(self._row(i) for i in range(5))
+        path.write_text(body)
+
+        add_blast_header(path)
+        text = path.read_text()
+
+        assert text.startswith('# BLAST tabular output format 6\n')
+        assert text.endswith(body)
+
+    def test_result_still_parses(self, tmp_path):
+        """parse_blast_output skips the comment lines and finds every hit."""
+        from tirmite.cli.hmm_build import add_blast_header, parse_blast_output
+
+        path = tmp_path / 'hits.tab'
+        path.write_text(''.join(self._row(i) for i in range(5)))
+
+        add_blast_header(path)
+
+        assert len(parse_blast_output(path)) == 5
+
+    def test_empty_file_gets_only_a_header(self, tmp_path):
+        """A zero-hit search is legitimate and must not error."""
+        from tirmite.cli.hmm_build import add_blast_header, parse_blast_output
+
+        path = tmp_path / 'hits.tab'
+        path.write_text('')
+
+        add_blast_header(path)
+
+        assert path.read_text().startswith('# BLAST tabular output format 6')
+        assert parse_blast_output(path) == []
+
+    def test_peak_memory_does_not_scale_with_file_size(self, tmp_path):
+        """The regression test for the 2x-file-size peak.
+
+        The previous implementation read the whole table into a string and
+        wrote header + string, so peak memory was ~2x the file. That matters
+        because the genome search runs with -word_size 4 and
+        -max_target_seqs 10000, which can make the table very large.
+        """
+        import tracemalloc
+
+        from tirmite.cli.hmm_build import add_blast_header
+
+        def peak_for(n_rows):
+            path = tmp_path / f'hits{n_rows}.tab'
+            with open(path, 'w') as handle:
+                for i in range(n_rows):
+                    handle.write(self._row(i))
+            tracemalloc.start()
+            add_blast_header(path)
+            _, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+            return path.stat().st_size, peak
+
+        small_size, small_peak = peak_for(5_000)
+        large_size, large_peak = peak_for(50_000)
+
+        # The file grew ~10x; peak allocation must not follow it.
+        assert large_size > small_size * 5
+        assert large_peak < small_peak * 2
+        # And peak must stay well under the file size itself.
+        assert large_peak < large_size
+
+    def test_original_survives_a_failure_midway(self, tmp_path, monkeypatch):
+        """An interrupted rewrite must not destroy the search results.
+
+        The old version opened the destination with 'w', truncating the
+        original *before* writing, so a failure anywhere in the write lost the
+        table outright. The replacement writes a sibling temp file and swaps it
+        in with os.replace.
+        """
+        from tirmite.cli import hmm_build
+
+        path = tmp_path / 'hits.tab'
+        body = ''.join(self._row(i) for i in range(20))
+        path.write_text(body)
+
+        def explode(*args, **kwargs):
+            raise OSError('disk full')
+
+        monkeypatch.setattr(hmm_build.shutil, 'copyfileobj', explode)
+
+        with pytest.raises(OSError, match='disk full'):
+            hmm_build.add_blast_header(path)
+
+        assert path.read_text() == body
+
+    def test_no_temporary_files_are_left_behind(self, tmp_path, monkeypatch):
+        """A failed rewrite cleans up its scratch file."""
+        from tirmite.cli import hmm_build
+
+        path = tmp_path / 'hits.tab'
+        path.write_text(''.join(self._row(i) for i in range(5)))
+
+        def explode(*args, **kwargs):
+            raise OSError('disk full')
+
+        monkeypatch.setattr(hmm_build.shutil, 'copyfileobj', explode)
+
+        with pytest.raises(OSError):
+            hmm_build.add_blast_header(path)
+
+        assert [p.name for p in tmp_path.iterdir()] == ['hits.tab']

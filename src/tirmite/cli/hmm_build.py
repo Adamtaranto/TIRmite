@@ -18,6 +18,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import tempfile
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from Bio import SeqIO  # type: ignore[import-not-found]
@@ -571,31 +572,70 @@ def blast_seed_against_genome(
         raise HMMBuildError(f'BLAST search failed: {e}') from e
 
 
+BLAST_HEADER_LINES = (
+    '# BLAST tabular output format 6\n'
+    '# qstart\tqend\tsstart\tsend\tlength\tpositive\tpident\tqlen\tslen'
+    '\tqframe\tsframe\tqseqid\tsseqid\n'
+)
+
+
 def add_blast_header(blast_file: Path) -> None:
     """
-    Add header comment lines to BLAST output file.
+    Prepend header comment lines to a BLAST output file.
 
     Parameters
     ----------
     blast_file : Path
-        Path to BLAST tabular output file to add header to.
+        Path to BLAST tabular output file to add a header to.
 
     Returns
     -------
     None
-        No return value. Modifies file in place.
-    """
-    # Read existing content
-    with open(blast_file, 'r') as f:
-        content = f.read()
+        No return value. Replaces the file in place.
 
-    # Write header + content
-    with open(blast_file, 'w') as f:
-        f.write('# BLAST tabular output format 6\n')
-        f.write(
-            '# qstart\tqend\tsstart\tsend\tlength\tpositive\tpident\tqlen\tslen\tqframe\tsframe\tqseqid\tsseqid\n'
-        )
-        f.write(content)
+    Raises
+    ------
+    OSError
+        If the file cannot be read, written, or replaced.
+
+    Notes
+    -----
+    Streams the body through a temporary file rather than reading it into a
+    string. The previous implementation did::
+
+        content = open(blast_file).read()      # whole table in memory
+        open(blast_file, 'w').write(header + content)
+
+    which needed roughly twice the table's size in memory. That matters here
+    because the genome search runs with ``-word_size 4`` and
+    ``-max_target_seqs 10000``, which can make the table very large.
+
+    Opening the destination with ``'w'`` also truncated the original *before*
+    the rewrite, so an interruption anywhere in the write destroyed the search
+    results outright. Writing a sibling temporary file and swapping it in with
+    :func:`os.replace` -- atomic on the same filesystem -- means the original
+    survives any failure, and no reader ever sees a partial file.
+    """
+    blast_file = Path(blast_file)
+
+    # Same directory, so os.replace() stays on one filesystem and is atomic.
+    fd, tmp_name = tempfile.mkstemp(
+        dir=str(blast_file.parent), prefix=f'.{blast_file.name}.', suffix='.tmp'
+    )
+    tmp_path = Path(tmp_name)
+
+    try:
+        with os.fdopen(fd, 'w') as out_handle:
+            out_handle.write(BLAST_HEADER_LINES)
+            with open(blast_file, 'r') as in_handle:
+                # Fixed-size chunks: peak memory is the buffer, not the file.
+                shutil.copyfileobj(in_handle, out_handle)
+
+        os.replace(tmp_path, blast_file)
+    except BaseException:
+        # Leave the original untouched on any failure, including KeyboardInterrupt.
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def resolve_overlapping_hits(

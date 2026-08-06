@@ -8,11 +8,8 @@ dependencies:
   - hmmer
   - mafft
   - pip
-  - pyhmmer
   - python 3.14
   - samtools
   - seqkit
   - pip:
-      - "biopython>=1.70"
-      - "pandas>=0.20.3"
-      - rich
+      - pyhmmer

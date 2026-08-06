@@ -61,6 +61,11 @@ from tirmite.core.tsd import (
     load_tsd_length_map,
     writeTargetSites,
 )
+from tirmite.report.stats import (
+    PairSummary,
+    format_pair_summary,
+    pair_summary_stats,
+)
 from tirmite.utils.extract import check_ids, make_source
 from tirmite.utils.logs import init_logging
 from tirmite.utils.utils import (
@@ -719,6 +724,121 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
         help='Types of hits to include in GFF output.',
     )
 
+    # Report options
+    parser.add_argument(
+        '--report',
+        action='store_true',
+        default=False,
+        help=(
+            'Write a self-contained HTML report of the run: annotation tracks '
+            'for every sequence with a hit, terminus alignments, distribution '
+            'plots and summary statistics.'
+        ),
+    )
+
+    parser.add_argument(
+        '--report-out',
+        type=str,
+        default=None,
+        dest='report_out',
+        help=(
+            'Path for the HTML report. Implies --report. '
+            'Default: <outdir>/<prefix>tirmite_pair_report.html'
+        ),
+    )
+
+    parser.add_argument(
+        '--report-title',
+        type=str,
+        default=None,
+        dest='report_title',
+        help='Heading shown at the top of the HTML report.',
+    )
+
+    parser.add_argument(
+        '--no-report-sequences',
+        action='store_true',
+        default=False,
+        dest='report_no_sequences',
+        help=(
+            'Do not embed element sequences in the HTML report. The report '
+            'stays much smaller, but its copy-to-clipboard buttons only show '
+            'coordinates.'
+        ),
+    )
+
+    parser.add_argument(
+        '--report-max-seq-mb',
+        type=float,
+        default=20.0,
+        dest='report_max_seq_mb',
+        help=(
+            'Budget in megabytes for element sequences embedded in the HTML '
+            'report. Shorter elements are embedded first. Default: 20'
+        ),
+    )
+
+    parser.add_argument(
+        '--report-msa',
+        default='auto',
+        dest='report_msa',
+        choices=['auto', 'mafft', 'anchor', 'off'],
+        help=(
+            'How to build the terminus alignment panels. "auto" uses MAFFT '
+            'when it is on PATH and falls back to placing hits by their model '
+            'coordinates; "mafft" requires MAFFT; "anchor" never calls it; '
+            '"off" omits the panels. Default: auto'
+        ),
+    )
+
+    parser.add_argument(
+        '--report-pad-model',
+        action='store_true',
+        default=False,
+        dest='report_pad_model',
+        help=(
+            'In the alignment panels, extend a hit that did not match its '
+            'whole model out to the full model length using the neighbouring '
+            'genomic bases, drawn grey. Without this those positions are gaps. '
+            'Implied by --padlen. The added bases are not evidence for the '
+            'model, so they are marked as unclaimed rather than shown as part '
+            'of the match.'
+        ),
+    )
+
+    parser.add_argument(
+        '--report-msa-max-rows',
+        type=int,
+        default=500,
+        dest='report_msa_max_rows',
+        help=(
+            'Maximum hits shown per terminus alignment panel, most '
+            'significant first. Default: 500'
+        ),
+    )
+
+    parser.add_argument(
+        '--report-max-hits',
+        type=int,
+        default=200000,
+        dest='report_max_hits',
+        help=(
+            'Maximum hits included in the HTML report. Paired hits and the '
+            'most significant unpaired hits are kept. Default: 200000'
+        ),
+    )
+
+    parser.add_argument(
+        '--report-max-rows',
+        type=int,
+        default=30,
+        dest='report_max_rows',
+        help=(
+            'Maximum stacked annotation rows per sequence in the HTML report. '
+            'Default: 30'
+        ),
+    )
+
     parser.add_argument(
         '--padlen',
         type=int,
@@ -956,6 +1076,8 @@ def validate_arguments(args: Any) -> None:
             '--insertion-site requires --flanks or --flanks-paired to be set'
         )
 
+    _validate_report_arguments(args)
+
     # Check file existence
     required_files = []
     if args.genome:
@@ -995,6 +1117,214 @@ def validate_arguments(args: Any) -> None:
             )
 
 
+def _validate_report_arguments(args: argparse.Namespace) -> None:
+    """
+    Validate and normalise the HTML report options.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments. Mutated in place: `--report-out` implies `--report`,
+        and options that cannot be honoured are downgraded with a warning.
+
+    Returns
+    -------
+    None
+        Updates `args` in place.
+
+    Raises
+    ------
+    ValueError
+        If a report option was given a value that cannot be honoured.
+
+    Notes
+    -----
+    Conflicts here downgrade rather than abort wherever the run can still
+    produce a useful report. The report is a secondary output; refusing to run
+    a whole pairing analysis because a visualisation option is redundant would
+    be the wrong trade.
+    """
+    # Tolerate namespaces built before these options existed, as the tests and
+    # any library caller may do.
+    if not hasattr(args, 'report'):
+        return
+
+    if getattr(args, 'report_out', None):
+        args.report = True
+
+    if not args.report:
+        return
+
+    if args.report_max_seq_mb <= 0:
+        raise ValueError('--report-max-seq-mb must be greater than 0')
+    if args.report_max_hits < 1:
+        raise ValueError('--report-max-hits must be at least 1')
+    if args.report_max_rows < 1:
+        raise ValueError('--report-max-rows must be at least 1')
+    if args.report_msa_max_rows < 1:
+        raise ValueError('--report-msa-max-rows must be at least 1')
+
+    if args.report_msa == 'mafft':
+        from tirmite.runners.mafft import mafft_available
+
+        if not mafft_available():
+            raise ValueError(
+                '--report-msa mafft was requested but mafft was not found on '
+                'PATH. Install MAFFT, or use --report-msa auto to fall back to '
+                'placing hits by their model coordinates.'
+            )
+
+    if args.nopairing:
+        logger.warning(
+            'The HTML report will show individual hits only: --nopairing '
+            'disables the pairing step, so it can contain no elements or '
+            'terminus pairs.'
+        )
+
+    if args.no_elements and not args.report_no_sequences:
+        # fetchElements is what produces the sequences the copy buttons use.
+        logger.warning(
+            '--no-elements disables element extraction, so element sequences '
+            'cannot be embedded in the HTML report. Its copy buttons will show '
+            'coordinates only.'
+        )
+        args.report_no_sequences = True
+
+
+def _make_report_accumulator(
+    args: argparse.Namespace,
+    hitTable: Any,
+    model_lengths: Dict[str, int],
+    filter_stats: Dict[str, Any],
+    extraction_source: Any,
+) -> Optional[Any]:
+    """
+    Create the HTML report accumulator, or None when no report was requested.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments.
+    hitTable : pandas.DataFrame
+        The filtered hit table.
+    model_lengths : dict
+        Model name to declared length.
+    filter_stats : dict
+        Hit-filtering statistics accumulated so far.
+    extraction_source : SequenceSource
+        Source used to look up sequence lengths and hit sequences.
+
+    Returns
+    -------
+    PairReportAccumulator or None
+        The accumulator, or None if `--report` was not given or the report
+        machinery could not be imported.
+    """
+    if not getattr(args, 'report', False):
+        return None
+
+    try:
+        from tirmite.report.collect import PairReportAccumulator
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        logger.error(f'HTML report unavailable: {exc}')
+        return None
+
+    genome_label = args.genome or args.blastdb or 'sequences'
+    return PairReportAccumulator(
+        tirmite_version=__version__,
+        command=' '.join(sys.argv),
+        title=args.report_title or f'TIRmite pair report — {Path(genome_label).name}',
+        params={
+            'orientation': args.orientation,
+            'maxdist': args.maxdist,
+            'mincov': args.mincov,
+            'maxeval': args.maxeval,
+            'max_offset': args.max_offset,
+            'stable_reps': args.stable_reps,
+        },
+        filter_stats=filter_stats,
+        hit_table=hitTable,
+        model_lengths=model_lengths,
+        contig_length=(
+            extraction_source.contig_length if extraction_source is not None else None
+        ),
+        max_hits=args.report_max_hits,
+        max_rows=args.report_max_rows,
+    )
+
+
+def _write_report(
+    args: argparse.Namespace,
+    accumulator: Any,
+    unpaired_index: Dict[str, Dict[int, Dict[str, Any]]],
+    outDir: str,
+    tempDir: str,
+    extraction_source: Any,
+) -> None:
+    """
+    Finalise and write the HTML report.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments.
+    accumulator : PairReportAccumulator or None
+        The accumulator, or None if no report was requested.
+    unpaired_index : dict
+        The run's full hit index, so hits that no pairing procedure claimed
+        still appear on the tracks.
+    outDir : str
+        Output directory.
+    tempDir : str
+        The run's temporary directory, used for MAFFT's intermediate files.
+    extraction_source : SequenceSource
+        Source used to read hit sequences for the alignment panels.
+
+    Returns
+    -------
+    None
+        Writes the report to disk.
+
+    Notes
+    -----
+    Failures are logged and swallowed. By this point the run's real
+    outputs -- GFF3, FASTA and the text summaries -- are already on disk, and a
+    visualisation is not worth failing a completed analysis for.
+    """
+    if accumulator is None:
+        return
+
+    try:
+        from tirmite.report.render import write_pair_report
+
+        accumulator.add_unpaired(unpaired_index)
+
+        prefix_str = f'{args.prefix}_' if args.prefix else ''
+        outpath = Path(
+            args.report_out
+            or os.path.join(outDir, f'{prefix_str}tirmite_pair_report.html')
+        )
+
+        logger.info('Building HTML report...')
+        data = accumulator.finalise(
+            embed_sequences=not args.report_no_sequences,
+            max_seq_bytes=int(args.report_max_seq_mb * 1024 * 1024),
+            elements_fasta_path=outDir,
+            source=extraction_source,
+            tempdir=tempDir,
+            msa_mode=args.report_msa,
+            msa_max_rows=args.report_msa_max_rows,
+            # --padlen already asks for padded extraction, so it implies the
+            # same for the panels; --report-pad-model states it directly for
+            # a run that does not want padded FASTA output.
+            msa_pad_model=bool(getattr(args, 'report_pad_model', False) or args.padlen),
+        )
+        write_pair_report(data, outpath)
+    except Exception as exc:  # noqa: BLE001 - see the note above
+        logger.error(f'HTML report generation failed: {exc}')
+        logger.exception('Full traceback:')
+
+
 def _write_pair_summary(
     outdir: str,
     prefix: Optional[str],
@@ -1006,7 +1336,7 @@ def _write_pair_summary(
     total_pairs: int,
     total_elements: int,
     filter_stats: Optional[Dict[str, Any]] = None,
-) -> None:
+) -> PairSummary:
     """
     Write a summary report for a single model pairing.
 
@@ -1038,106 +1368,33 @@ def _write_pair_summary(
 
     Returns
     -------
-    None
-        Writes summary text file to disk.
+    PairSummary
+        The counted summary that was written. Returned so callers that also
+        build the HTML report use exactly the numbers reported in the text
+        file rather than recomputing them.
+
+    Notes
+    -----
+    Counting and formatting live in :mod:`tirmite.report.stats`; this function
+    is the file-writing wrapper around them.
     """
-    prefix_str = f'{prefix}_' if prefix else ''
-    pair_label = (
-        f'{left_feature}_{right_feature}'
-        if left_feature != right_feature
-        else left_feature
+    summary = pair_summary_stats(
+        left_feature=left_feature,
+        right_feature=right_feature,
+        pair_paired=pair_paired,
+        pair_hitIndex=pair_hitIndex,
+        total_pairs=total_pairs,
+        total_elements=total_elements,
+        filter_stats=filter_stats,
     )
-    summary_path = os.path.join(outdir, f'{prefix_str}{pair_label}_summary.txt')
 
-    # Count hits per model in this pairing
-    models = set()
-    models.add(left_feature)
-    models.add(right_feature)
-
-    hits_per_model: Dict[str, int] = {}
-    for model in models:
-        if model in pair_hitIndex:
-            hits_per_model[model] = len(pair_hitIndex[model])
-        else:
-            hits_per_model[model] = 0
-
-    # Count paired hits
-    paired_hit_ids: set = set()
-    for _model, pairs in pair_paired.items():
-        for pair_set in pairs:
-            paired_hit_ids.update(pair_set)
-
-    total_hits = sum(hits_per_model.values())
-    total_unpaired = total_hits - len(paired_hit_ids)
-
+    prefix_str = f'{prefix}_' if prefix else ''
+    summary_path = os.path.join(outdir, f'{prefix_str}{summary.pair_label}_summary.txt')
     with open(summary_path, 'w') as f:
-        f.write('TIRmite Pair Summary Report\n')
-        f.write('===========================\n\n')
-        f.write(f'Model pair: {left_feature} <-> {right_feature}\n\n')
-
-        # --- Filtering criteria section ---
-        if filter_stats:
-            f.write('Filtering criteria applied\n')
-            f.write('--------------------------\n')
-            initial = filter_stats.get('initial_hits')
-            if initial is not None:
-                f.write(f'  Initial hits imported: {initial}\n')
-
-            # Pairing-map pre-filter
-            ignored_models = filter_stats.get('pairing_map_models_ignored')
-            if ignored_models:
-                f.write(
-                    f'  Pairing-map model filter: {len(ignored_models)} model(s) ignored '
-                    f'({", ".join(sorted(ignored_models))}), '
-                    f'{filter_stats.get("pairing_map_hits_ignored", 0)} hits excluded\n'
-                )
-
-            # Coverage filter
-            mincov = filter_stats.get('mincov')
-            cov_excluded = filter_stats.get('coverage_excluded', 0)
-            if mincov is not None:
-                f.write(
-                    f'  Coverage filter (min coverage >= {mincov}): '
-                    f'{cov_excluded} hit(s) excluded\n'
-                )
-
-            # E-value filter
-            maxeval = filter_stats.get('maxeval')
-            eval_excluded = filter_stats.get('evalue_excluded', 0)
-            if maxeval is not None:
-                f.write(
-                    f'  E-value filter (max e-value <= {maxeval}): '
-                    f'{eval_excluded} hit(s) excluded\n'
-                )
-
-            # Anchor offset filter
-            max_offset = filter_stats.get('max_offset')
-            anchor_excluded = filter_stats.get('anchor_excluded')
-            if max_offset is not None:
-                excl_str = (
-                    str(anchor_excluded) if anchor_excluded is not None else 'unknown'
-                )
-                f.write(
-                    f'  Anchor offset filter (max offset <= {max_offset}): '
-                    f'{excl_str} hit(s) excluded\n'
-                )
-
-            after_filtering = filter_stats.get('after_filtering')
-            if after_filtering is not None:
-                f.write(f'  Hits remaining after all filters: {after_filtering}\n')
-            f.write('\n')
-
-        # --- Pairing results section ---
-        f.write('Hits per model (after all filters)\n')
-        f.write('----------------------------------\n')
-        for model, count in sorted(hits_per_model.items()):
-            f.write(f'  {model}: {count}\n')
-        f.write(f'\nTotal hits for this pair: {total_hits}\n')
-        f.write(f'Total pairs found: {total_pairs}\n')
-        f.write(f'Total paired elements extracted: {total_elements}\n')
-        f.write(f'Total unpaired hits: {total_unpaired}\n')
+        f.write(format_pair_summary(summary))
 
     logger.info(f'Wrote summary report to {summary_path}')
+    return summary
 
 
 def main(args: Optional[argparse.Namespace] = None) -> int:
@@ -1576,8 +1833,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # sequence source before extraction begins. On the BLAST side the usual
         # cause of failure is a database built without -parse_seqids, or an
         # accession that differs from the FASTA header token.
+        # Built unconditionally so the report can ask it for sequence lengths
+        # and hit sequences even when the hit table came back empty.
+        extraction_source = make_source(genome=genome, blastdb=args.blastdb)
         if len(hitTable):
-            extraction_source = make_source(genome=genome, blastdb=args.blastdb)
             missing_targets = check_ids(extraction_source, hitTable['target'])
             if missing_targets:
                 logger.warning(
@@ -1617,6 +1876,14 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
 
         # Convert to dict structure
         hitsDict, hitIndex = table2dict(hitTable)
+
+        # The report accumulates each pairing procedure's outcome as it runs,
+        # and is written once at the end. Built here so it sees the same
+        # filtered hit table and the same filter statistics the text summaries
+        # report.
+        report_acc = _make_report_accumulator(
+            args, hitTable, model_lengths, filter_stats, extraction_source
+        )
 
         # Check for multiple models and validate pairing map requirement
         # Note: unique_models was already determined and logged after import
@@ -1724,6 +1991,11 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
         # Skip pairing if requested
         if args.nopairing:
             logger.info('Pairing disabled. Analysis complete.')
+            # A hits-only report: no groups were added, so it shows the
+            # annotation tracks, the alignment panels and the hit statistics.
+            _write_report(
+                args, report_acc, hitIndex, outDir, tempDir, extraction_source
+            )
             cleanup_temp_directory(tempDir, args.keep_temp)
             return 0
 
@@ -1910,7 +2182,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 total_pair_elements = sum(
                     len(eles) for eles in pair_pairedEles.values()
                 )
-                _write_pair_summary(
+                pair_summary = _write_pair_summary(
                     outdir=pair_outDir,
                     prefix=args.prefix,
                     left_feature=left_feature,
@@ -1922,6 +2194,21 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     total_elements=total_pair_elements,
                     filter_stats=filter_stats,
                 )
+
+                # Recorded here rather than after the loop: this loop reuses
+                # one hit index across every row, so a later row overwrites the
+                # pairing state this one produced. The accumulator snapshots
+                # what it is given.
+                if report_acc is not None:
+                    report_acc.add_group(
+                        left_feature=left_feature,
+                        right_feature=right_feature,
+                        config=pair_config,
+                        paired=pair_paired,
+                        hit_index=pair_hitIndex,
+                        elements=pair_pairedEles,
+                        summary=pair_summary,
+                    )
 
                 # Write GFF for this pair if requested
                 if args.gff_out:
@@ -2059,7 +2346,7 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                 left_feature = config.left_model or ''
                 right_feature = config.right_model or ''
                 total_ele_count = sum(len(eles) for eles in pairedEles.values())
-                _write_pair_summary(
+                single_summary = _write_pair_summary(
                     outdir=outDir,
                     prefix=args.prefix,
                     left_feature=left_feature,
@@ -2071,6 +2358,16 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     total_elements=total_ele_count,
                     filter_stats=filter_stats,
                 )
+                if report_acc is not None:
+                    report_acc.add_group(
+                        left_feature=left_feature,
+                        right_feature=right_feature,
+                        config=config,
+                        paired=paired,
+                        hit_index=hitIndex,
+                        elements=pairedEles,
+                        summary=single_summary,
+                    )
 
             # Extract and write external flanks if requested
             if args.flanks or args.flanks_paired:
@@ -2143,6 +2440,10 @@ def main(args: Optional[argparse.Namespace] = None) -> int:
                     unpaired=unpairedTIRs,
                     prefix=args.prefix,
                 )
+
+        # Written last, while tempDir is still alive for MAFFT: every other
+        # output is already on disk, so a failure here costs only the report.
+        _write_report(args, report_acc, hitIndex, outDir, tempDir, extraction_source)
 
         logger.info('TIRmite-pair analysis completed successfully')
 

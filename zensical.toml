@@ -24,6 +24,7 @@ nav = [
     { "Using tirmite search" = "tutorials/tirmite-search.md" },
     { "Using tirmite pair" = "tutorials/tirmite-pair.md" },
     { "Reconstructing and Validating Target Sites" = "tutorials/tirmite-validate.md" },
+    { "HTML Reports" = "tutorials/html-reports.md" },
   ] },
 ]
 

@@ -1,0 +1,89 @@
+{#
+  Page skeleton for every TIRmite report.
+
+  Everything is inlined: no stylesheet links, no script sources, no web fonts.
+  A report is routinely opened from disk long after the run, so anything
+  fetched over the network would be missing exactly when it is needed.
+#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="TIRmite {{ data.tirmite_version }}">
+<title>{{ data.title }}</title>
+{# Assets are marked safe because HTML entity escaping does not apply inside
+   <style>/<script>; escaping them would corrupt the CSS and JavaScript. They
+   are not user input, and inline_asset() has already neutralised any sequence
+   that could close the element early. #}
+<style>
+{% for style in styles %}
+{{ style | safe }}
+{% endfor %}
+</style>
+{# Pairing-group colours are per-run, so they cannot live in the static
+   stylesheet. Exposing them as custom properties means every swatch -- legend,
+   tables, chips -- follows the surface without the template having to know
+   which mode is active. #}
+<style>
+:root {
+{% for group in data.groups %}
+  --group-{{ loop.index0 }}: {{ group.colour }};
+{% endfor %}
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+{% for group in data.groups %}
+    --group-{{ loop.index0 }}: {{ group.colour_dark or group.colour }};
+{% endfor %}
+  }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <h1>{{ data.title }}</h1>
+  <div class="meta">
+    <span>TIRmite {{ data.tirmite_version or 'unknown version' }}</span>
+    <span>Generated {{ data.generated }}</span>
+    {% if data.params.orientation %}
+    <span>Orientation {{ data.params.orientation }}</span>
+    {% endif %}
+  </div>
+  {% if data.command %}
+  <div class="command">{{ data.command }}</div>
+  {% endif %}
+</header>
+
+{% if data.warnings %}
+<div class="warnings" role="note">
+  <h2>Read this first</h2>
+  <ul>
+    {% for warning in data.warnings %}
+    <li>{{ warning }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% block content %}{% endblock %}
+
+</div>
+
+<div class="tooltip" id="tooltip" role="tooltip" data-show="0"></div>
+<dialog class="element-modal" id="element-modal" aria-label="Element details"></dialog>
+
+{# The payload is safe by construction: to_json() escapes '<' and the Unicode
+   line separators, so it cannot close this element or break out of a string.
+   HTML-escaping it here would turn every quote into an entity and leave the
+   JSON unparseable. #}
+<script id="tirmite-report-data" type="application/json">{{ payload | safe }}</script>
+{% for script in scripts %}
+<script>
+{{ script | safe }}
+</script>
+{% endfor %}
+</body>
+</html>

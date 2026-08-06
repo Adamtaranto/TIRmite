@@ -1,0 +1,943 @@
+/*
+ * TIRmite report styles.
+ *
+ * Both light and dark modes are selected, not derived: the dark surface gets
+ * its own steps rather than an inverted copy of the light ones. The categorical
+ * hues used for pairing groups arrive as inline custom properties from the
+ * report data, since only the run knows how many groups there are.
+ *
+ * Chrome is deliberately recessive -- hairline rules one shade off the surface,
+ * no dashed grid, generous padding -- so the annotations themselves carry the
+ * visual weight.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --surface: #fcfcfb;
+  --surface-raised: #ffffff;
+  --surface-sunken: #f4f4f2;
+  --ink: #1a1a19;
+  --ink-secondary: #4a4a46;
+  --ink-muted: #75756e;
+  --rule: #e3e3df;
+  --rule-strong: #c9c9c3;
+  --accent: #2a78d6;
+  --neutral-pad: #8a8a86;
+
+  /*
+   * Nucleotide colours for the alignment panels. The conventional A-green
+   * C-blue G-orange T-red scheme puts green beside red, which is the one pair
+   * a deuteranope cannot separate. These four were chosen by validating every
+   * four-hue subset of the report palette against all-pairs colour-vision
+   * separation in both modes; only two subsets pass, and this is the one that
+   * keeps A green and C blue. T takes magenta rather than red.
+   * Base letters are drawn whenever the cells are large enough, so identity
+   * never rests on hue alone.
+   */
+  --base-a: #008300;
+  --base-c: #2a78d6;
+  --base-g: #eda100;
+  --base-t: #e87ba4;
+  --base-other: #55554f;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --radius: 6px;
+  --radius-lg: 10px;
+  --gap: 20px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1a1a19;
+    --surface-raised: #232322;
+    --surface-sunken: #131312;
+    --ink: #f2f2ef;
+    --ink-secondary: #c3c3bd;
+    --ink-muted: #8f8f88;
+    --rule: #333331;
+    --rule-strong: #4a4a47;
+    --accent: #3987e5;
+    --neutral-pad: #6e6e6a;
+
+    /* The same four hues re-stepped for the dark surface, validated as a set. */
+    --base-a: #008300;
+    --base-c: #3987e5;
+    --base-g: #c98500;
+    --base-t: #d55181;
+    --base-other: #b0b0a8;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 24px 96px;
+}
+
+/* ---- header ---------------------------------------------------------- */
+
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 20px;
+  margin-bottom: 28px;
+}
+
+.masthead h1 {
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+
+.masthead .meta {
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.masthead .command {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-secondary);
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-top: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* ---- warnings -------------------------------------------------------- */
+
+.warnings {
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid #eda100;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  padding: 12px 16px;
+  margin-bottom: 28px;
+}
+
+.warnings h2 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-secondary);
+  margin: 0 0 6px;
+}
+
+.warnings ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-secondary);
+  font-size: 13px;
+}
+
+/* ---- stat tiles ------------------------------------------------------ */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.tile {
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+}
+
+.tile .label {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+}
+
+.tile .value {
+  /* Proportional figures: tabular-nums makes a standalone number look loose. */
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 4px 0 2px;
+}
+
+.tile .detail {
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+}
+
+/* ---- sections -------------------------------------------------------- */
+
+section {
+  margin-bottom: 44px;
+  scroll-margin-top: 16px;
+}
+
+section > h2 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+section > .note {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+
+/* ---- legend ---------------------------------------------------------- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 12px 0 18px;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+.swatch {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  flex: none;
+}
+
+.swatch.unpaired {
+  background: transparent;
+  border: 1.5px dashed var(--rule-strong);
+}
+
+.swatch.clipped {
+  background: var(--neutral-pad);
+}
+
+/* ---- controls -------------------------------------------------------- */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  margin-bottom: 18px;
+}
+
+.controls label {
+  font-size: 12.5px;
+  color: var(--ink-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.controls input[type="search"],
+.controls select {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  min-height: 30px;
+}
+
+.controls input[type="search"] {
+  min-width: 200px;
+}
+
+button {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  /* Comfortably past the 24px minimum hit target. */
+  padding: 6px 12px;
+  min-height: 30px;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+/*
+ * A real anchor rather than a button wherever the action is "save this file":
+ * it carries the filename, and right-click offers Save link as. Styled to sit
+ * in a row of buttons without looking like body-text link.
+ */
+a.button-link {
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+a.button-link:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- track browser --------------------------------------------------- */
+
+.track {
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px 8px;
+  margin-bottom: 14px;
+}
+
+.track-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin-bottom: 8px;
+}
+
+.track-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.track-stats {
+  font-size: 12px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.track-view {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Track scrollbars are forced to be always visible. macOS defaults to overlay
+ * scrollbars that fade out at rest, which would leave no indication that a
+ * track can be scrolled at all -- and scrolling is the primary way to move
+ * along a zoomed contig.
+ */
+/* Chrome and Safari honour ::-webkit-scrollbar only while the standard
+   scrollbar-width/scrollbar-color are left alone -- setting either makes them
+   ignore these rules and fall back to an overlay bar. So the standard
+   properties are given to the browsers that have no ::-webkit-scrollbar
+   instead, further down. */
+.track-body::-webkit-scrollbar,
+.track-hscroll::-webkit-scrollbar {
+  /* Opts out of the overlay style, so the bar keeps its space and stays put. */
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+}
+
+.track-body::-webkit-scrollbar-track,
+.track-hscroll::-webkit-scrollbar-track {
+  background: var(--surface-sunken);
+  border-radius: 5px;
+}
+
+.track-body::-webkit-scrollbar-thumb,
+.track-hscroll::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border-radius: 5px;
+}
+
+.track-body::-webkit-scrollbar-thumb:hover,
+.track-hscroll::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-muted);
+}
+
+/* Firefox and anything else without the webkit pseudo-elements. */
+@supports not selector(::-webkit-scrollbar) {
+  .track-body,
+  .track-hscroll {
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule-strong) var(--surface-sunken);
+  }
+}
+
+/* Tall tracks scroll rather than pushing the axis and everything below it
+   down the page. The axis lives outside this box so it stays visible. */
+.track-body {
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.track svg {
+  display: block;
+  width: 100%;
+  /* Horizontal gestures belong to the track (pan); vertical ones are left to
+     the browser so the page still scrolls past a track under a finger. */
+  touch-action: pan-y;
+  cursor: grab;
+}
+
+.track svg.track-axis {
+  cursor: default;
+  touch-action: auto;
+}
+
+/* A real horizontal scrollbar for panning. The spacer inside it is sized to
+   the current zoom, so at whole-contig view there is nothing to scroll and the
+   bar disappears on its own. */
+.track-hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Height reserved whether or not the bar is needed, so a track does not
+     change height as it is zoomed. */
+  height: 12px;
+  margin-top: 4px;
+}
+
+.track-hspacer {
+  height: 1px;
+}
+
+.track svg.dragging {
+  cursor: grabbing;
+}
+
+/* Set while a hit is under the pointer, including the few pixels of slack
+   around a glyph too narrow to aim at. The cursor and the hover summary then
+   agree about where a click will land. */
+.track svg.over-hit {
+  cursor: pointer;
+}
+
+.track .axis line,
+.track .axis path {
+  /* Hairline, solid, one shade off the surface. Never dashed. */
+  stroke: var(--rule-strong);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.track .axis text {
+  fill: var(--ink-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.track .link {
+  stroke-width: 1;
+  fill: none;
+  opacity: 0.85;
+}
+
+.track .glyph {
+  /* A 2px surface ring separates overlapping glyphs without a hard border. */
+  stroke: var(--surface-raised);
+  stroke-width: 2;
+  paint-order: stroke fill;
+}
+
+.track .glyph.unpaired {
+  fill-opacity: 0.35;
+}
+
+.track .glyph.highlight {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+/* The link keeps its group colour when highlighted -- recolouring it would
+   break the one thing it encodes. Weight and opacity carry the emphasis. */
+.track .link.highlight {
+  stroke-width: 2;
+  opacity: 1;
+}
+
+.track .cap {
+  stroke: var(--neutral-pad);
+  stroke-width: 2;
+  shape-rendering: crispEdges;
+}
+
+.track .overflow-note {
+  fill: var(--ink-muted);
+  font-size: 10px;
+}
+
+.track-empty {
+  color: var(--ink-muted);
+  font-size: 13px;
+  padding: 20px 0;
+  text-align: center;
+}
+
+/* ---- tooltip --------------------------------------------------------- */
+
+.tooltip {
+  position: absolute;
+  z-index: 50;
+  pointer-events: none;
+  max-width: 340px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.14);
+  padding: 9px 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+.tooltip[data-show="1"] {
+  opacity: 1;
+}
+
+.tooltip h4 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1px 10px;
+}
+
+.tooltip dt {
+  color: var(--ink-muted);
+}
+
+.tooltip dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tooltip .hint {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-muted);
+  font-size: 11.5px;
+}
+
+/* ---- modal ----------------------------------------------------------- */
+
+dialog.element-modal {
+  width: min(760px, calc(100vw - 40px));
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  color: var(--ink);
+  padding: 0;
+}
+
+dialog.element-modal::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.modal-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.modal-head-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+/* Metadata and sequence are tabbed rather than stacked: an element sequence
+   can run to tens of kilobases and would bury the details identifying it. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 14px;
+}
+
+.tab {
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 13px;
+  padding: 6px 10px;
+  min-height: 32px;
+}
+
+.tab:hover {
+  border-color: transparent;
+  border-bottom-color: var(--rule-strong);
+  color: var(--ink);
+}
+
+.tab[aria-selected="true"] {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* Marks the track a coordinate link just jumped to, so the reader can see
+   where they landed on a page full of near-identical tracks. */
+.track-flash {
+  animation: track-flash 1.2s ease-out;
+}
+
+@keyframes track-flash {
+  0% {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgb(42 120 214 / 0.18);
+  }
+  100% {
+    border-color: var(--rule);
+    box-shadow: none;
+  }
+}
+
+/* A coordinate that navigates: styled as a link, but it is a button because
+   it moves the view rather than following a URL. */
+.locus-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  min-height: 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.locus-link:hover {
+  border: none;
+  text-decoration-style: solid;
+}
+
+.name-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  min-height: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.name-link:hover {
+  border: none;
+}
+
+.modal-head .sub {
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.modal-body {
+  padding: 14px 18px 18px;
+}
+
+.modal-body dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 14px;
+  margin: 0 0 14px;
+  font-size: 13px;
+}
+
+.modal-body dt {
+  color: var(--ink-muted);
+}
+
+.modal-body dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.modal-actions .status {
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+.seq {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre;
+  margin: 0;
+}
+
+.seq-missing {
+  font-size: 13px;
+  color: var(--ink-secondary);
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.seq-missing code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  display: block;
+  margin-top: 6px;
+  color: var(--ink);
+  overflow-x: auto;
+}
+
+/* ---- tables ---------------------------------------------------------- */
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+/* Numbers align down the column, so equal-width digits earn their keep here. */
+td.num,
+th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-raised);
+  color: var(--ink-secondary);
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 1px solid var(--rule-strong);
+  cursor: pointer;
+  user-select: none;
+}
+
+thead th[aria-sort="ascending"]::after {
+  content: " \2191";
+  color: var(--accent);
+}
+
+thead th[aria-sort="descending"]::after {
+  content: " \2193";
+  color: var(--accent);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+tbody tr:hover {
+  background: var(--surface-sunken);
+}
+
+.model-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- figures --------------------------------------------------------- */
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 18px;
+}
+
+figure {
+  margin: 0;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+}
+
+/* A square matrix is unreadable at the width a histogram is content with. */
+figure.wide {
+  grid-column: 1 / -1;
+}
+
+figure.wide svg {
+  margin: 0 auto;
+}
+
+figure h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+figure svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+figcaption {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+/* ---- alignment panels ------------------------------------------------ */
+
+.msa {
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.msa-canvas-wrap {
+  overflow: auto;
+  max-height: 420px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+.msa canvas {
+  display: block;
+}
+
+/* ---- misc ------------------------------------------------------------ */
+
+.muted {
+  color: var(--ink-muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.empty-state {
+  color: var(--ink-muted);
+  font-size: 13px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 18px;
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

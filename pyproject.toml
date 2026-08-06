@@ -18,6 +18,8 @@ classifiers = [
 
 dependencies = [
     'biopython>=1.70',
+    "jinja2>=3.0",
+    "matplotlib>=3.5",
     "pandas>=0.23.4",
     "pyfaidx",
     "pyhmmer",
@@ -67,7 +69,15 @@ exclude = ["environment.yml", ".github", ".vscode"]
 # the inline annotations rather than treating tirmite as untyped.
 [tool.hatch.build.targets.wheel]
 packages = ["src/tirmite"]
-artifacts = ["src/tirmite/py.typed"]
+# `artifacts` bypasses both the VCS-based file selection used by hatch-vcs and
+# the `exclude` list above, so the HTML report's templates and static assets are
+# guaranteed to ship in the wheel. tests/test_report_packaging.py fails the suite
+# rather than let a broken wheel out.
+artifacts = [
+    "src/tirmite/py.typed",
+    "src/tirmite/report/templates/*",
+    "src/tirmite/report/assets/*",
+]
 
 [tool.hatch.version]
 source = "vcs"
@@ -135,11 +145,11 @@ quote-style = "single"
 [tool.ruff.lint.isort]
 force-sort-within-sections = true
 known-first-party = ["tirmite"]
-known-third-party = ["Bio", "pandas", "pyhmmer"]
+known-third-party = ["Bio", "jinja2", "matplotlib", "pandas", "pyhmmer"]
 
 [tool.isort]
 profile = "black"
-known_third_party = ["Bio", "pandas", "pyhmmer"]
+known_third_party = ["Bio", "jinja2", "matplotlib", "pandas", "pyhmmer"]
 known_first_party = ["tirmite"]
 default_section = "THIRDPARTY"
 force_sort_within_sections = true
@@ -201,7 +211,15 @@ warn_unused_ignores = true
 # it to this list is a loud error, which forces a deliberate decision about
 # whether its types should be trusted rather than silently inheriting them.
 [[tool.mypy.overrides]]
-module = ["Bio.*", "pandas.*", "pyfaidx.*", "pyhmmer.*", "rich.*"]
+module = [
+    "Bio.*",
+    "jinja2.*",
+    "matplotlib.*",
+    "pandas.*",
+    "pyfaidx.*",
+    "pyhmmer.*",
+    "rich.*",
+]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

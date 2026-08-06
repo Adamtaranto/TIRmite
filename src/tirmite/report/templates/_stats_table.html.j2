@@ -1,0 +1,43 @@
+{#
+  A sortable statistics table.
+
+  Expects `columns` as a list of {key, label, num} and `rows` as a list of
+  dicts. A cell may supply {value, sort, colour} instead of a plain value when
+  its display text would not sort correctly, or when it should carry a
+  group swatch.
+#}
+<div class="table-wrap">
+  <table data-sortable {% if caption %}aria-describedby="{{ table_id }}-caption"{% endif %}>
+    {% if caption %}
+    <caption id="{{ table_id }}-caption" class="visually-hidden">{{ caption }}</caption>
+    {% endif %}
+    <thead>
+      <tr>
+        {% for column in columns %}
+        <th scope="col" {% if column.num %}class="num"{% endif %}>{{ column.label }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        {% for column in columns %}
+        {% set cell = row[column.key] %}
+        {% if cell is mapping %}
+        <td {% if column.num %}class="num"{% endif %}
+            {% if cell.sort is not none %}data-sort="{{ cell.sort }}"{% endif %}>
+          {% if cell.colour %}
+          <span class="model-chip"><span class="swatch" style="background: {{ cell.colour }}"></span>{{ cell.value }}</span>
+          {% else %}
+          {{ cell.value }}
+          {% endif %}
+        </td>
+        {% else %}
+        <td {% if column.num %}class="num"{% endif %}>{{ cell }}</td>
+        {% endif %}
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

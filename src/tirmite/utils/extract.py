@@ -168,6 +168,126 @@ class FastaSource:
         return f'genome index {getattr(self.genome, "filename", "<unknown>")}'
 
 
+class MultiFastaSource:
+    """
+    Sequence source spanning several indexed FASTA genomes.
+
+    Parameters
+    ----------
+    genomes : sequence of pyfaidx.Fasta
+        Indexed genomes, as returned by
+        :func:`tirmite.utils.utils.indexGenome`.
+    descriptions : dict, optional
+        Mapping of sequence ID to FASTA header description.
+
+    Notes
+    -----
+    Lookups dispatch on sequence name. That is unambiguous because a run
+    searching several genomes already rejects a sequence name that appears in
+    more than one of them -- otherwise a hit could not be traced back to the
+    assembly it came from. When a name somehow appears twice anyway, the first
+    genome supplied wins and a warning names the collision.
+
+    This exists so that a report covering several genomes can read every hit,
+    rather than quietly omitting those from all but the first.
+    """
+
+    def __init__(self, genomes: Any, descriptions: Optional[Dict[str, str]] = None):
+        self.genomes = list(genomes)
+        self.descriptions = descriptions or {}
+        self._owner: Dict[str, Any] = {}
+        for genome in self.genomes:
+            for seqid in genome.keys():
+                if seqid in self._owner:
+                    logger.warning(
+                        f'Sequence {seqid} appears in more than one genome; '
+                        'reading it from the first.'
+                    )
+                    continue
+                self._owner[seqid] = genome
+
+    def _source_for(self, seqid: str) -> Optional['FastaSource']:
+        """
+        Return a source wrapping whichever genome holds a sequence.
+
+        Parameters
+        ----------
+        seqid : str
+            Sequence identifier.
+
+        Returns
+        -------
+        FastaSource or None
+            A source for the owning genome, or None if no genome has it.
+        """
+        genome = self._owner.get(seqid)
+        return None if genome is None else FastaSource(genome, self.descriptions)
+
+    def contig_length(self, seqid: str) -> Optional[int]:
+        """
+        Return the length of a sequence, in whichever genome holds it.
+
+        Parameters
+        ----------
+        seqid : str
+            Sequence identifier.
+
+        Returns
+        -------
+        int or None
+            Length in bases, or None if no genome has it.
+        """
+        source = self._source_for(seqid)
+        return None if source is None else source.contig_length(seqid)
+
+    def fetch_raw(self, seqid: str, start: int, end: int) -> Optional[str]:
+        """
+        Fetch a pre-clamped 1-based inclusive region.
+
+        Parameters
+        ----------
+        seqid : str
+            Sequence identifier.
+        start, end : int
+            1-based inclusive coordinates, already clamped to the contig.
+
+        Returns
+        -------
+        str or None
+            The sequence, or None if no genome has `seqid`.
+        """
+        source = self._source_for(seqid)
+        return None if source is None else source.fetch_raw(seqid, start, end)
+
+    def sequence_description(self, seqid: str) -> str:
+        """
+        Return the FASTA header description, or '' if there is none.
+
+        Parameters
+        ----------
+        seqid : str
+            Sequence identifier.
+
+        Returns
+        -------
+        str
+            Text following the sequence ID in the header, or ''.
+        """
+        source = self._source_for(seqid)
+        return '' if source is None else source.sequence_description(seqid)
+
+    def describe(self) -> str:
+        """
+        Describe this source for log messages.
+
+        Returns
+        -------
+        str
+            Human-readable identifier for this source.
+        """
+        return f'{len(self.genomes)} genome indexes'
+
+
 class BlastDBSource:
     """
     Sequence source backed by a BLAST database, read via ``blastdbcmd``.

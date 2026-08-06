@@ -455,6 +455,13 @@ select:focus-visible,
   cursor: grabbing;
 }
 
+/* Set while a hit is under the pointer, including the few pixels of slack
+   around a glyph too narrow to aim at. The cursor and the hover summary then
+   agree about where a click will land. */
+.track svg.over-hit {
+  cursor: pointer;
+}
+
 .track .axis line,
 .track .axis path {
   /* Hairline, solid, one shade off the surface. Never dashed. */

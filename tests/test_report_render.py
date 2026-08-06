@@ -221,6 +221,37 @@ class TestElementPopup:
         assert 'pre.textContent = record()' in script
         assert "return header() + '\\n' + T.wrapSequence(current(), 60)" in script
 
+    def test_clicking_an_annotation_opens_the_popup(self, script):
+        # The same openFeature an element name in the tables calls, so both
+        # routes land on one popup rather than two near-identical ones.
+        assert "addEventListener('click', function (event) {" in script
+        assert 'openFeature(h)' in script
+
+    def test_hit_testing_is_forgiving_and_shared_with_hover(self, script):
+        # A hit is drawn at least MIN_GLYPH_PX wide -- two pixels at
+        # whole-contig zoom -- which is not a target anyone can hit. Hover uses
+        # the same test, so a summary appearing means a click there will work.
+        assert 'var CLICK_SLOP_X' in script
+        assert 'var CLICK_SLOP_Y' in script
+        assert script.count('self.hitAt(event)') >= 2
+        assert 'var h = this.hitAt(event);' in script
+
+    def test_vertical_tolerance_cannot_reach_two_rows_at_once(self, script):
+        # Grabbing the row above or below would be worse than grabbing
+        # nothing, and a point within tolerance of both rows would make the
+        # choice arbitrary. Twice the slop has to fit in the gap between rows.
+        def constant(name):
+            return int(re.search(r'var ' + name + r' = (\d+)', script).group(1))
+
+        gap = constant('ROW_HEIGHT') - constant('GLYPH_HEIGHT')
+        assert 2 * constant('CLICK_SLOP_Y') < gap
+
+    def test_a_pan_does_not_open_a_popup(self, script):
+        # A drag ends in a click, and with a forgiving radius that click could
+        # land on a glyph the reader never aimed at.
+        assert 'var DRAG_THRESHOLD_PX' in script
+        assert 'if (travelled > DRAG_THRESHOLD_PX) return;' in script
+
     def test_blob_is_released_when_the_popup_goes_away(self, script):
         assert 'revokeObjectURL' in script
         # Closing, dismissing with Escape and opening the next feature all

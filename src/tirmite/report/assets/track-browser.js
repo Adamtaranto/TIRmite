@@ -24,6 +24,17 @@
   var AXIS_HEIGHT = 22;
   var PAD_TOP = 8;
   var MIN_GLYPH_PX = 2;
+  /*
+   * How far a pointer may sit from a glyph and still count as on it. Sideways
+   * this brings a 2 px glyph up to a usable target. Vertically it is capped so
+   * that twice the slop still fits in the ROW_HEIGHT - GLYPH_HEIGHT gap
+   * between rows: no point can then be within tolerance of two rows at once,
+   * which would make the row a near miss lands on arbitrary.
+   */
+  var CLICK_SLOP_X = 7;
+  var CLICK_SLOP_Y = 3;
+  /* Sideways travel that turns a click into a pan. */
+  var DRAG_THRESHOLD_PX = 4;
   var MIN_VIEW_BP = 40;
   /* Long hits that started before the viewport still have to be drawn. */
   var LOOKBACK = 512;
@@ -261,14 +272,20 @@
     );
 
     var dragging = null;
+    // A pan ends with a click, and with a forgiving hit radius that click can
+    // land near a glyph and open a popup nobody asked for. Anything past a few
+    // pixels of travel was a drag, not a click.
+    var travelled = 0;
     this.svg.addEventListener('pointerdown', function (event) {
       if (event.button !== 0) return;
+      travelled = 0;
       dragging = { x: event.clientX, start: self.view.start, end: self.view.end };
       self.svg.setPointerCapture(event.pointerId);
       self.svg.classList.add('dragging');
     });
     this.svg.addEventListener('pointermove', function (event) {
       if (dragging) {
+        travelled = Math.max(travelled, Math.abs(event.clientX - dragging.x));
         var box = self.svg.getBoundingClientRect();
         var span = dragging.end - dragging.start;
         var shift = ((dragging.x - event.clientX) / Math.max(1, box.width)) * span;
@@ -290,6 +307,7 @@
     this.svg.addEventListener('pointerup', endDrag);
     this.svg.addEventListener('pointercancel', endDrag);
     this.svg.addEventListener('pointerleave', function () {
+      self.svg.classList.remove('over-hit');
       hideTooltip();
       self.unhighlight();
     });
@@ -315,22 +333,20 @@
       self.schedule();
     });
 
-    // Clicking opens the feature popup. A hover tooltip cannot carry working
-    // buttons -- moving the pointer towards it leaves the glyph that produced
-    // it -- so anything the reader needs to act on lives in the popup.
+    // Clicking opens the feature popup -- the same one an element name in the
+    // tables opens. A hover tooltip cannot carry working buttons, since moving
+    // the pointer towards it leaves the glyph that produced it, so everything
+    // the reader needs to act on lives in the popup instead.
     this.svg.addEventListener('click', function (event) {
-      var target = event.target.closest('.glyph');
-      if (!target) return;
-      var h = T.hitByUid(+target.dataset.uid);
+      if (travelled > DRAG_THRESHOLD_PX) return;
+      var h = self.hitAt(event);
       if (!h) return;
       hideTooltip();
       openFeature(h);
     });
 
     this.svg.addEventListener('dblclick', function (event) {
-      var target = event.target.closest('.glyph');
-      if (!target) return;
-      var h = T.hitByUid(+target.dataset.uid);
+      var h = self.hitAt(event);
       if (!h) return;
       var pad;
       if (h.element) {
@@ -444,6 +460,16 @@
     var top = PAD_TOP;
     var indices = this.visibleHits();
 
+    /*
+     * Geometry for hit-testing, recorded as the glyphs are laid out. Reading
+     * it back off the DOM would mean a getBoundingClientRect per glyph on
+     * every pointer move, which forces layout and would stutter on a contig
+     * carrying thousands of hits. These are SVG-local pixels; hitAt converts
+     * the pointer into the same space with one measurement of the element.
+     */
+    var boxes = [];
+    this.boxes = boxes;
+
     // Links first, so they sit behind the glyphs they connect.
     var linkGroup = svgEl('g', { class: 'links' });
     var glyphGroup = svgEl('g', { class: 'glyphs' });
@@ -467,6 +493,14 @@
 
       var jagLeft = !!h.truncLeft && !h.clipLeft;
       var jagRight = !!h.truncRight && !h.clipRight;
+      var x0 = x(h.start);
+      boxes.push({
+        uid: h.uid,
+        x0: x0,
+        x1: x0 + Math.max(MIN_GLYPH_PX, x(h.end + 1) - x0),
+        y0: y,
+        y1: y + GLYPH_HEIGHT,
+      });
       var path = svgEl('path', {
         class: 'glyph' + (HAS_PAIRS && !h.element ? ' unpaired' : ''),
         d: glyphPath(x(h.start), x(h.end + 1), y, GLYPH_HEIGHT, {
@@ -635,15 +669,54 @@
 
   /* ---- hover ---------------------------------------------------------- */
 
-  Track.prototype.hover = function (event) {
+  /*
+   * Which hit is under -- or near enough to -- the pointer.
+   *
+   * A hit is drawn at least MIN_GLYPH_PX wide, which at whole-contig zoom is
+   * the common case: a 60 bp terminus on a 900 kb contig is two pixels. Asking
+   * someone to land a click on that is asking them to fail, so a miss falls
+   * back to the nearest glyph within a small radius. The vertical tolerance is
+   * deliberately tighter than the horizontal one -- rows are ROW_HEIGHT apart
+   * and grabbing a neighbouring row's hit would be worse than grabbing
+   * nothing.
+   *
+   * Hover uses this too, so the rule is one the reader can see: if a summary
+   * appeared, a click in the same place opens that feature.
+   */
+  Track.prototype.hitAt = function (event) {
     var target = event.target.closest ? event.target.closest('.glyph') : null;
-    if (!target) {
+    if (target) return T.hitByUid(+target.dataset.uid) || null;
+
+    var boxes = this.boxes;
+    if (!boxes || !boxes.length) return null;
+    var frame = this.svg.getBoundingClientRect();
+    var px = event.clientX - frame.left;
+    var py = event.clientY - frame.top;
+
+    var best = null;
+    var bestDx = CLICK_SLOP_X;
+    for (var i = 0; i < boxes.length; i++) {
+      var box = boxes[i];
+      var dy = py < box.y0 ? box.y0 - py : py > box.y1 ? py - box.y1 : 0;
+      if (dy > CLICK_SLOP_Y) continue;
+      var dx = px < box.x0 ? box.x0 - px : px > box.x1 ? px - box.x1 : 0;
+      if (dx <= bestDx) {
+        bestDx = dx;
+        best = box;
+      }
+    }
+    return best ? T.hitByUid(best.uid) || null : null;
+  };
+
+  Track.prototype.hover = function (event) {
+    var h = this.hitAt(event);
+    if (!h) {
+      this.svg.classList.remove('over-hit');
       hideTooltip();
       this.unhighlight();
       return;
     }
-    var h = T.hitByUid(+target.dataset.uid);
-    if (!h) return;
+    this.svg.classList.add('over-hit');
     this.highlight(h);
     showTooltip(h, event);
   };
@@ -756,10 +829,13 @@
     if (h.overflow) {
       notes.push('Track row limit reached; this hit shares a row with others.');
     }
+    // Name the annotation, not the box: the box vanishes the moment the
+    // pointer leaves the glyph, so "click here" would be an invitation to
+    // chase something that cannot be caught.
     notes.push(
       h.element
-        ? 'Click for details and the element sequence.'
-        : 'Click for details.'
+        ? 'Click the annotation for details and the element sequence.'
+        : 'Click the annotation for details.'
     );
     if (notes.length) {
       var hint = document.createElement('div');

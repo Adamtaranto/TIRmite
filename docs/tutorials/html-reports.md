@@ -56,9 +56,16 @@ One track per sequence carrying at least one hit, drawn as a genome browser.
   <kbd>+</kbd>/<kbd>-</kbd> zoom.
 - **Hover** any annotation for a summary: model, coordinates, strand, e-value,
   score, model coverage, pairing group and partner.
-- **Click** an annotation to open its details popup. For a paired terminus this
-  has two tabs — the metadata, and the element sequence. The same popup opens
-  from an element name in the tables.
+- **Click** an annotation to open its details popup — the same popup an element
+  name in the tables opens. For a paired terminus it has two tabs: the
+  metadata, and the element sequence.
+
+A hit is often only two pixels wide at whole-contig zoom, so clicking is
+forgiving: a few pixels of horizontal slack count as a hit, and the pointer
+turns into a hand wherever that applies. Hovering uses the same test, so if a
+summary appeared, a click in that spot opens that feature. The summary itself
+cannot be clicked — it follows the pointer and is gone the moment you leave the
+annotation, which is exactly why everything actionable lives in the popup.
 
 The sequence tab shows the element as a **FASTA record**, header line included,
 so what is on screen is exactly what the buttons beside it produce: *Copy

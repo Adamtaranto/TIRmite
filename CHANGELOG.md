@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Common Changelog](https://common-changelog.org/).
 
-## [Unreleased]
+## [1.5.1] 2026-08-06
 
 This release fixes several bugs that made whole subcommands unusable or silently
 produced wrong results, and reorganises the package internals. Three of the

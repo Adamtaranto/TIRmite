@@ -792,6 +792,7 @@ class PairReportAccumulator(ReportAccumulatorBase):
         msa_mode: str = 'off',
         msa_max_rows: int = 500,
         msa_max_cells: int = 2_000_000,
+        msa_pad_model: bool = False,
     ) -> ReportData:
         """
         Produce the finished report data.
@@ -822,6 +823,9 @@ class PairReportAccumulator(ReportAccumulatorBase):
             Row cap per alignment panel.
         msa_max_cells : int, default 2000000
             Cell budget per alignment panel.
+        msa_pad_model : bool, default False
+            Show sequence, greyed, where a hit did not match its whole model.
+            Off by default, in which case those columns are gaps.
 
         Returns
         -------
@@ -883,6 +887,7 @@ class PairReportAccumulator(ReportAccumulatorBase):
             mode=msa_mode,
             max_rows=msa_max_rows,
             max_cells=msa_max_cells,
+            pad_model=msa_pad_model,
         )
 
         return ReportData(
@@ -916,6 +921,7 @@ class PairReportAccumulator(ReportAccumulatorBase):
         mode: str,
         max_rows: int,
         max_cells: int,
+        pad_model: bool = False,
     ) -> List[Any]:
         """
         Build the terminus alignment panels, tolerating failure.
@@ -936,6 +942,8 @@ class PairReportAccumulator(ReportAccumulatorBase):
             Alignment mode.
         max_rows, max_cells : int
             Panel caps.
+        pad_model : bool, default False
+            Show unmatched model positions as sequence rather than gaps.
 
         Returns
         -------
@@ -970,6 +978,7 @@ class PairReportAccumulator(ReportAccumulatorBase):
                     mode=mode,
                     max_rows=max_rows,
                     max_cells=max_cells,
+                    pad_model=pad_model,
                 )
             )
         except Exception as exc:  # noqa: BLE001 - panels are not worth a run

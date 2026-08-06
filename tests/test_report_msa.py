@@ -92,6 +92,11 @@ def build(hits, source, monkeypatch, mode='anchor', **kwargs):
     )
 
 
+def build_padded(hits, source, monkeypatch, mode='anchor', **kwargs):
+    """Build panels with model padding on, as --padlen requests."""
+    return build(hits, source, monkeypatch, mode=mode, pad_model=True, **kwargs)
+
+
 class TestPadRuns:
     def test_model_pads_become_m_runs(self):
         runs = msa.pad_runs('ACGTACGT', [(0, 3)])
@@ -119,7 +124,7 @@ class TestModelPadVersusGap:
         # past the hit at both ends: the shortfall is a model pad.
         source = FakeSource({'chr1': 'ACGT' * 100})
         hit = make_hit(0, 'chr1', 101, 115, hmm=(6, 20), trunc=(5, 0))
-        panel = build([hit], source, monkeypatch)[0]
+        panel = build_padded([hit], source, monkeypatch)[0]
         row = panel.rows[0]
         assert [r for r in row.pad if r[2] == 'm'] == [[0, 5, 'm']]
         assert not [r for r in row.pad if r[2] == 'g']
@@ -151,11 +156,63 @@ class TestModelPadVersusGap:
         # model did not claim. The grey run sits inside the gap run.
         source = FakeSource({'chr1': 'ACGT' * 25})
         hit = make_hit(0, 'chr1', 3, 17, hmm=(6, 20), trunc=(5, 0))
-        panel = build([hit], source, monkeypatch)[0]
+        panel = build_padded([hit], source, monkeypatch)[0]
         kinds = {r[2]: r for r in panel.rows[0].pad}
         assert kinds['g'] == [0, 3, 'g']
         assert kinds['m'] == [3, 2, 'm']
         assert panel.rows[0].seq.startswith('---')
+
+
+class TestModelPaddingIsOptIn:
+    """By default an alignment shows only what the hit actually matched."""
+
+    def test_unmatched_model_positions_are_gaps_by_default(self, monkeypatch):
+        source = FakeSource({'chr1': 'ACGT' * 100})
+        hit = make_hit(0, 'chr1', 101, 115, hmm=(6, 20), trunc=(5, 0))
+        row = build([hit], source, monkeypatch)[0].rows[0]
+        # No grey at all: the five unclaimed model positions are gaps.
+        assert not [r for r in row.pad if r[2] == 'm']
+        assert [r for r in row.pad if r[2] == 'g'] == [[0, 5, 'g']]
+        assert row.seq.startswith('-----')
+
+    def test_padding_shows_the_flanking_sequence_instead(self, monkeypatch):
+        source = FakeSource({'chr1': 'ACGT' * 100})
+        hit = make_hit(0, 'chr1', 101, 115, hmm=(6, 20), trunc=(5, 0))
+        row = build_padded([hit], source, monkeypatch)[0].rows[0]
+        assert [r for r in row.pad if r[2] == 'm'] == [[0, 5, 'm']]
+        assert '-' not in row.seq
+
+    def test_both_modes_span_the_same_columns(self, monkeypatch):
+        # Rows must still line up: only the content of the unclaimed columns
+        # differs, never the width.
+        source = FakeSource({'chr1': 'ACGT' * 100})
+        hit = make_hit(0, 'chr1', 101, 115, hmm=(6, 20), trunc=(5, 0))
+        plain = build([hit], source, monkeypatch)[0]
+        padded = build_padded([hit], source, monkeypatch)[0]
+        assert plain.n_cols == padded.n_cols
+        assert len(plain.rows[0].seq) == len(padded.rows[0].seq)
+
+    def test_matched_sequence_is_identical_in_both_modes(self, monkeypatch):
+        source = FakeSource({'chr1': 'ACGT' * 100})
+        hit = make_hit(0, 'chr1', 101, 115, hmm=(6, 20), trunc=(5, 0))
+        plain = build([hit], source, monkeypatch)[0].rows[0].seq
+        padded = build_padded([hit], source, monkeypatch)[0].rows[0].seq
+        assert plain[5:] == padded[5:]
+
+    def test_minus_strand_gaps_land_on_the_right(self, monkeypatch):
+        # The deficit is at the lower genomic coordinate, which is the model's
+        # far end on the minus strand.
+        source = FakeSource({'chr1': 'ACGT' * 100})
+        hit = make_hit(0, 'chr1', 101, 115, strand='-', hmm=(1, 15), trunc=(5, 0))
+        row = build([hit], source, monkeypatch)[0].rows[0]
+        assert row.seq.endswith('-----')
+        assert not [r for r in row.pad if r[2] == 'm']
+
+    def test_contig_truncation_still_gaps_without_padding(self, monkeypatch):
+        source = FakeSource({'chr1': 'ACGT' * 25})
+        hit = make_hit(0, 'chr1', 1, 15, hmm=(6, 20), trunc=(5, 0))
+        row = build([hit], source, monkeypatch)[0].rows[0]
+        assert row.seq.startswith('-----')
 
 
 class TestOrientation:
@@ -211,7 +268,7 @@ class TestOrientation:
         # orientation, so the pad belongs at the right of the panel.
         source = FakeSource({'chr1': 'ACGT' * 100})
         hit = make_hit(0, 'chr1', 101, 115, strand='-', hmm=(1, 15), trunc=(5, 0))
-        panel = build([hit], source, monkeypatch)[0]
+        panel = build_padded([hit], source, monkeypatch)[0]
         assert [r for r in panel.rows[0].pad if r[2] == 'm'] == [[15, 5, 'm']]
 
 

@@ -88,9 +88,15 @@ against its own reverse complement.
 Two kinds of missing sequence are shown differently, for the same reason as
 above:
 
-- **Grey** — a model position the hit did not match, although the genome
-  continues there. The sequence exists; the alignment did not claim it.
-- **Blank** — sequence that does not exist because the contig ended.
+- **Gaps** — model positions the hit did not match. This is the default: the
+  panel shows only what the hit actually matched.
+- **Grey** — with `--padlen`, those positions instead show the sequence that
+  sits beside the hit, greyed to mark it as unclaimed. Blank then means
+  sequence that does not exist because the contig ended.
+
+Padding is off by default because the extra bases are not evidence for the
+model — they are whatever happens to lie next to the hit, and an alignment
+invites reading them as part of the match.
 
 Hover a row for its hit; click to jump to that hit on its contig track. Each
 panel can be downloaded as FASTA, either aligned (gaps kept) or unaligned, with
@@ -233,8 +239,27 @@ while **colour outside a box is two unrelated models claiming the same
 sequence**. The diagonal counts two hits of one model at the same locus, which
 is redundancy rather than confusion between models.
 
-The exact counts are also in a table below the heatmap, labelled by whether
+A second heatmap shows the same counts with the axes ordered by
+**average-linkage clustering on the overlaps themselves**, with the tree drawn
+above. Groups there come from the hits alone, so reading the two together is
+the point: a block in the clustered view that crosses a box in the first one is
+a cluster map at odds with its own evidence.
+
+Distance is a Dice dissimilarity — twice the shared loci over the two models'
+total hits — so a model that shares most of its few hits ranks as close as one
+sharing many of many. Two models that never share a locus sit at distance 1 and
+join last.
+
+The exact counts are also in a table below the heatmaps, labelled by whether
 each pair is in the same cluster, different clusters, or unclustered.
+
+!!! note "Direct left/right partners are excluded"
+    The two termini of one element often share a short stretch of identity, so
+    they hit each other's loci. `tirmite search` already resolves that during
+    filtering — the locus goes to whichever model scored better — and counting
+    those pairs here would light up exactly the relationships the heatmap is
+    meant to leave alone, burying the cross-family overlaps that matter. Pairs
+    named in `--pairing-map` are therefore not counted.
 
 !!! warning "A model in two clusters"
     If any query belongs to more than one cluster, the report says so in its

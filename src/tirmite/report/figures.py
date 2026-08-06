@@ -735,6 +735,184 @@ def _model_overlap_heatmap(data: ReportData, plt: Any) -> Optional[FigureSpec]:
     )
 
 
+def _overlap_matrix(
+    models: Sequence[str], overlaps: Sequence[Dict[str, Any]]
+) -> List[List[int]]:
+    """
+    Build a symmetric count matrix over the given models.
+
+    Parameters
+    ----------
+    models : sequence of str
+        Axis order.
+    overlaps : sequence of dict
+        Records with 'a', 'b' and 'hits'.
+
+    Returns
+    -------
+    list of list of int
+        Counts, symmetric, zero where two models never share a locus.
+    """
+    index = {model: i for i, model in enumerate(models)}
+    size = len(models)
+    matrix = [[0 for _ in range(size)] for _ in range(size)]
+    for entry in overlaps:
+        i = index.get(entry['a'])
+        j = index.get(entry['b'])
+        if i is None or j is None:
+            continue
+        matrix[i][j] = entry['hits']
+        matrix[j][i] = entry['hits']
+    return matrix
+
+
+def _model_overlap_clustered_heatmap(
+    data: ReportData, plt: Any
+) -> Optional[FigureSpec]:
+    """
+    Plot shared hit loci with the axes ordered by hierarchical clustering.
+
+    Parameters
+    ----------
+    data : ReportData
+        The report.
+    plt : module
+        ``matplotlib.pyplot``.
+
+    Returns
+    -------
+    FigureSpec or None
+        The figure, or None when there is nothing to cluster.
+
+    Notes
+    -----
+    The companion figure orders models by their declared cluster, which asks
+    "do the hits agree with the cluster map?". This one lets the hits speak
+    first: models are ordered by average-linkage clustering on how much they
+    share, so groups emerge from the data whether or not a cluster map was
+    supplied. Reading them together is the point -- a block here that crosses a
+    box there is a cluster map at odds with its own evidence.
+
+    Distances are Dice dissimilarities on the overlap counts, so a model that
+    shares most of its few hits ranks as close as one sharing many of many.
+    """
+    overlaps = data.stats.get('model_overlaps', [])
+    if not overlaps:
+        return None
+
+    models, _blocks = _model_order(data)
+    if len(models) < 3:
+        # With two models there is one join and nothing a tree can reveal.
+        return None
+
+    limit = 40
+    truncated = False
+    if len(models) > limit:
+        busiest: Dict[str, int] = {}
+        for entry in overlaps:
+            busiest[entry['a']] = busiest.get(entry['a'], 0) + entry['hits']
+            busiest[entry['b']] = busiest.get(entry['b'], 0) + entry['hits']
+        keep = set(sorted(busiest, key=lambda m: -busiest[m])[:limit])
+        models = [m for m in models if m in keep]
+        truncated = True
+
+    from tirmite.report.cluster import overlap_distances, upgma
+
+    counts = {
+        (entry['a'], entry['b']): entry['hits']
+        for entry in overlaps
+        if entry['a'] != entry['b']
+    }
+    hits_per_model = data.stats.get('hits_per_model_before_merge', {})
+    distances = overlap_distances(models, counts, hits_per_model)
+    tree = upgma(models, distances)
+
+    ordered = tree.order
+    matrix = _overlap_matrix(ordered, overlaps)
+    peak = max((max(row) for row in matrix), default=0)
+    if not peak:
+        return None
+
+    size = len(ordered)
+    side = min(6.5, max(SINGLE_COLUMN_IN, 0.22 * size + 1.4))
+    fig = plt.figure(figsize=(side, side * 1.2))
+    grid = fig.add_gridspec(
+        2, 2, height_ratios=[1, 4], width_ratios=[24, 1], hspace=0.04, wspace=0.06
+    )
+    tree_ax = fig.add_subplot(grid[0, 0])
+    ax = fig.add_subplot(grid[1, 0], sharex=tree_ax)
+    bar_ax = fig.add_subplot(grid[1, 1])
+
+    image = ax.imshow(matrix, cmap='Blues', vmin=0, vmax=peak, interpolation='nearest')
+
+    ax.set_xticks(range(size))
+    ax.set_yticks(range(size))
+    ax.set_xticklabels(ordered, rotation=90, fontsize=5.5)
+    ax.set_yticklabels(ordered, fontsize=5.5)
+    ax.tick_params(length=0, pad=1)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    if size <= 14:
+        for i in range(size):
+            for j in range(size):
+                value = matrix[i][j]
+                if not value:
+                    continue
+                ax.text(
+                    j,
+                    i,
+                    str(value),
+                    ha='center',
+                    va='center',
+                    fontsize=5.5,
+                    color='white' if value > peak * 0.6 else '#1a1a19',
+                )
+
+    # The tree, drawn as the usual brackets above its columns.
+    for merge in tree.merges:
+        tree_ax.plot(
+            [merge.left_x, merge.left_x, merge.right_x, merge.right_x],
+            [merge.left_height, merge.height, merge.height, merge.right_height],
+            color='#4a4a46',
+            linewidth=0.7,
+            solid_joinstyle='miter',
+        )
+    tree_ax.set_ylim(0, max(tree.height * 1.08, 1e-6))
+    tree_ax.set_xlim(-0.5, size - 0.5)
+    tree_ax.set_ylabel('Distance', fontsize=6)
+    tree_ax.tick_params(axis='y', labelsize=5.5, length=2, width=0.5, pad=1)
+    tree_ax.tick_params(axis='x', length=0, labelbottom=False)
+    for name, spine in tree_ax.spines.items():
+        spine.set_visible(name == 'left')
+        if name == 'left':
+            spine.set_linewidth(0.5)
+
+    bar = fig.colorbar(image, cax=bar_ax)
+    bar.ax.tick_params(labelsize=6, length=2, width=0.5)
+    bar.outline.set_linewidth(0.5)
+    bar.set_label('Overlapping hits', fontsize=6.5)
+
+    caption = (
+        'The same counts, with models ordered by average-linkage clustering on '
+        'how much they share rather than by their declared cluster. Groups here '
+        'come from the hits alone, so comparing this with the boxed figure '
+        'shows whether the cluster map agrees with its own evidence. Distance '
+        'is a Dice dissimilarity, so a model sharing most of its few hits ranks '
+        'as close as one sharing many of many.'
+    )
+    if truncated:
+        caption += f' Showing the {limit} models with the most overlap.'
+
+    return FigureSpec(
+        id='model-overlaps-clustered',
+        title='Shared hit loci, clustered',
+        caption=caption,
+        svg=_to_svg(fig, 'model-overlaps-clustered'),
+        wide=True,
+    )
+
+
 def _rebuild_blocks(models: List[str], data: ReportData) -> List[Any]:
     """
     Recompute cluster blocks for a reduced model list.
@@ -809,6 +987,7 @@ def build_figures(data: ReportData) -> List[FigureSpec]:
     if data.kind == 'search':
         builders = (
             _model_overlap_heatmap,
+            _model_overlap_clustered_heatmap,
             _model_coverage,
             _hits_per_contig,
             _evalues,

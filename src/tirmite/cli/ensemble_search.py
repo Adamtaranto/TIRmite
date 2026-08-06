@@ -1001,6 +1001,7 @@ def _create_merged_hit(
 def count_model_overlaps(
     hit_table: pd.DataFrame,
     min_overlap: int = 1,
+    pairing_map: Optional[Any] = None,
 ) -> List[Dict[str, Any]]:
     """
     Count overlapping hits between every pair of query models.
@@ -1011,6 +1012,11 @@ def count_model_overlaps(
         Hit table with 'model', 'target', 'hitStart' and 'hitEnd' columns.
     min_overlap : int, default 1
         Minimum shared bases for two hits to count as overlapping.
+    pairing_map : dict or sequence of tuple, optional
+        Left/right model partnerships, expanded to component names. Accepts
+        either shape, because ``expand_pairing_map_to_components`` returns
+        pairs while a parsed map is a dict. The two termini of one element are
+        excluded from the counts.
 
     Returns
     -------
@@ -1026,12 +1032,27 @@ def count_model_overlaps(
     cluster. After that point the component that produced each hit is gone, and
     a model-level matrix cannot be recovered.
 
+    A direct left/right pair is excluded because its two models describe the
+    two ends of one element. Where they share a short stretch of identity they
+    hit each other's loci, and :func:`filter_best_model_per_locus` resolves
+    that by assigning the locus to whichever scored better. Counting those
+    would light up exactly the pairs the report is meant to leave alone, and
+    bury the cross-family overlaps that matter.
+
     The sweep is the same shape as :func:`check_cross_cluster_overlaps`: sort
     by start, and stop the inner scan once a candidate begins after the current
     hit ends, since nothing later can overlap either.
     """
     if hit_table.empty:
         return []
+
+    pairs = (
+        pairing_map.items() if isinstance(pairing_map, dict) else (pairing_map or [])
+    )
+    partners = set()
+    for left, right in pairs:
+        partners.add((left, right))
+        partners.add((right, left))
 
     counts: Dict[Tuple[str, str], int] = {}
     table = hit_table.copy()
@@ -1056,10 +1077,13 @@ def count_model_overlaps(
                 # Inclusive coordinates, so hits sharing one base overlap by 1.
                 overlap = min(end1, int(ends[j])) - max(int(starts[i]), start2) + 1
                 if overlap >= min_overlap:
+                    model_i, model_j = str(models[i]), str(models[j])
+                    # The two termini of one element are expected to meet
+                    # where they share identity; that is not a cross-match.
+                    if (model_i, model_j) in partners:
+                        continue
                     key = (
-                        (str(models[i]), str(models[j]))
-                        if str(models[i]) <= str(models[j])
-                        else (str(models[j]), str(models[i]))
+                        (model_i, model_j) if model_i <= model_j else (model_j, model_i)
                     )
                     counts[key] = counts.get(key, 0) + 1
 
@@ -3058,7 +3082,12 @@ def _process_hits(
     # after that the component behind each hit is gone, and a model-level
     # overlap matrix cannot be rebuilt. Useful with or without a cluster map,
     # so it is not inside the branch below.
-    report_summary.model_overlaps = count_model_overlaps(hit_table)
+    # The pairing map may name clusters, while the hits still carry component
+    # names at this point, so it is expanded before use.
+    report_summary.model_overlaps = count_model_overlaps(
+        hit_table,
+        pairing_map=expand_pairing_map_to_components(pairing_map, cluster_map),
+    )
     report_summary.hits_per_model_before_merge = {
         str(model): int(count)
         for model, count in hit_table['model'].value_counts().items()

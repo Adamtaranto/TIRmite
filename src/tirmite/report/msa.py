@@ -120,9 +120,10 @@ def _fetch_row(
     source: Any,
     hit: Any,
     model_length: Optional[int],
+    pad_model: bool = False,
 ) -> Optional[Tuple[str, int, int, int, int]]:
     """
-    Fetch one hit's sequence extended to the full width of its model.
+    Fetch one hit's sequence, optionally extended to the width of its model.
 
     Parameters
     ----------
@@ -132,27 +133,57 @@ def _fetch_row(
         The hit to fetch.
     model_length : int or None
         Declared model length, used only for logging.
+    pad_model : bool, default False
+        When True, extend the window past the hit to cover the model positions
+        the alignment did not claim, and show that sequence greyed. When
+        False, fetch only what the hit matched and leave the rest as gaps.
 
     Returns
     -------
     tuple or None
         ``(sequence, left_pad, right_pad, left_model, right_model)`` in model
-        orientation, where the pads count positions that do not exist because
-        the contig ended and the model counts are the remaining unmatched
-        model positions. None when the sequence could not be read.
+        orientation, where the pads count positions that do not exist and the
+        model counts are unmatched model positions carrying real sequence.
+        None when the sequence could not be read.
 
     Notes
     -----
-    The window requested is the hit extended by its own model deficit at each
-    end, so every row spans the same model interval and the rows line up
-    without any alignment. :func:`tirmite.utils.extract.fetch_region_padded`
-    reports exactly how much of that window fell off the contig, which is what
-    separates a gap from a model pad.
+    Either way every row spans the same model interval, so the rows line up
+    without any alignment; the difference is only whether the unclaimed
+    columns show sequence or gaps.
+
+    Padding is off by default because the extra bases are not evidence for the
+    model: they are whatever happens to sit beside the hit, and showing them
+    in an alignment invites reading them as part of the match.
+    :func:`tirmite.utils.extract.fetch_region_padded` reports exactly how much
+    of a requested window fell off the contig, which is what separates a gap
+    from a model pad when padding is on.
     """
     from tirmite.utils.extract import fetch_region_padded
 
     left_deficit = hit.trunc_left or 0
     right_deficit = hit.trunc_right or 0
+
+    if not pad_model:
+        # Only the matched region is read; the deficit becomes gap columns, so
+        # no sequence is shown that the model did not claim.
+        region = fetch_region_padded(
+            source, hit.contig, hit.start, hit.end, pad_char=GAP
+        )
+        if region is None:
+            logger.debug(
+                f'No sequence available for {hit.contig}:{hit.start}-{hit.end} '
+                f'({hit.model}, model length {model_length})'
+            )
+            return None
+        seq = GAP * left_deficit + region.seq + GAP * right_deficit
+        left_pad = left_deficit + region.left_pad
+        right_pad = right_deficit + region.right_pad
+        if hit.strand == '-':
+            seq = _reverse_complement(seq)
+            left_pad, right_pad = right_pad, left_pad
+        return seq, left_pad, right_pad, 0, 0
+
     start = hit.start - left_deficit
     end = hit.end + right_deficit
 
@@ -358,6 +389,7 @@ def build_msa_panels(
     mode: str = 'auto',
     max_rows: int = 500,
     max_cells: int = 2_000_000,
+    pad_model: bool = False,
 ) -> List[MsaPanel]:
     """
     Build one stacked alignment panel per terminus model.
@@ -383,6 +415,10 @@ def build_msa_panels(
         Row cap per panel, applied best-e-value-first.
     max_cells : int, default 2000000
         Cell budget per panel. Rows are dropped beyond it.
+    pad_model : bool, default False
+        Show the sequence beside a hit where its model went unmatched, greyed.
+        Off by default: those bases are not evidence for the model, and an
+        alignment invites reading them as part of the match.
 
     Returns
     -------
@@ -411,6 +447,7 @@ def build_msa_panels(
             mode=mode,
             max_rows=max_rows,
             max_cells=max_cells,
+            pad_model=pad_model,
         )
         if panel is not None:
             panels.append(panel)
@@ -445,6 +482,7 @@ def _build_panel(
     mode: str,
     max_rows: int,
     max_cells: int,
+    pad_model: bool = False,
 ) -> Optional[MsaPanel]:
     """
     Build the alignment panel for one terminus model.
@@ -469,6 +507,8 @@ def _build_panel(
         Row cap.
     max_cells : int
         Cell budget.
+    pad_model : bool, default False
+        Show unmatched model positions as sequence rather than gaps.
 
     Returns
     -------
@@ -483,7 +523,7 @@ def _build_panel(
 
     rows: List[Dict[str, Any]] = []
     for hit in ordered:
-        fetched = _fetch_row(source, hit, model_length)
+        fetched = _fetch_row(source, hit, model_length, pad_model=pad_model)
         if fetched is None:
             continue
         seq, left_pad, right_pad, left_model, right_model = fetched

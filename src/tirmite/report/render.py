@@ -170,6 +170,11 @@ def render_report(
         'scripts': [inline_asset(name) for name in _SCRIPTS],
         'summary': _headline_numbers(data),
         'stats_contigs': contig_table(data),
+        # Grey cells only exist when model padding was requested, so the
+        # legend must not claim a colour the panels never use.
+        'has_model_pad': any(
+            run[2] == 'm' for panel in data.msa for row in panel.rows for run in row.pad
+        ),
     }
 
     if data.kind == 'search':

@@ -1299,6 +1299,9 @@ def _write_report(
             tempdir=tempDir,
             msa_mode=args.report_msa,
             msa_max_rows=args.report_msa_max_rows,
+            # --padlen already means "pad extracted sequences"; the alignment
+            # panels honour the same switch rather than inventing another.
+            msa_pad_model=bool(args.padlen),
         )
         write_pair_report(data, outpath)
     except Exception as exc:  # noqa: BLE001 - see the note above

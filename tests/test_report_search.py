@@ -39,6 +39,8 @@ PAYLOAD_RE = re.compile(
     re.DOTALL,
 )
 
+ID_ATTR = re.compile(r'\bid="([^"]+)"')
+
 
 def make_table(rows):
     """Build a string-valued hit table from partial row dicts."""
@@ -900,3 +902,155 @@ class TestOverlapHeatmap:
         assert rows[('a1', 'a2')] == 'same cluster (A)'
         assert rows[('a1', 'b1')] == 'different clusters'
         assert rows[('a1', 'a1')] == 'same model (redundant hits)'
+
+
+class TestWithinPairOverlapsAreExcluded:
+    """The two termini of one element are not a cross-match."""
+
+    def rows(self):
+        return [
+            {'model': 'TIR_L', 'hitStart': '100', 'hitEnd': '200', 'score': '150'},
+            {'model': 'TIR_R', 'hitStart': '150', 'hitEnd': '250', 'score': '50'},
+        ]
+
+    def test_partners_are_not_counted(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        # Where a left and right model share a short stretch of identity they
+        # hit each other's loci; filter_best_model_per_locus resolves that,
+        # and counting it here would light up exactly the pairs the heatmap
+        # is meant to leave alone.
+        assert (
+            count_model_overlaps(
+                make_table(self.rows()), pairing_map={'TIR_L': 'TIR_R'}
+            )
+            == []
+        )
+
+    def test_the_same_overlap_counts_without_a_pairing_map(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        assert count_model_overlaps(make_table(self.rows())) == [
+            {'a': 'TIR_L', 'b': 'TIR_R', 'hits': 1}
+        ]
+
+    def test_partnership_is_symmetric(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        # The map names L->R; an R/L encounter must be excluded too.
+        assert (
+            count_model_overlaps(
+                make_table(self.rows()), pairing_map={'TIR_R': 'TIR_L'}
+            )
+            == []
+        )
+
+    def test_a_sequence_of_pairs_is_accepted(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        # expand_pairing_map_to_components returns pairs, not a dict.
+        assert (
+            count_model_overlaps(
+                make_table(self.rows()), pairing_map=[('TIR_L', 'TIR_R')]
+            )
+            == []
+        )
+
+    def test_unrelated_models_still_count(self):
+        from tirmite.cli.ensemble_search import count_model_overlaps
+
+        rows = self.rows() + [
+            {'model': 'Other', 'hitStart': '120', 'hitEnd': '220'},
+        ]
+        result = count_model_overlaps(make_table(rows), pairing_map={'TIR_L': 'TIR_R'})
+        pairs = {(entry['a'], entry['b']) for entry in result}
+        assert ('Other', 'TIR_L') in pairs
+        assert ('Other', 'TIR_R') in pairs
+        assert ('TIR_L', 'TIR_R') not in pairs
+
+    def test_within_pair_hits_are_still_filtered_by_the_pipeline(self):
+        from tirmite.cli.ensemble_search import filter_best_model_per_locus
+
+        # Excluding them from the heatmap does not mean leaving them in the
+        # hit table: the stronger model still takes the locus.
+        kept = filter_best_model_per_locus(make_table(self.rows()), {'TIR_L': 'TIR_R'})
+        assert kept['model'].tolist() == ['TIR_L']
+
+
+class TestClusteredHeatmap:
+    def build_report(self, overlaps, cluster_map, models):
+        summary = SearchFilterSummary()
+        summary.model_overlaps = overlaps
+        summary.hits_per_model_before_merge = dict.fromkeys(models, 20)
+        acc = SearchReportAccumulator(
+            cluster_map=cluster_map, contig_length=lambda name: 50_000
+        )
+        rows = [
+            {'model': m, 'hitStart': str(100 + i * 500), 'hitEnd': str(180 + i * 500)}
+            for i, m in enumerate(models)
+        ]
+        return acc.finalise(make_table(rows), summary=summary)
+
+    def sample(self):
+        models = ['a1', 'a2', 'a3', 'b1', 'b2']
+        overlaps = [
+            {'a': 'a1', 'b': 'a2', 'hits': 18},
+            {'a': 'a1', 'b': 'a3', 'hits': 16},
+            {'a': 'a2', 'b': 'a3', 'hits': 17},
+            {'a': 'b1', 'b': 'b2', 'hits': 19},
+            {'a': 'a1', 'b': 'b1', 'hits': 1},
+        ]
+        return self.build_report(
+            overlaps, {'A': ['a1', 'a2', 'a3'], 'B': ['b1', 'b2']}, models
+        )
+
+    def test_both_heatmaps_are_built(self):
+        from tirmite.report.figures import build_figures
+
+        ids = [f.id for f in build_figures(self.sample())]
+        assert 'model-overlaps' in ids
+        assert 'model-overlaps-clustered' in ids
+        # The clustered view sits directly after the declared-cluster one, so
+        # the two can be read against each other.
+        assert ids.index('model-overlaps-clustered') == ids.index('model-overlaps') + 1
+
+    def test_the_clustered_figure_is_wide_inline_svg(self):
+        from tirmite.report.figures import build_figures
+
+        figure = next(
+            f
+            for f in build_figures(self.sample())
+            if f.id == 'model-overlaps-clustered'
+        )
+        assert figure.svg.startswith('<svg')
+        assert figure.wide is True
+        assert 'average-linkage' in figure.caption
+
+    def test_the_two_heatmaps_have_disjoint_svg_ids(self):
+        from tirmite.report.figures import build_figures
+
+        figures = {f.id: f for f in build_figures(self.sample())}
+        a = set(ID_ATTR.findall(figures['model-overlaps'].svg))
+        b = set(ID_ATTR.findall(figures['model-overlaps-clustered'].svg))
+        assert not (a & b)
+
+    def test_two_models_are_too_few_to_cluster(self):
+        from tirmite.report.figures import build_figures
+
+        data = self.build_report(
+            [{'a': 'a1', 'b': 'b1', 'hits': 4}],
+            {'A': ['a1'], 'B': ['b1']},
+            ['a1', 'b1'],
+        )
+        # One join reveals nothing a tree could show.
+        ids = [f.id for f in build_figures(data)]
+        assert 'model-overlaps' in ids
+        assert 'model-overlaps-clustered' not in ids
+
+    def test_no_overlaps_means_no_clustered_figure(self):
+        from tirmite.report.figures import build_figures
+
+        data = self.build_report([], {'A': ['a1']}, ['a1', 'a2', 'a3'])
+        assert not [
+            f for f in build_figures(data) if f.id == 'model-overlaps-clustered'
+        ]

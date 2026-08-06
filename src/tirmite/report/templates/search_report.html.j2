@@ -67,9 +67,10 @@
 <section id="alignments-section">
   <h2>Query alignments</h2>
   <p class="note">
-    Every hit for each query, aligned. Grey marks model positions the hit did
-    not match although the genome continues; blank marks sequence that does not
-    exist because the contig ended.
+    Every hit for each query, aligned in model orientation.
+    {% if has_model_pad %}Grey marks model positions the hit did not match
+    although the genome continues; blank marks sequence that does not exist.
+    {% else %}Gaps are model positions the hit did not match.{% endif %}
   </p>
   <div class="legend">
     <span class="legend-item"><span class="swatch" style="background: var(--base-a)"></span>A</span>
@@ -77,7 +78,9 @@
     <span class="legend-item"><span class="swatch" style="background: var(--base-g)"></span>G</span>
     <span class="legend-item"><span class="swatch" style="background: var(--base-t)"></span>T</span>
     <span class="legend-item"><span class="swatch" style="background: var(--base-other)"></span>other base</span>
+    {% if has_model_pad %}
     <span class="legend-item"><span class="swatch clipped"></span>model not matched</span>
+    {% endif %}
   </div>
   <div id="msa-panels"></div>
 </section>

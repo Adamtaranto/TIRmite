@@ -1,25 +1,25 @@
 name: Deploy Zensical docs to GitHub Pages
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
-      - 'docs/**'
-      - 'zensical.toml'
+      - "docs/**"
+      - "zensical.toml"
   workflow_dispatch:
-# Zensical builds into site/ and the result is published as a Pages artifact,
-# so this no longer needs write access to the repository (mkdocs gh-deploy
-# pushed to a gh-pages branch and required contents: write).
 permissions:
   contents: read
   pages: write
   id-token: write
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 jobs:
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v6
@@ -28,7 +28,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: '3.12'
+          python-version: "3.12"
       - name: Install Zensical
         run: pip install zensical
       - name: Build site
@@ -40,3 +40,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        timeout-minutes: 10

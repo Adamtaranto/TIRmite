@@ -582,7 +582,7 @@ def _model_order(data: ReportData) -> Any:
         return [], []
 
     owner: Dict[str, str] = {}
-    for cluster in sorted(cluster_map):
+    for cluster in sorted(cluster_map, key=str.casefold):
         for component in cluster_map[cluster]:
             owner.setdefault(component, cluster)
 
@@ -766,6 +766,42 @@ def _overlap_matrix(
     return matrix
 
 
+# Marker shapes for the cluster key. Paired with the palette so that clusters
+# stay distinguishable past the eight hues, and so membership is never carried
+# by colour alone.
+_CLUSTER_MARKERS = ('o', 's', '^', 'D', 'v', 'P', 'X', '*')
+
+
+def _cluster_symbols(clusters: Sequence[str]) -> Dict[str, Any]:
+    """
+    Assign a colour and marker to each cluster.
+
+    Parameters
+    ----------
+    clusters : sequence of str
+        Cluster names, in the order they should take palette slots.
+
+    Returns
+    -------
+    dict
+        Cluster name to ``(colour, marker)``.
+
+    Notes
+    -----
+    Colour advances fastest and shape only after the palette is exhausted, so
+    the first eight clusters differ in hue and the next eight differ in hue and
+    shape. A reader with a colour-vision deficiency still has the shape.
+    """
+    from tirmite.report.palette import GROUP_COLOURS
+
+    symbols = {}
+    for i, cluster in enumerate(clusters):
+        colour = GROUP_COLOURS[i % len(GROUP_COLOURS)]
+        marker = _CLUSTER_MARKERS[(i // len(GROUP_COLOURS)) % len(_CLUSTER_MARKERS)]
+        symbols[cluster] = (colour, marker)
+    return symbols
+
+
 def _model_overlap_clustered_heatmap(
     data: ReportData, plt: Any
 ) -> Optional[FigureSpec]:
@@ -790,11 +826,20 @@ def _model_overlap_clustered_heatmap(
     "do the hits agree with the cluster map?". This one lets the hits speak
     first: models are ordered by average-linkage clustering on how much they
     share, so groups emerge from the data whether or not a cluster map was
-    supplied. Reading them together is the point -- a block here that crosses a
-    box there is a cluster map at odds with its own evidence.
+    supplied. A symbol under each leaf marks the cluster the model was assigned
+    to, which is what makes the comparison readable -- a branch whose leaves
+    carry mixed symbols is a group the hits support but the cluster map splits,
+    or the reverse.
 
     Distances are Dice dissimilarities on the overlap counts, so a model that
     shares most of its few hits ranks as close as one sharing many of many.
+
+    The diagonal counts hits of one model overlapping *each other*, which is
+    redundancy at a single locus. It is deliberately not the model's total hit
+    count: totals are far larger than any overlap, so putting them on this
+    colour scale would flatten the off-diagonal signal the figure exists to
+    show, and would mix two different quantities on one ramp. Totals appear in
+    the row labels instead.
     """
     overlaps = data.stats.get('model_overlaps', [])
     if not overlaps:
@@ -833,11 +878,33 @@ def _model_overlap_clustered_heatmap(
     if not peak:
         return None
 
+    cluster_map = data.stats.get('cluster_map', {})
+    owner: Dict[str, str] = {}
+    for cluster in sorted(cluster_map, key=str.casefold):
+        for component in cluster_map[cluster]:
+            owner.setdefault(component, cluster)
+    present = [
+        c
+        for c in sorted(cluster_map, key=str.casefold)
+        if any(owner.get(m) == c for m in ordered)
+    ]
+    symbols = _cluster_symbols(present)
+    has_unclustered = any(m not in owner for m in ordered)
+
     size = len(ordered)
-    side = min(6.5, max(SINGLE_COLUMN_IN, 0.22 * size + 1.4))
-    fig = plt.figure(figsize=(side, side * 1.2))
+    # Wider than the boxed heatmap: this one also carries a tree and a key.
+    side = min(7.5, max(4.2, 0.3 * size + 2.2))
+    # With no cluster map at all there is nothing to key: a legend whose
+    # only row says 'no cluster' is noise.
+    key_width = 6 if present else 0.01
+    fig = plt.figure(figsize=(side * 1.35, side * 1.25))
     grid = fig.add_gridspec(
-        2, 2, height_ratios=[1, 4], width_ratios=[24, 1], hspace=0.04, wspace=0.06
+        2,
+        3,
+        height_ratios=[1, 4],
+        width_ratios=[24, 1, key_width],
+        hspace=0.04,
+        wspace=0.08,
     )
     tree_ax = fig.add_subplot(grid[0, 0])
     ax = fig.add_subplot(grid[1, 0], sharex=tree_ax)
@@ -845,10 +912,18 @@ def _model_overlap_clustered_heatmap(
 
     image = ax.imshow(matrix, cmap='Blues', vmin=0, vmax=peak, interpolation='nearest')
 
+    totals = {m: hits_per_model.get(m) for m in ordered}
     ax.set_xticks(range(size))
     ax.set_yticks(range(size))
     ax.set_xticklabels(ordered, rotation=90, fontsize=5.5)
-    ax.set_yticklabels(ordered, fontsize=5.5)
+    # Totals go on the rows only: repeating them on both axes is noise, and
+    # they are what makes an off-diagonal count interpretable -- five shared
+    # loci out of six hits is a very different claim from five out of five
+    # hundred.
+    ax.set_yticklabels(
+        [f'{m}  ({totals[m]:,})' if totals.get(m) is not None else m for m in ordered],
+        fontsize=5.5,
+    )
     ax.tick_params(length=0, pad=1)
     for spine in ax.spines.values():
         spine.set_visible(False)
@@ -869,7 +944,6 @@ def _model_overlap_clustered_heatmap(
                     color='white' if value > peak * 0.6 else '#1a1a19',
                 )
 
-    # The tree, drawn as the usual brackets above its columns.
     for merge in tree.merges:
         tree_ax.plot(
             [merge.left_x, merge.left_x, merge.right_x, merge.right_x],
@@ -878,9 +952,39 @@ def _model_overlap_clustered_heatmap(
             linewidth=0.7,
             solid_joinstyle='miter',
         )
-    tree_ax.set_ylim(0, max(tree.height * 1.08, 1e-6))
+
+    # A symbol under each leaf says which cluster that model was assigned to.
+    top = max(tree.height, 1e-6)
+    for i, model in enumerate(ordered):
+        cluster = owner.get(model)
+        if cluster is None:
+            tree_ax.plot(
+                [i],
+                [-top * 0.06],
+                marker='o',
+                markersize=3,
+                markerfacecolor='none',
+                markeredgecolor='#9a9a96',
+                markeredgewidth=0.6,
+                linestyle='none',
+                clip_on=False,
+            )
+            continue
+        colour, marker = symbols[cluster]
+        tree_ax.plot(
+            [i],
+            [-top * 0.06],
+            marker=marker,
+            markersize=3.6,
+            color=colour,
+            linestyle='none',
+            clip_on=False,
+        )
+
+    tree_ax.set_ylim(-top * 0.13, top * 1.08)
     tree_ax.set_xlim(-0.5, size - 0.5)
     tree_ax.set_ylabel('Distance', fontsize=6)
+    tree_ax.set_yticks([0, round(top, 2)])
     tree_ax.tick_params(axis='y', labelsize=5.5, length=2, width=0.5, pad=1)
     tree_ax.tick_params(axis='x', length=0, labelbottom=False)
     for name, spine in tree_ax.spines.items():
@@ -893,13 +997,56 @@ def _model_overlap_clustered_heatmap(
     bar.outline.set_linewidth(0.5)
     bar.set_label('Overlapping hits', fontsize=6.5)
 
+    if present:
+        from matplotlib.lines import Line2D
+
+        key_ax = fig.add_subplot(grid[1, 2])
+        key_ax.axis('off')
+        handles = [
+            Line2D(
+                [],
+                [],
+                linestyle='none',
+                marker=symbols[cluster][1],
+                color=symbols[cluster][0],
+                markersize=4,
+                label=cluster,
+            )
+            for cluster in present
+        ]
+        if has_unclustered:
+            handles.append(
+                Line2D(
+                    [],
+                    [],
+                    linestyle='none',
+                    marker='o',
+                    markerfacecolor='none',
+                    markeredgecolor='#9a9a96',
+                    markersize=4,
+                    label='no cluster',
+                )
+            )
+        key_ax.legend(
+            handles=handles,
+            loc='upper left',
+            title='Cluster',
+            title_fontsize=6.5,
+            fontsize=6,
+            handlelength=1.0,
+            borderaxespad=0,
+        )
+
     caption = (
         'The same counts, with models ordered by average-linkage clustering on '
-        'how much they share rather than by their declared cluster. Groups here '
-        'come from the hits alone, so comparing this with the boxed figure '
-        'shows whether the cluster map agrees with its own evidence. Distance '
-        'is a Dice dissimilarity, so a model sharing most of its few hits ranks '
-        'as close as one sharing many of many.'
+        'how much they share rather than by their declared cluster. The symbol '
+        'under each leaf is the cluster the model was assigned to, so a branch '
+        'carrying mixed symbols is a grouping the hits support but the cluster '
+        'map splits, or the reverse. Distance is a Dice dissimilarity, so a '
+        'model sharing most of its few hits ranks as close as one sharing many '
+        'of many. Row labels carry each model’s total hit count; the '
+        'diagonal is hits of one model overlapping each other, not that total, '
+        'which would swamp the colour scale.'
     )
     if truncated:
         caption += f' Showing the {limit} models with the most overlap.'
@@ -931,7 +1078,7 @@ def _rebuild_blocks(models: List[str], data: ReportData) -> List[Any]:
     """
     cluster_map = data.stats.get('cluster_map', {})
     owner: Dict[str, str] = {}
-    for cluster in sorted(cluster_map):
+    for cluster in sorted(cluster_map, key=str.casefold):
         for component in cluster_map[cluster]:
             owner.setdefault(component, cluster)
 

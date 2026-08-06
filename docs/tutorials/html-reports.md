@@ -90,13 +90,17 @@ above:
 
 - **Gaps** — model positions the hit did not match. This is the default: the
   panel shows only what the hit actually matched.
-- **Grey** — with `--padlen`, those positions instead show the sequence that
-  sits beside the hit, greyed to mark it as unclaimed. Blank then means
-  sequence that does not exist because the contig ended.
+- **Grey** — with `--report-pad-model` (or `--padlen`, which implies it in
+  `tirmite pair`), those positions instead show the sequence that sits beside
+  the hit, greyed to mark it as unclaimed. Blank then means sequence that does
+  not exist because the contig ended.
 
 Padding is off by default because the extra bases are not evidence for the
 model — they are whatever happens to lie next to the hit, and an alignment
-invites reading them as part of the match.
+invites reading them as part of the match. Turn it on when you want to see
+whether a truncated hit stops at a real boundary or simply falls below the
+score threshold part-way through the model: if the model's motif continues in
+the grey, the hit was cut short by the search rather than by the sequence.
 
 Hover a row for its hit; click to jump to that hit on its contig track. Each
 panel can be downloaded as FASTA, either aligned (gaps kept) or unaligned, with
@@ -152,6 +156,7 @@ here, so nothing is reachable only by hovering.
 | `--no-report-sequences` | Do not embed element sequences |
 | `--report-max-seq-mb` | Budget for embedded sequences (default: 20 MB) |
 | `--report-msa` | `auto`, `mafft`, `anchor` or `off` (default: `auto`) |
+| `--report-pad-model` | Fill unmatched model positions with the neighbouring bases, drawn grey (implied by `--padlen`) |
 | `--report-msa-max-rows` | Hits per alignment panel (default: 500) |
 | `--report-max-hits` | Hits included in the report (default: 200 000) |
 | `--report-max-rows` | Stacked annotation rows per sequence (default: 30) |
@@ -239,11 +244,33 @@ while **colour outside a box is two unrelated models claiming the same
 sequence**. The diagonal counts two hits of one model at the same locus, which
 is redundancy rather than confusion between models.
 
+!!! note "Why the diagonal is usually empty"
+    A model's genuine hits land at distinct loci, so most models never overlap
+    themselves and the diagonal reads zero. It is deliberately *not* the
+    model's total hit count: totals are an order of magnitude larger than any
+    overlap, so putting them on the same colour ramp would flatten the
+    off-diagonal signal the figure exists to show, and would mix two different
+    quantities on one scale. Totals appear in the clustered heatmap's row
+    labels instead.
+
 A second heatmap shows the same counts with the axes ordered by
 **average-linkage clustering on the overlaps themselves**, with the tree drawn
 above. Groups there come from the hits alone, so reading the two together is
 the point: a block in the clustered view that crosses a box in the first one is
 a cluster map at odds with its own evidence.
+
+Under each leaf of that tree sits a **coloured symbol naming the cluster the
+model was assigned to**, keyed to the right of the heatmap. That is what makes
+the comparison readable at a glance: a branch whose leaves all carry the same
+symbol is a cluster the hits agree with, and a branch carrying mixed symbols is
+a grouping the hits support but the cluster map splits — or, where one symbol
+turns up on distant branches, the reverse. Models with no cluster get a hollow
+grey circle. Shape changes only once the eight palette hues are used up, so no
+two clusters ever share both a colour and a shape.
+
+Row labels on the clustered heatmap carry each model's **total hit count** in
+brackets, which is what makes an off-diagonal count interpretable — five shared
+loci out of six hits is a very different claim from five out of five hundred.
 
 Distance is a Dice dissimilarity — twice the shared loci over the two models'
 total hits — so a model that shares most of its few hits ranks as close as one
@@ -314,6 +341,7 @@ run that lost everything shows *where*.
 | `--report-out` | Path for the report (implies `--report`) |
 | `--report-title` | Heading shown at the top |
 | `--report-msa` | `auto`, `mafft`, `anchor` or `off` (default: `off`) |
+| `--report-pad-model` | Fill unmatched model positions with the neighbouring bases, drawn grey |
 | `--report-msa-max-rows` | Hits per alignment panel (default: 500) |
 | `--report-max-hits` | Hits included (default: 200 000) |
 | `--report-max-rows` | Stacked annotation rows per sequence (default: 30) |

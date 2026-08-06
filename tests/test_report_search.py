@@ -331,6 +331,10 @@ class TestSearchCli:
         lines = [header]
         for i in range(6):
             start = 1000 + i * 5000
+            # One hit matches only model positions 11-60, so there is a real
+            # deficit for the padding tests to act on.
+            hmm_from = 11 if i == 3 else 1
+            length = 60 - hmm_from + 1
             lines.append(
                 ' '.join(
                     [
@@ -338,12 +342,12 @@ class TestSearchCli:
                         '-',
                         'TIR_L' if i % 2 == 0 else 'TIR_R',
                         '-',
-                        '1',
+                        str(hmm_from),
                         '60',
                         str(start),
-                        str(start + 59),
+                        str(start + length - 1),
                         str(start),
-                        str(start + 59),
+                        str(start + length - 1),
                         '50000',
                         '+',
                         '1e-25',
@@ -408,6 +412,7 @@ class TestSearchCli:
             report_out=None,
             report_title=None,
             report_msa='off',
+            report_pad_model=False,
             report_msa_max_rows=500,
             report_max_hits=200000,
             report_max_rows=30,
@@ -543,6 +548,73 @@ class TestSearchCli:
             'test_hits.tab',
             'test_report.html',
         ]
+
+    def test_report_pad_model_shows_sequence_in_the_panels(self, inputs, tmp_path):
+        from tirmite.cli.ensemble_search import main
+
+        outdir = tmp_path / 'out'
+        args = self.make_args(
+            inputs,
+            outdir,
+            report=True,
+            report_msa='anchor',
+            genome=inputs['genome'],
+            report_pad_model=True,
+        )
+        assert main(args) == 0
+        payload = json.loads(
+            PAYLOAD_RE.search(
+                (outdir / 'test_report.html').read_text(encoding='utf-8')
+            ).group(1)
+        )
+        # Grey runs only exist when the neighbouring bases were fetched.
+        assert any(
+            run[2] == 'm'
+            for panel in payload['msa']
+            for row in panel['rows']
+            for run in row['pad']
+        )
+
+    def test_panels_use_gaps_without_the_flag(self, inputs, tmp_path):
+        from tirmite.cli.ensemble_search import main
+
+        outdir = tmp_path / 'out'
+        args = self.make_args(
+            inputs,
+            outdir,
+            report=True,
+            report_msa='anchor',
+            genome=inputs['genome'],
+        )
+        assert main(args) == 0
+        payload = json.loads(
+            PAYLOAD_RE.search(
+                (outdir / 'test_report.html').read_text(encoding='utf-8')
+            ).group(1)
+        )
+        assert not any(
+            run[2] == 'm'
+            for panel in payload['msa']
+            for row in panel['rows']
+            for run in row['pad']
+        )
+
+    def test_pad_model_without_panels_is_rejected(self, inputs, tmp_path):
+        from tirmite.cli.ensemble_search import (
+            EnsembleSearchError,
+            _validate_search_args,
+        )
+
+        # The panels are off by default here, so the flag alone does nothing.
+        args = self.make_args(
+            inputs,
+            tmp_path / 'out',
+            report=True,
+            report_pad_model=True,
+            report_msa='off',
+        )
+        with pytest.raises(EnsembleSearchError, match='--report-pad-model'):
+            _validate_search_args(args)
 
     def test_msa_without_a_genome_is_rejected(self, inputs, tmp_path):
         from tirmite.cli.ensemble_search import (
@@ -1054,3 +1126,146 @@ class TestClusteredHeatmap:
         assert not [
             f for f in build_figures(data) if f.id == 'model-overlaps-clustered'
         ]
+
+
+TEXT_NODE = re.compile(r'<text[^>]*>(.*?)</text>', re.DOTALL)
+
+
+def svg_text(svg):
+    """Return the readable text nodes of an inline SVG."""
+    return [re.sub(r'<[^>]+>', '', node).strip() for node in TEXT_NODE.findall(svg)]
+
+
+class TestClusterSymbols:
+    def test_each_cluster_gets_a_distinct_symbol(self):
+        from tirmite.report.figures import _cluster_symbols
+
+        symbols = _cluster_symbols(['a', 'b', 'c'])
+        assert len(set(symbols.values())) == 3
+
+    def test_colour_advances_before_shape(self):
+        from tirmite.report.figures import _cluster_symbols
+        from tirmite.report.palette import GROUP_COLOURS
+
+        clusters = [f'c{i}' for i in range(len(GROUP_COLOURS))]
+        symbols = _cluster_symbols(clusters)
+        # Within one palette pass the shape is constant and the hue varies.
+        assert len({colour for colour, _ in symbols.values()}) == len(GROUP_COLOURS)
+        assert len({marker for _, marker in symbols.values()}) == 1
+
+    def test_shape_distinguishes_clusters_past_the_palette(self):
+        from tirmite.report.figures import _cluster_symbols
+        from tirmite.report.palette import GROUP_COLOURS
+
+        clusters = [f'c{i}' for i in range(len(GROUP_COLOURS) + 2)]
+        symbols = _cluster_symbols(clusters)
+        # The ninth cluster reuses a hue, so its shape has to differ.
+        assert len(set(symbols.values())) == len(clusters)
+        first, ninth = symbols['c0'], symbols[f'c{len(GROUP_COLOURS)}']
+        assert first[0] == ninth[0]
+        assert first[1] != ninth[1]
+
+
+class TestClusteredHeatmapAnnotation:
+    def build(self, cluster_map, models, overlaps, hits=None):
+        summary = SearchFilterSummary()
+        summary.model_overlaps = overlaps
+        summary.hits_per_model_before_merge = hits or dict.fromkeys(models, 20)
+        acc = SearchReportAccumulator(
+            cluster_map=cluster_map, contig_length=lambda name: 50_000
+        )
+        rows = [
+            {'model': m, 'hitStart': str(100 + i * 500), 'hitEnd': str(180 + i * 500)}
+            for i, m in enumerate(models)
+        ]
+        return acc.finalise(make_table(rows), summary=summary)
+
+    def figure(self, data):
+        from tirmite.report.figures import build_figures
+
+        return next(
+            f for f in build_figures(data) if f.id == 'model-overlaps-clustered'
+        )
+
+    def sample(self):
+        models = ['a1', 'a2', 'b1', 'b2']
+        overlaps = [
+            {'a': 'a1', 'b': 'a2', 'hits': 18},
+            {'a': 'b1', 'b': 'b2', 'hits': 19},
+            {'a': 'a1', 'b': 'b1', 'hits': 1},
+        ]
+        return self.build(
+            {'Alpha': ['a1', 'a2'], 'beta': ['b1', 'b2']},
+            models,
+            overlaps,
+            hits={'a1': 20, 'a2': 21, 'b1': 22, 'b2': 23},
+        )
+
+    def test_the_key_names_every_cluster_present(self):
+        text = svg_text(self.figure(self.sample()).svg)
+        assert 'Cluster' in text
+        assert 'Alpha' in text
+        assert 'beta' in text
+
+    def test_row_labels_carry_total_hit_counts(self):
+        text = svg_text(self.figure(self.sample()).svg)
+        # Totals make an off-diagonal count interpretable; they are not on the
+        # diagonal because they would swamp the colour scale.
+        assert any('a1' in t and '(20)' in t for t in text)
+        assert any('b2' in t and '(23)' in t for t in text)
+
+    def test_column_labels_stay_bare(self):
+        text = svg_text(self.figure(self.sample()).svg)
+        # Repeating the totals on both axes would be noise.
+        assert 'a1' in text
+
+    def test_the_key_is_ordered_case_insensitively(self):
+        from tirmite.report.figures import _cluster_symbols
+
+        data = self.sample()
+        cluster_map = data.stats['cluster_map']
+        present = sorted(cluster_map, key=str.casefold)
+        # 'Alpha' before 'beta' despite the leading capital.
+        assert present == ['Alpha', 'beta']
+        assert list(_cluster_symbols(present)) == present
+
+    def test_unclustered_models_are_labelled_in_the_key(self):
+        data = self.build(
+            {'Alpha': ['a1', 'a2']},
+            ['a1', 'a2', 'loner'],
+            [
+                {'a': 'a1', 'b': 'a2', 'hits': 18},
+                {'a': 'a1', 'b': 'loner', 'hits': 2},
+            ],
+        )
+        assert 'no cluster' in svg_text(self.figure(data).svg)
+
+    def test_no_cluster_map_still_renders(self):
+        data = self.build(
+            {},
+            ['m1', 'm2', 'm3'],
+            [{'a': 'm1', 'b': 'm2', 'hits': 5}, {'a': 'm2', 'b': 'm3', 'hits': 3}],
+        )
+        figure = self.figure(data)
+        assert figure.svg.startswith('<svg')
+        # Nothing to key, so no cluster legend is drawn.
+        assert 'Cluster' not in svg_text(figure.svg)
+
+    def test_the_diagonal_is_self_overlap_not_the_total(self):
+        # Two hits of one model at one locus is redundancy; the model's total
+        # hit count is a different quantity and stays off this colour scale.
+        data = self.build(
+            {'Alpha': ['a1', 'a2']},
+            ['a1', 'a2', 'a3'],
+            [
+                {'a': 'a1', 'b': 'a2', 'hits': 4},
+                {'a': 'a2', 'b': 'a3', 'hits': 3},
+                {'a': 'a1', 'b': 'a1', 'hits': 2},
+            ],
+            hits={'a1': 500, 'a2': 500, 'a3': 500},
+        )
+        text = svg_text(self.figure(data).svg)
+        assert '2' in text
+        # The totals appear only as labels, never as a cell value.
+        assert '500' not in text
+        assert any('(500)' in t for t in text)

@@ -792,6 +792,21 @@ def _configure_pair_parser(parser: argparse.ArgumentParser) -> None:
     )
 
     parser.add_argument(
+        '--report-pad-model',
+        action='store_true',
+        default=False,
+        dest='report_pad_model',
+        help=(
+            'In the alignment panels, extend a hit that did not match its '
+            'whole model out to the full model length using the neighbouring '
+            'genomic bases, drawn grey. Without this those positions are gaps. '
+            'Implied by --padlen. The added bases are not evidence for the '
+            'model, so they are marked as unclaimed rather than shown as part '
+            'of the match.'
+        ),
+    )
+
+    parser.add_argument(
         '--report-msa-max-rows',
         type=int,
         default=500,
@@ -1299,9 +1314,10 @@ def _write_report(
             tempdir=tempDir,
             msa_mode=args.report_msa,
             msa_max_rows=args.report_msa_max_rows,
-            # --padlen already means "pad extracted sequences"; the alignment
-            # panels honour the same switch rather than inventing another.
-            msa_pad_model=bool(args.padlen),
+            # --padlen already asks for padded extraction, so it implies the
+            # same for the panels; --report-pad-model states it directly for
+            # a run that does not want padded FASTA output.
+            msa_pad_model=bool(getattr(args, 'report_pad_model', False) or args.padlen),
         )
         write_pair_report(data, outpath)
     except Exception as exc:  # noqa: BLE001 - see the note above

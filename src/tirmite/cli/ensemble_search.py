@@ -2294,6 +2294,20 @@ def _configure_search_parser(parser: argparse.ArgumentParser) -> None:
         ),
     )
     report_group.add_argument(
+        '--report-pad-model',
+        action='store_true',
+        default=False,
+        dest='report_pad_model',
+        help=(
+            'In the alignment panels, extend a hit that did not match its '
+            'whole model out to the full model length using the neighbouring '
+            'genomic bases, drawn grey. Without this those positions are gaps. '
+            'The added bases are not evidence for the model, so they are '
+            'marked as unclaimed rather than shown as part of the match. '
+            'Requires --report-msa.'
+        ),
+    )
+    report_group.add_argument(
         '--report-msa-max-rows',
         type=int,
         default=500,
@@ -2522,6 +2536,13 @@ def _validate_report_args(args: argparse.Namespace) -> None:
             raise EnsembleSearchError(f'{flag} must be at least {minimum}')
 
     msa_mode = getattr(args, 'report_msa', 'off')
+    if msa_mode == 'off' and getattr(args, 'report_pad_model', False):
+        # Padding only affects the alignment panels, which are off by default
+        # here, so on its own the flag does nothing.
+        raise EnsembleSearchError(
+            '--report-pad-model only affects the alignment panels, which are '
+            'off by default. Add --report-msa auto to build them.'
+        )
     if msa_mode != 'off' and not (args.genome or args.genome_list):
         # The panels read hit sequence from the genome; a run against
         # precomputed results alone has nothing to read.
@@ -2703,6 +2724,7 @@ def _write_search_report(
                 tempdir=str(tempdir),
                 msa_mode=msa_mode,
                 msa_max_rows=args.report_msa_max_rows,
+                msa_pad_model=getattr(args, 'report_pad_model', False),
             )
             write_search_report(data, outpath)
     except Exception as exc:  # noqa: BLE001 - see the note above

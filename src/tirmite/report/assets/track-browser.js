@@ -800,6 +800,28 @@
    */
 
   var lastFocus = null;
+  // Teardown for whatever the open popup allocated -- currently the blob URL
+  // behind the download link. Run on close and on reopening, since replacing
+  // the contents discards the old panel without closing the dialog.
+  var modalCleanups = [];
+
+  function onModalClose(fn) {
+    modalCleanups.push(fn);
+  }
+
+  // Escape dismisses a native <dialog> without going through closeModal, so
+  // the teardown also hangs off the element's own close event. Opening the
+  // next feature cleans up regardless, so the worst an old browser without
+  // that event can leak is the one blob behind the last popup.
+  if (modal) modal.addEventListener('close', runModalCleanups);
+
+  function runModalCleanups() {
+    var pending = modalCleanups;
+    modalCleanups = [];
+    pending.forEach(function (fn) {
+      fn();
+    });
+  }
 
   function openFeature(h) {
     if (!modal || !h) return;
@@ -809,6 +831,7 @@
       : null;
 
     lastFocus = document.activeElement;
+    runModalCleanups();
     modal.innerHTML = '';
 
     modal.appendChild(featureHead(h, element));
@@ -896,6 +919,7 @@
 
   function closeModal() {
     if (!modal) return;
+    runModalCleanups();
     if (typeof modal.close === 'function' && modal.open) modal.close();
     else modal.removeAttribute('open');
     if (lastFocus && lastFocus.focus) lastFocus.focus();
@@ -1056,9 +1080,14 @@
     fasta.type = 'button';
     fasta.textContent = 'Copy as FASTA';
 
-    var download = document.createElement('button');
-    download.type = 'button';
+    // An anchor, not a button: it carries the filename it will write, offers
+    // right-click Save link as, and needs no click handler to work. The href
+    // is a blob rather than a data URL because Chrome and Firefox both refuse
+    // top-level data: navigations, which is what a middle-click becomes.
+    var download = document.createElement('a');
+    download.className = 'button-link';
     download.textContent = 'Download FASTA';
+    download.setAttribute('download', element.element_id + '.fasta');
 
     var flip = document.createElement('button');
     flip.type = 'button';
@@ -1078,9 +1107,12 @@
     actions.appendChild(status);
     panel.appendChild(actions);
 
+    // The panel shows the FASTA record, header line and all, rather than bare
+    // sequence: it is what the copy and download actions produce, so there is
+    // nothing to guess about what you are about to save, and the header names
+    // the element and its coordinates without a trip back to the details tab.
     var pre = document.createElement('pre');
     pre.className = 'seq';
-    pre.textContent = T.wrapSequence(sequence, 60);
     panel.appendChild(pre);
 
     function current() {
@@ -1093,10 +1125,33 @@
         (reversed ? ' (reverse complement)' : '')
       );
     }
+    function record() {
+      return header() + '\n' + T.wrapSequence(current(), 60) + '\n';
+    }
+
+    /*
+     * The href is rebuilt whenever the record changes, and the previous blob
+     * is released as it goes. Without the revoke, flipping strand repeatedly
+     * would pin a copy of the sequence in memory for the life of the page.
+     */
+    var href = null;
+    function refresh() {
+      pre.textContent = record();
+      if (href) URL.revokeObjectURL(href);
+      href = URL.createObjectURL(
+        new Blob([record()], { type: 'text/x-fasta' })
+      );
+      download.href = href;
+    }
+    refresh();
+    onModalClose(function () {
+      if (href) URL.revokeObjectURL(href);
+      href = null;
+    });
 
     flip.addEventListener('click', function () {
       reversed = !reversed;
-      pre.textContent = T.wrapSequence(current(), 60);
+      refresh();
       status.textContent =
         (reversed ? 'Reverse complement' : 'Plus strand, as extracted') +
         ' · ' + sequence.length + ' bp';
@@ -1105,17 +1160,7 @@
       report(status, T.copyText(current()), 'Sequence copied.');
     });
     fasta.addEventListener('click', function () {
-      report(
-        status,
-        T.copyText(header() + '\n' + T.wrapSequence(current(), 60) + '\n'),
-        'FASTA copied.'
-      );
-    });
-    download.addEventListener('click', function () {
-      T.downloadText(
-        header() + '\n' + T.wrapSequence(current(), 60) + '\n',
-        element.element_id + '.fasta'
-      );
+      report(status, T.copyText(record()), 'FASTA copied.');
     });
 
     return panel;

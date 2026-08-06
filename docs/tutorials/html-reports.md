@@ -57,8 +57,16 @@ One track per sequence carrying at least one hit, drawn as a genome browser.
 - **Hover** any annotation for a summary: model, coordinates, strand, e-value,
   score, model coverage, pairing group and partner.
 - **Click** an annotation to open its details popup. For a paired terminus this
-  has two tabs — the metadata, and the element sequence with copy, download and
-  reverse-complement. The same popup opens from an element name in the tables.
+  has two tabs — the metadata, and the element sequence. The same popup opens
+  from an element name in the tables.
+
+The sequence tab shows the element as a **FASTA record**, header line included,
+so what is on screen is exactly what the buttons beside it produce: *Copy
+sequence* (bases only), *Copy as FASTA*, and a **Download FASTA** link that
+writes `<element_id>.fasta`. Being a link rather than a button, it names the
+file before you click and offers right-click → Save link as. *Reverse
+complement* flips the record in place, and the header says so, so a downloaded
+file can never be mistaken for the plus-strand extraction.
 
 Each annotation encodes several things at once:
 

@@ -299,6 +299,30 @@ button:hover {
   border-color: var(--accent);
 }
 
+/*
+ * A real anchor rather than a button wherever the action is "save this file":
+ * it carries the filename, and right-click offers Save link as. Styled to sit
+ * in a row of buttons without looking like body-text link.
+ */
+a.button-link {
+  font-size: 13px;
+  color: var(--ink);
+  text-decoration: none;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+a.button-link:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,

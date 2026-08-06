@@ -194,6 +194,41 @@ class TestSequences:
         assert 'ACGTACGTAC' not in render_report(data)
 
 
+class TestElementPopup:
+    """
+    The popup's sequence tab is built in JavaScript, so these check the
+    shipped script rather than the rendered document: the assertions are that
+    the behaviour is present in what the report carries, not that it ran.
+    """
+
+    @pytest.fixture
+    def script(self):
+        return inline_asset('track-browser.js')
+
+    def test_download_is_a_link_carrying_the_filename(self, script):
+        # An anchor rather than a button, so it offers Save link as and names
+        # the file it will write before you commit to the click.
+        assert "createElement('a')" in script
+        assert "download.className = 'button-link'" in script
+        assert "element.element_id + '.fasta'" in script
+        assert 'createObjectURL' in script
+
+    def test_download_link_is_styled_like_the_buttons_beside_it(self):
+        assert 'a.button-link {' in inline_asset('report.css')
+
+    def test_panel_shows_the_fasta_record_not_bare_sequence(self, script):
+        # What is on screen is what the copy and download actions produce.
+        assert 'pre.textContent = record()' in script
+        assert "return header() + '\\n' + T.wrapSequence(current(), 60)" in script
+
+    def test_blob_is_released_when_the_popup_goes_away(self, script):
+        assert 'revokeObjectURL' in script
+        # Closing, dismissing with Escape and opening the next feature all
+        # have to run the teardown; only the first goes through closeModal.
+        assert script.count('runModalCleanups()') >= 2
+        assert "modal.addEventListener('close', runModalCleanups)" in script
+
+
 class TestEscaping:
     def test_hostile_model_name_cannot_close_the_payload_element(
         self, hit_table_factory

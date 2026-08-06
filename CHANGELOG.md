@@ -95,7 +95,7 @@ below.
 ### Added
 
 - **`tirmite pair --report` writes a self-contained HTML report.** One file per run, with no external stylesheets, scripts, fonts or images, so it opens from disk and still works years later out of an archive. It contains:
-  - Genome-browser annotation tracks for every sequence carrying a hit, with scroll-to-zoom, drag-to-pan and keyboard navigation. Each annotation shows strand as an arrow, pairing group as colour, and a thin line linking the two termini of an element. Clicking a paired terminus opens its element sequence with copy-to-clipboard and reverse-complement buttons.
+  - Genome-browser annotation tracks for every sequence carrying a hit, with scroll-to-zoom, drag-to-pan and keyboard navigation. Each annotation shows strand as an arrow, pairing group as colour, and a thin line linking the two termini of an element. Clicking a paired terminus opens a popup carrying the element as a FASTA record — header line included, so what is displayed is exactly what the copy buttons and the download link produce — with copy-as-bases, copy-as-FASTA, a `<element_id>.fasta` download link, and reverse-complement, which flips the header too so a saved file cannot be mistaken for the plus-strand extraction.
   - Stacked alignments of every hit to each terminus model, aligned with MAFFT when it is on `PATH` and placed by model coordinates otherwise.
   - Distribution plots — element lengths, pairing outcome, model coverage against the `--mincov` setting, hits per sequence, and hit significance — as print-ready inline SVG.
   - Sortable statistics tables covering pairing groups, models, sequences and the filters applied.

@@ -897,12 +897,17 @@ def _model_overlap_clustered_heatmap(
     # With no cluster map at all there is nothing to key: a legend whose
     # only row says 'no cluster' is noise.
     key_width = 6 if present else 0.01
+    # A spacer column, not a wider wspace: the colour bar's tick labels and its
+    # 'Overlapping hits' label hang off its right edge and would sit on top of
+    # the key. wspace is shared by every gap, so widening it would also shove
+    # the colour bar away from the heatmap it reads against.
+    spacer = 3 if present else 0.01
     fig = plt.figure(figsize=(side * 1.35, side * 1.25))
     grid = fig.add_gridspec(
         2,
-        3,
+        4,
         height_ratios=[1, 4],
-        width_ratios=[24, 1, key_width],
+        width_ratios=[24, 1, spacer, key_width],
         hspace=0.04,
         wspace=0.08,
     )
@@ -1000,7 +1005,7 @@ def _model_overlap_clustered_heatmap(
     if present:
         from matplotlib.lines import Line2D
 
-        key_ax = fig.add_subplot(grid[1, 2])
+        key_ax = fig.add_subplot(grid[1, 3])
         key_ax.axis('off')
         handles = [
             Line2D(

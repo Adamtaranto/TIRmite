@@ -20,11 +20,11 @@ MITEs are a classic example of this - derived from autonomous DNA elements with 
 
 When non-autonomous structural variants of a TE vastly outnumber their parent element, and include forms that capture novel genes (or other full transposons!), it becomes difficult to correctly cluster related elements based on the limited signal present in terminal sequences (TIRs, LTRs, etc).
 
-**TIRmite** employs profile Hidden Markov Models (HMMs) to model natural variation in transposon termini and recover divergent and degraded hits that are often missed by sequence-based aligners like BLAST.
+**TIRmite** employs profile Hidden Markov Models (HMMs) OR ensembles of sequence queries to model natural variation in transposon termini and recover divergent and degraded hits that are often missed by sequence-based aligners like BLAST with single queries.
 
 An iterative pairing algorithm is then used to annotate cryptic transposon variants with variable internal sequence compositions.
 
-The elements extracted by TIRmite generally represent structuaral variants derived from an autonomous ancestor and may be further clustered into families.
+The elements extracted by TIRmite generally represent structural variants derived from an autonomous ancestor and may be further clustered into families.
 
 ## Table of contents
 
@@ -32,28 +32,28 @@ The elements extracted by TIRmite generally represent structuaral variants deriv
 * [Options and usage](#options-and-usage)
   * [Installing TIRmite](#installing-tirmite)
   * [Example usage](#example-usage)
-* [Algorithm overview](#algorithm-overview)
 * [License](#license)
 
 ## About TIRmite
 
-TIRmite will use profile-HMM models of Transposon Terminal Repeats for genome-wide annotation of transposon families. You can search for TE families with symmetrical termini (i.e. TIRs or LTRs) or asymmetrical elements with different conserved features at either end (i.e. Helitrons, Helentrons, and Starship elements).
+TIRmite can use profile-HMM models of Transposon Terminal Repeats OR BLAST sequence hits for genome-wide annotation of transposon families.
+
+You can search for TE families with symmetrical termini (i.e. TIRs or LTRs) or asymmetrical elements, where there are different conserved features at either end (i.e. Helitrons, Helentrons, and Starship elements).
 
 Three classes of output are produced:
 
-  1. All significant termini hit sequences are written to fasta (per query HMM).
-  2. Candidate elements comprised of paired termini are written to fasta (per query HMM).
-  3. Genomic annotations of candidate elements and, optionally, HMM hits
+  1. All significant termini hit sequences are written to fasta (per terminus model query).
+  2. Candidate elements comprised of paired termini are written to fasta (per terminus model query).
+  3. Genomic annotations of candidate elements and, optionally, terminus model hits
   (paired and unpaired) are written as a single GFF3 file.
 
 ## Options and usage
 
 ### Installing TIRmite
 
-TIRmite requires Python >= v3.10
-
 Dependencies:
 
+* Python >= v3.10
 * [HMMER3](http://hmmer.org)
 * [mafft](https://mafft.cbrc.jp/alignment/software/)
 * [BLAST+](ftp://ftp.ncbi.nlm.nih.gov/blast/executables/blast+/LATEST/) (Optional)
@@ -74,13 +74,7 @@ Installation options:
 pip install git+https://github.com/Adamtaranto/TIRmite.git
 ```
 
-2) Install latest release from PyPi.
-
-```bash
-pip install tirmite
-```
-
-3) Install latest release (with dependencies) from Bioconda.
+2) Install latest release (with dependencies) from Bioconda.
 
 ```bash
 conda install -c bioconda tirmite
@@ -131,26 +125,7 @@ tirmite pair \
   --outdir MY_TIR_OUTPUT
 ```
 
-`--report` writes `MY_TIR_OUTPUT/tirmite_pair_report.html`, a single
-self-contained file with zoomable annotation tracks for every sequence carrying
-a hit, stacked alignments of each terminus model's hits, distribution plots and
-sortable statistics. It fetches nothing over the network, so it opens straight
-from disk.
-
-## Algorithm overview
-
-  1. Use nhmmer (or BLAST) to query genome with termini models/sequences.
-  2. Import all hits under *--maxeval* threshold.
-  3. For each significant terminus match, identify candidate partners, where:
-    - Hit is on the same sequence.
-    - Hit is in correct relative orientation.
-    - Distance is <= *--maxdist*.
-    - Hit length is >= (model/query length * *--mincov* prop)
-  4. Rank candidate partners by distance downstream of positive-strand hits, and upstream of negative-strand hits.
-  5. Pair reciprocal top candidate hits.
-  6. For unpaired hits, find nearest unpaired candidate partner and check for reciprocity.
-  7. If the first unpaired candidate is non-reciprocal, check for 2nd-order reciprocity (is outbound top-candidate of current candidate reciprocal.)
-  8. Iterate steps 6-7 until all termini hits are paired OR number of iterations without new pairing exceeds *--stable-reps*.
+Note: `--report` writes `MY_TIR_OUTPUT/tirmite_pair_report.html`
 
 ### Ensemble search with `tirmite search` (optional pre-processing step)
 

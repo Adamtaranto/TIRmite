@@ -25,8 +25,8 @@ keywords:
   - transposons
   - bioinformatics
 license: GPL-3.0-or-later
-version: 1.5.0
-date-released: 2026-08-01
+version: 1.5.1
+date-released: 2026-08-06
 preferred-citation:
   type: software
   authors:

@@ -95,11 +95,13 @@ version-file = "src/tirmite/_version.py"
 # Coverage is not enabled by default: CI measures it on one Python version only,
 # and coverage tracing would skew the CodSpeed benchmark timings. For a local
 # report run: pytest --cov=tirmite --cov-report=term
-addopts = "-v --ignore=tests/benchmarks"
-# Only `tests` is collected by default, so `pytest` never runs the benchmarks.
-# Run them explicitly with:  pytest benchmarks/ --codspeed --no-cov
+addopts = "-v --ignore=benchmarks"
+# `tests` is the default root, and the --ignore above prunes tests/benchmarks
+# from the walk, so a bare `pytest` never collects a benchmark. Note that
+# --ignore only prunes recursion: naming the path on the command line still
+# collects it, which is how the CodSpeed job (and a local run) opts in.
 testpaths = ["tests"]
-# `bench_*.py` is listed so files under tests/benchmarks/ are collected when that
+# `bench_*.py` is listed so files under benchmarks/ are collected when that
 # directory is named explicitly. No such files exist under tests/.
 # The CodSpeed job narrows this to `bench_*.py` alone (-o python_files=...) so a
 # stray `tests/**/test_*.py` can never be picked up as a benchmark.

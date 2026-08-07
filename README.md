@@ -156,8 +156,8 @@ Software provided under GPL-3 license.
 
 <a href="https://www.star-history.com/?repos=Adamtaranto%2FTIRmite&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&theme=dark&legend=top-left&sealed_token=ZhBCA8u21A60-ZusDJQHA4CjpGDwz_KIuxpUpWxV3w5GwWlFBQAH0EhERpnCMSUzTT2pQEpa4lgEZSZpbfyZr8I-DWnVs78wCzi634DOqMAfgBu042EZ1QKYk0j7IzMqBHn54umijPW9fKN2V5Ypr-08eBYVoex-WMi89LQfT60_jnf2XY6gWKxj1p82" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&legend=top-left&sealed_token=ZhBCA8u21A60-ZusDJQHA4CjpGDwz_KIuxpUpWxV3w5GwWlFBQAH0EhERpnCMSUzTT2pQEpa4lgEZSZpbfyZr8I-DWnVs78wCzi634DOqMAfgBu042EZ1QKYk0j7IzMqBHn54umijPW9fKN2V5Ypr-08eBYVoex-WMi89LQfT60_jnf2XY6gWKxj1p82" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&legend=top-left&sealed_token=ZhBCA8u21A60-ZusDJQHA4CjpGDwz_KIuxpUpWxV3w5GwWlFBQAH0EhERpnCMSUzTT2pQEpa4lgEZSZpbfyZr8I-DWnVs78wCzi634DOqMAfgBu042EZ1QKYk0j7IzMqBHn54umijPW9fKN2V5Ypr-08eBYVoex-WMi89LQfT60_jnf2XY6gWKxj1p82" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&theme=dark&legend=top-left&sealed_token=AgKIg1I-jujfwocJ2QImXxgdy4jbNsaL9HL_xCA_RAW1EUtcTf3lMZ2JkRaB5h_sZqW2zjhQiZwjgR8xJ6tOAx_B0JRGkKpEmu6nSFL9FaFJwYHfsCNPJcVRvmmRXgUaqMhb8Yjyjcohb_17HVreVp7-M2VU82LfaxYwDQSla8ZLN29DvWbA-1TGbXIh" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&legend=top-left&sealed_token=AgKIg1I-jujfwocJ2QImXxgdy4jbNsaL9HL_xCA_RAW1EUtcTf3lMZ2JkRaB5h_sZqW2zjhQiZwjgR8xJ6tOAx_B0JRGkKpEmu6nSFL9FaFJwYHfsCNPJcVRvmmRXgUaqMhb8Yjyjcohb_17HVreVp7-M2VU82LfaxYwDQSla8ZLN29DvWbA-1TGbXIh" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Adamtaranto/TIRmite&type=date&legend=top-left&sealed_token=AgKIg1I-jujfwocJ2QImXxgdy4jbNsaL9HL_xCA_RAW1EUtcTf3lMZ2JkRaB5h_sZqW2zjhQiZwjgR8xJ6tOAx_B0JRGkKpEmu6nSFL9FaFJwYHfsCNPJcVRvmmRXgUaqMhb8Yjyjcohb_17HVreVp7-M2VU82LfaxYwDQSla8ZLN29DvWbA-1TGbXIh" />
  </picture>
 </a>

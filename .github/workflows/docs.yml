@@ -2,10 +2,10 @@ name: Deploy Zensical docs to GitHub Pages
 on:
   push:
     branches: [main]
+  pull_request:
     paths:
       - "docs/**"
       - "zensical.toml"
-  pull_request:
   workflow_dispatch:
 # Allow one concurrent deployment, cancelling superseded runs.
 concurrency:

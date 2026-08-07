@@ -4,6 +4,10 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths:
+      - "benchmarks/**"
+      - "src/tirmite/**"
+      - ".github/workflows/codspeed.yml"
   # Allow manual runs from the Actions tab
   workflow_dispatch:
 concurrency:
@@ -27,8 +31,18 @@ jobs:
         uses: CodSpeedHQ/action@v5
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
-          # addopts is cleared to drop the default --ignore=tests/benchmarks,
-          # which would otherwise deselect the path passed here. No coverage
-          # flags are involved: coverage is not part of the default addopts.
-          run: uv run pytest tests/benchmarks --codspeed -o addopts=""
+          # addopts is cleared so the benchmark run is insulated from whatever
+          # the project default happens to contain. It is not needed to defeat
+          # --ignore=benchmarks -- pytest applies --ignore only when
+          # walking a directory, so the explicit path here is collected either
+          # way. The point is forward cover: if a tracing flag such as --cov is
+          # ever added to addopts it would silently skew every timing here.
+          #
+          # python_files is narrowed to bench_*.py so collection is limited to
+          # the benchmark modules. Without it the project-wide pattern still
+          # includes test_*.py, and anything matching that under the benchmark
+          # tree -- now or later -- would be collected and reported to CodSpeed
+          # as a benchmark. The benchmark functions themselves are named test_*,
+          # so the default python_functions pattern still finds them.
+          run: uv run pytest benchmarks --codspeed -o addopts="" -o python_files="bench_*.py"
           mode: simulation

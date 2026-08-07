@@ -125,7 +125,7 @@ select = [
 ignore = [
     "C901", # max-complexity-10
     "E501", # line-too-long
-    #"I001", # isort-imports - Comment out to let ruff handle import sorting
+    "I001", # isort-imports - Comment out to let ruff handle import sorting
     "B905", # `zip()` without an explicit `strict=` parameter
 ]
 

@@ -7,6 +7,7 @@ on:
     paths:
       - "tests/benchmarks/**"
       - "src/tirmite/**"
+      - ".github/workflows/codspeed.yml"
   # Allow manual runs from the Actions tab
   workflow_dispatch:
 concurrency:

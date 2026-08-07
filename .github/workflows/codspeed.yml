@@ -33,5 +33,12 @@ jobs:
           # addopts is cleared to drop the default --ignore=tests/benchmarks,
           # which would otherwise deselect the path passed here. No coverage
           # flags are involved: coverage is not part of the default addopts.
-          run: uv run pytest tests/benchmarks --codspeed -o addopts=""
+          #
+          # python_files is narrowed to bench_*.py so collection is limited to
+          # the benchmark modules. Without it the project-wide pattern still
+          # includes test_*.py, and anything matching that under the benchmark
+          # tree -- now or later -- would be collected and reported to CodSpeed
+          # as a benchmark. The benchmark functions themselves are named test_*,
+          # so the default python_functions pattern still finds them.
+          run: uv run pytest tests/benchmarks --codspeed -o addopts="" -o python_files="bench_*.py"
           mode: simulation

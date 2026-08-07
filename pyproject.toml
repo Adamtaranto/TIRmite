@@ -101,6 +101,8 @@ addopts = "-v --ignore=tests/benchmarks"
 testpaths = ["tests"]
 # `bench_*.py` is listed so files under tests/benchmarks/ are collected when that
 # directory is named explicitly. No such files exist under tests/.
+# The CodSpeed job narrows this to `bench_*.py` alone (-o python_files=...) so a
+# stray `tests/**/test_*.py` can never be picked up as a benchmark.
 python_files = ["test_*.py", "bench_*.py"]
 markers = [
     "slow: tests that shell out to BLAST+ repeatedly; deselect with -m 'not slow'",
